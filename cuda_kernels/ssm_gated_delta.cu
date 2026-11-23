@@ -1032,8 +1032,7 @@ __global__ void fc_ssm_gdn_step_slots_warp(float *s, const float *q,
 
 /* ================================================================
  * 8-LANE LAYOUT of the two warp kernels above (fc_ssm_recurrence_seq_warp8,
- * fc_ssm_gdn_step_slots_warp8). Found by the K80 superoptimizer's layout
- * search (layout L8b2w4) and measured on one K80 die against the 32-lane
+ * fc_ssm_gdn_step_slots_warp8). Measured on one K80 die against the 32-lane
  * kernels: seq 1.28x at n = 1, 1.37-1.42x at n = 2, 1.59-1.65x at n = 4;
  * slots 1.26-1.30x at K = 1-4 (16 and 32 heads).
  *
