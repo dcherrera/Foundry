@@ -1,0 +1,219 @@
+# Foundry Swarm - Docker Stack for production Swarm deployment
+#
+# Prerequisites:
+#   1. Initialize swarm: docker swarm init
+#   2. Join other nodes: docker swarm join --token <token> <manager-ip>:2377
+#   3. Label nodes by capability:
+#      docker node update --label-add hw=server <server-node>
+#      docker node update --label-add hw=desktop <desktop-node>
+#      docker node update --label-add hw=laptop <laptop-node>
+#      docker node update --label-add hw=rpi <rpi-node>
+#
+# Deployment:
+#   docker stack deploy -c docker-stack.yml foundry
+#
+# Scaling:
+#   docker service scale foundry_worker-desktop=5
+#   docker service scale foundry_worker-rpi=10
+#
+# Monitoring:
+#   docker service logs -f foundry_coordinator
+#   docker service ps foundry_worker-rpi
+
+version: "3.8"
+
+services:
+  # ============================================================
+  # COORDINATOR - Runs on the most powerful server
+  # ============================================================
+  coordinator:
+    image: foundry/swarm-coordinator:latest
+    ports:
+      - target: 7100
+        published: 7100
+        protocol: tcp
+        mode: host  # Host mode for better performance
+    volumes:
+      - checkpoints:/app/checkpoints
+      - logs:/app/logs
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+    environment:
+      - SW_PORT=7100
+      - SW_MIN_WORKERS=10
+      - SW_LEARNING_RATE=1e-4
+      - SW_TOTAL_STEPS=500000
+      - SW_CHECKPOINT_EVERY=5000
+      - SW_HEARTBEAT_TIMEOUT=120    # Longer timeout for WiFi latency
+      - SW_SYNC_EVERY_N_GRADS=5     # Don't wait for all workers
+    networks:
+      - swarm-overlay
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.hw == server
+      resources:
+        limits:
+          cpus: "8"
+          memory: 32G
+        reservations:
+          cpus: "2"
+          memory: 8G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # ============================================================
+  # WORKERS - Different configs per hardware class
+  # ============================================================
+
+  # Server workers - highest throughput
+  worker-server:
+    image: foundry/swarm-worker:latest
+    volumes:
+      - training-data:/app/data:ro
+      - logs:/app/logs
+    environment:
+      - SW_COORDINATOR_HOST=coordinator
+      - SW_COORDINATOR_PORT=7100
+      - SW_DATA_PATH=/app/data
+      - SW_BATCH_SIZE=256
+      - SW_NUM_THREADS=0
+      - SW_COMPRESSION=topk
+      - SW_TOPK_RATIO=0.1
+    networks:
+      - swarm-overlay
+    deploy:
+      mode: replicated
+      replicas: 2
+      placement:
+        constraints:
+          - node.labels.hw == server
+      resources:
+        limits:
+          cpus: "16"
+          memory: 64G
+        reservations:
+          cpus: "4"
+          memory: 8G
+      restart_policy:
+        condition: on-failure
+
+  # Desktop workers - medium throughput
+  worker-desktop:
+    image: foundry/swarm-worker:latest
+    volumes:
+      - training-data:/app/data:ro
+      - logs:/app/logs
+    environment:
+      - SW_COORDINATOR_HOST=coordinator
+      - SW_COORDINATOR_PORT=7100
+      - SW_DATA_PATH=/app/data
+      - SW_BATCH_SIZE=64
+      - SW_NUM_THREADS=0
+      - SW_COMPRESSION=topk
+      - SW_TOPK_RATIO=0.1
+    networks:
+      - swarm-overlay
+    deploy:
+      mode: replicated
+      replicas: 10
+      placement:
+        constraints:
+          - node.labels.hw == desktop
+      resources:
+        limits:
+          cpus: "4"
+          memory: 16G
+        reservations:
+          cpus: "1"
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+
+  # Laptop workers - lower throughput, battery-aware
+  worker-laptop:
+    image: foundry/swarm-worker:latest
+    volumes:
+      - training-data:/app/data:ro
+      - logs:/app/logs
+    environment:
+      - SW_COORDINATOR_HOST=coordinator
+      - SW_COORDINATOR_PORT=7100
+      - SW_DATA_PATH=/app/data
+      - SW_BATCH_SIZE=32
+      - SW_NUM_THREADS=2            # Limit threads for battery
+      - SW_COMPRESSION=topk
+      - SW_TOPK_RATIO=0.1
+    networks:
+      - swarm-overlay
+    deploy:
+      mode: replicated
+      replicas: 5
+      placement:
+        constraints:
+          - node.labels.hw == laptop
+      resources:
+        limits:
+          cpus: "2"
+          memory: 8G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+
+  # Raspberry Pi workers - low throughput, many nodes
+  worker-rpi:
+    image: foundry/swarm-worker:arm64
+    volumes:
+      - training-data:/app/data:ro
+      - logs:/app/logs
+    environment:
+      - SW_COORDINATOR_HOST=coordinator
+      - SW_COORDINATOR_PORT=7100
+      - SW_DATA_PATH=/app/data
+      - SW_BATCH_SIZE=8
+      - SW_NUM_THREADS=4
+      - SW_COMPRESSION=topk
+      - SW_TOPK_RATIO=0.05          # More aggressive compression
+    networks:
+      - swarm-overlay
+    deploy:
+      mode: replicated
+      replicas: 20
+      placement:
+        constraints:
+          - node.labels.hw == rpi
+      resources:
+        limits:
+          cpus: "4"
+          memory: 3G
+        reservations:
+          cpus: "1"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+networks:
+  swarm-overlay:
+    driver: overlay
+    attachable: true
+
+volumes:
+  checkpoints:
+    driver: local
+  logs:
+    driver: local
+  training-data:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER},rw,nolock
+      device: ":${NFS_PATH}"

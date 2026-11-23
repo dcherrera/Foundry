@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — THE TRANSPORT SEAM's off-device suite.
+#
+#   make -f Makefile.runtimeseam check    # build and run
+#   make -f Makefile.runtimeseam red      # clean first, then the above
+#   make -f Makefile.runtimeseam gates    # the mutation battery
+#   make -f Makefile.runtimeseam arctelemetry-red  # telemetry walk test must go red
+#
+# NO DEVICE. Nothing here opens a card, and the build does NOT define
+# FT_TT_PHASE1B_NOC_ENABLED, so the NoC fence is closed and every device call in
+# the linked backend returns FT_TT_EPERM before issuing a transaction.
+#
+# WHOLE-PROGRAM LINKS, NO OBJECT FILES. Apple ships GNU make 3.81, whose
+# one-second mtime granularity silently skips a rebuild of a source edited in the
+# same second as its object — so a mutation loop over incremental objects can be
+# running the PREVIOUS binary (coding-best-practices.md §9). There are no .o
+# files to go stale here, and every build deletes its target first.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-runtimeseam
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+# ft_tt_runtime.c is the file under test and it references the launch, NoC, TLB
+# and coordinate layers; ft_tt_runtime_udrv.c comes with it because the runtime
+# now dispatches to it. Neither is REACHED here — no card is opened — but both
+# must LINK, which is itself a gate: the seam that only compiles on the machine
+# with the card is the seam nobody finds broken until the card has moved.
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c \
+           $(SRC_DIR)/ft_tt_udrv_tlb_encode.c \
+           $(SRC_DIR)/ft_tt_udrv_noc.c \
+           $(SRC_DIR)/ft_tt_udrv_noc_bank.c \
+           $(SRC_DIR)/ft_tt_udrv_arc_msg.c \
+           $(SRC_DIR)/ft_tt_udrv_arc_probe.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_runtime.c \
+           $(SRC_DIR)/ft_tt_runtime_udrv.c \
+           $(SRC_DIR)/ft_tt_udrv_reset.c \
+           ft_tt_test_report.c
+
+TARGET := $(BUILD)/test_runtime_seam
+WALK_TARGET := $(BUILD)/test_arc_telemetry_walk
+
+.PHONY: all check red gates arctelemetry-red clean
+
+all: $(TARGET) $(WALK_TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(TARGET): test_runtime_seam.c $(BACKEND) | $(BUILD)
+	rm -f $@
+	$(CC) $(CFLAGS) test_runtime_seam.c $(BACKEND) -o $@
+
+$(WALK_TARGET): test_arc_telemetry_walk.c $(BACKEND) | $(BUILD)
+	rm -f $@
+	$(CC) $(CFLAGS) test_arc_telemetry_walk.c $(BACKEND) -o $@
+
+check: $(TARGET) $(WALK_TARGET)
+	./$(TARGET) && ./$(WALK_TARGET)
+
+# Mutation: rebuild the walk test against a copy of the reader whose entry decode swaps
+# the tag and offset halves. The test MUST fail; this target fails if it passes.
+RED_DIR := $(BUILD)/arctelemetry-red
+arctelemetry-red: | $(BUILD)
+	rm -rf $(RED_DIR) && mkdir -p $(RED_DIR)
+	sed -e 's/uint16_t tag = (uint16_t)(entry & 0xFFFFu);/uint16_t tag = (uint16_t)(entry >> 16);/' \
+	    -e 's/uint32_t word_offset = entry >> 16;/uint32_t word_offset = entry \& 0xFFFFu;/' \
+	    $(SRC_DIR)/ft_tt_arc_telemetry.c > $(RED_DIR)/ft_tt_arc_telemetry.c
+	! cmp -s $(SRC_DIR)/ft_tt_arc_telemetry.c $(RED_DIR)/ft_tt_arc_telemetry.c
+	$(CC) $(CFLAGS) test_arc_telemetry_walk.c \
+	    $(filter-out $(SRC_DIR)/ft_tt_arc_telemetry.c,$(BACKEND)) \
+	    $(RED_DIR)/ft_tt_arc_telemetry.c -o $(RED_DIR)/test_arc_telemetry_walk
+	! ./$(RED_DIR)/test_arc_telemetry_walk
+
+# The battery: each mutation damages ONE property of the code under test in a
+# SCRATCH COPY of the tree, rebuilds from scratch and requires the suite to go
+# red. A gate never seen failing is not evidence.
+gates:
+	bash run_runtime_seam_gates.sh
+
+red: clean check
+
+clean:
+	rm -rf $(BUILD)

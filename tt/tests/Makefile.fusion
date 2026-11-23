@@ -1,0 +1,107 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 6 item 8, the OP FUSION MEASUREMENT.
+#
+#   make -f Makefile.fusion PHASE1B=1 card   -> build-fusion-card/test_phase6_fusion
+#
+# PHASE1B=1 is mandatory and deliberate: without it every device call returns FT_TT_EPERM
+# before touching the NoC, which is the fence that makes a wrong build harmless (spec §7.3
+# — a wrong NoC coordinate hangs the chip and costs a physical power cycle).
+#
+# There is no off-hardware half. This suite measures wall clock on silicon; a version of it
+# that could not reach the card would measure the host, and reporting that as a fusion
+# number is the failure this whole round exists to avoid.
+#
+# It BUILDS NOTHING on the card and MUTATES NO KERNEL. It drives three already-green
+# resident programs — the elementwise triad, the reduce triad and the resident matmul triad
+# — and changes only the operand ADDRESSES in their descriptors, which is what makes
+# "keep the intermediate in L1 instead of DRAM" measurable before anyone writes a fused
+# kernel to exploit it.
+#
+# All three program directories must come from ONE firmware build: a kernel is linked
+# against its own firmware's exported symbols, so mixing directories is a wedged core, not
+# a configuration.
+#
+# Run (detached, and never with these cores in use by another worker):
+#   FT_TT_FIRMWARE_DIR=../programs/eltwise FT_TT_TENSIX_INDEX=100 \
+#     FT_TT_FUSION_SCRATCH_INDEX=119 FT_TT_FUSION_ROUNDS=5 \
+#     ./build-fusion-card/test_phase6_fusion ../programs/eltwise ../programs/reduce \
+#         ../programs/rtriad
+#
+# FT_TT_TENSIX_INDEX moves the whole run to a different core without a rebuild — a result
+# believed on one core is a configuration, not a result (dev notes §3).
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+CARD_BUILD := build-fusion-card
+
+WARNINGS := -Wall -Wextra -Werror -pedantic \
+            -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+            -fstack-protector-strong
+
+CFLAGS  := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR)
+LDLIBS  := -lm
+
+ifndef PHASE1B
+$(error the fusion measurement drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — not a build error,
+# a wrong offset (dev notes §3).
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c \
+           $(SRC_DIR)/ft_tt_op_vector.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+CONVERT_SRC := $(CONVERT)/ft_float_convert.c
+SUPPORT := ft_tt_test_report.c
+CARD_SUPPORT := $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+CARD_TARGET := $(CARD_BUILD)/test_phase6_fusion
+
+.PHONY: card red clean
+
+card: $(CARD_TARGET)
+
+$(CARD_BUILD):
+	mkdir -p $@
+
+# A whole-program link, not incremental objects, and `red` deletes the tree first — GNU
+# make 3.81 compares mtimes at one-second granularity and will silently skip a rebuild of a
+# source edited in the same second as its object (best-practices §9).
+$(CARD_TARGET): test_phase6_fusion.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+                | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+	    $(LDLIBS)
+
+red: clean card
+
+clean:
+	rm -rf $(CARD_BUILD)
+
+-include $(wildcard $(CARD_BUILD)/*.d)

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_float16b_lofi_fp32acc.cbtable
+#   Fourth cell of the 2x2 (fidelity x DST accumulator width) design used to explain the
+#   docs/tt_bringup_log.md §16.3 inversion. See matmul_float16b_lofi.cbtable and
+#   matmul_float16b_fp32acc.cbtable for the other two off-diagonal cells; the shipped
+#   matmul_float16b.cbtable (HiFi4, dst_accum_mode 0) is the fourth.
+#
+#   If DST accumulator width is the dominant error term and fidelity is secondary, this
+#   cell should land close to matmul_float16b_fp32acc.cbtable's accuracy on the long-K
+#   shapes (both 32-bit-accumulator arms converge, regardless of fidelity) rather than
+#   close to matmul_float16b_lofi.cbtable's (which would mean fidelity, not accumulator
+#   width, still dominates even with the accumulator widened).
+#
+#   NEVER pointed to by build_tensix_program.sh in Makefile.ops or any shipped program
+#   directory. It exists only for foundry/tt/tests/test_fidelity_sweep.c.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  0
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

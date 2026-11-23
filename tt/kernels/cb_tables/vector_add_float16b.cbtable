@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# vector_add_float16b.cbtable
+#   The three circular buffers vector_add uses, written out as a real CB table instead
+#   of inherited from build_tensix_kernel.sh's legacy uniform default. Same shape as
+#   that default -- 32x32 Float16_b, 4 faces, 2048 B a tile -- so a build driven by this
+#   file must produce the same descriptors, and the same kernel, as one driven by no
+#   file at all. That equality is the control for the Float32 table beside it.
+#
+#   CB indices match vector_add's compile-time args: 0 and 1 in, 16 out.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 0
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

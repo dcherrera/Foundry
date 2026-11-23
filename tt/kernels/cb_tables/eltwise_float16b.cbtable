@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# eltwise_float16b.cbtable
+#   The CB contract for the resident ELEMENTWISE triad: SiLU, sigmoid, add, mul, sub and
+#   the SiLU-gated multiply, all in one binary (resident_eltwise_compute.c).
+#
+#     cb  0  Float16_b  2048 B   input A
+#     cb  1  Float16_b  2048 B   input B, read only by a binary function
+#     cb  2  Float16_b  2048 B   scratch: silu(a) staging for the gated multiply
+#     cb 16  Float16_b  2048 B   output
+#
+#   The reader and writer must be built with tile_bytes=2048 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- fp32 destination accumulation, ON, and it is a DEFAULT now
+# ---------------------------------------------------------------------------
+# docs/tt_bringup_log.md 19: DST_ACCUM_MODE=1 bought 13-35x accuracy on the matmul for
+# ZERO wall clock (ffn_down max-abs 2.187 -> 0.0626, PCC 0.998878 -> 0.999999, 473.3 ->
+# 473.4 GFLOP/s), because these ops are data-movement bound and the accumulator is free
+# for exactly the reason MATH_FIDELITY is. Every op written from here on turns it on
+# unless it has a measured reason not to, and this one does not.
+#
+# The cost it can have is DST CAPACITY: a Float32 destination fits half as many tiles per
+# DstSync half. This kernel holds exactly ONE tile in DST at a time -- dst_register is
+# always 0 and every function commits before the next tile is acquired -- so the halving
+# cannot bind. An op that batches several tiles into DST (upstream's `ndst` pattern) has to
+# check this again; it is a real constraint that simply does not reach here.
+#
+# For an elementwise op the accumulator matters less than it does for a long-K matmul --
+# there is no K loop re-quantising a running sum -- but it is not nothing: the SFPU reads
+# and writes DST, so silu and sigmoid keep fp32 through the activation instead of rounding
+# to bf16 between the copy, the SFPU pass and the pack.
+#
+# ---------------------------------------------------------------------------
+# math_fidelity 4 -- CHOSEN, and it is the same choice for the same reason
+# ---------------------------------------------------------------------------
+# HiFi4 is the only level with an a-priori accuracy guarantee, and on this hardware it
+# costs nothing because the op is data-movement bound: swept across the whole matmul suite,
+# wall time moved 0.6% (docs/tt_bringup_log.md 16.3). MEASURED there, INFERRED here -- an
+# elementwise op does even less math per byte moved than a matmul does, so if fidelity is
+# free for the matmul it is free for this. Re-check if a reader ever gets under ~20 ns a
+# tile.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

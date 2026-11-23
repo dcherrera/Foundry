@@ -1,0 +1,63 @@
+cc -Wall -Wextra -std=c11 -O3 -march=native -ffast-math -I. -o potluck/tests/test_pl_data potluck/tests/test_pl_data.c potluck/pl_data.c data/data.c rwkvx/rwkvx.c tensor/tensor.c safetensors/safetensors.c hybridmem/hybridmem.c hdc/hdc.c  -lm  
+rwkvx/rwkvx.c:963:9: warning: unused variable 'C' [-Wunused-variable]
+  963 |     int C = n_head * head_size;
+      |         ^
+1 warning generated.
+tensor/tensor.c:5836:50: warning: use of infinity via a macro is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+ 5836 |                         scores[i * seq_k + j] = -INFINITY;
+      |                                                  ^
+tensor/tensor.c:6170:34: warning: use of infinity via a macro is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+ 6170 |                 float max_val = -INFINITY;
+      |                                  ^
+tensor/tensor.c:6262:38: warning: use of infinity via a macro is undefined behavior due to the currently enabled floating-point options [-Wnan-infinity-disabled]
+ 6262 |                     float max_val = -INFINITY;
+      |                                      ^
+tensor/tensor.c:7267:36: warning: implicit conversion from 'int' to 'float' changes value from 2147483647 to 2147483648 [-Wimplicit-const-int-float-conversion]
+ 7267 |             v[j] = (float)rand() / RAND_MAX - 0.5f;
+      |                                  ~ ^~~~~~~~
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdlib.h:124:18: note: expanded from macro 'RAND_MAX'
+  124 | #define RAND_MAX        0x7fffffff
+      |                         ^~~~~~~~~~
+4 warnings generated.
+./potluck/tests/test_pl_data
+pl_data: line 1: unknown format (no messages/instruction/text)
+pl_data: line 1: unknown role "tool"
+pl_data: line 1: missing field "output"
+
+  pl_data tests
+
+    trained = " there.
+
+"
+  [93md1_chat_single_turn                               [0m[31m[FAIL][0m
+    potluck/tests/test_pl_data.c:100 - Expected 1 == 0
+    trained = "1
+
+User2
+
+"
+  [93md2_chat_two_turns                                 [0m[31m[FAIL][0m
+    potluck/tests/test_pl_data.c:108 - Expected 1 == 0
+    trained = " "b"
+c
+
+"
+  [93md3_chat_escapes                                   [0m[31m[FAIL][0m
+    potluck/tests/test_pl_data.c:114 - Expected 1 == 0
+    trained = "
+
+"
+  [93md4_alpaca                                         [0m[31m[FAIL][0m
+    potluck/tests/test_pl_data.c:119 - Expected 1 == 0
+  [93md5_text_shift_and_truncate                        [0m[92m[PASS][0m
+  [93md6_fmt_parse                                      [0m[92m[PASS][0m
+  [93md6_errors_and_skips                               [0m[92m[PASS][0m
+  [93md6_auto_matches_chat                              [0m[92m[PASS][0m
+
+[31m  SOME TESTS FAILED[0m
+
+  8 total   [92m4 passed[0m   [31m4 failed[0m
+
+  60 checks
+
+make[2]: *** [test-potluck-data] Error 1

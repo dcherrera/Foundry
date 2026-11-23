@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the persistent norm role (P0), off hardware.
+#
+#   make -f Makefile.norm_role run
+#
+# NO CARD. Wire contract, exchange targets, CB placement, a host model of the exchange,
+# teardown, the compute verbs against the shipped reduce / eltwise SOURCES (FT_TT_KERNEL_DIR,
+# default ../kernels — run from tt/tests), the CB tables and a numerics model.
+#
+# RED builds, each must FAIL (built in their own directory, whole-program link):
+#   make -f Makefile.norm_role RED=ignore_exit run     the exchange wait ignores the exit word
+#   make -f Makefile.norm_role RED=order run           one slice summed out of order
+#   make -f Makefile.norm_role RED=no_dependency run   the next step skips group completion
+#   make -f Makefile.norm_role RED=shared_stage run    every member stages its flag in one word
+#   make -f Makefile.norm_role RED=per_tile_barrier run  the P0 writer: a barrier per exchange tile
+#   make -f Makefile.norm_role RED=no_stagger run      the stagger bit ignored (all start at target 0)
+#   make -f Makefile.norm_role RED=face0_only run      faces mode sends face 0 alone
+
+CC      ?= cc
+SRC_DIR := ..
+RED     ?=
+BUILD   := ../build/test-norm-role$(if $(RED),-red-$(RED),)
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+ifeq ($(RED),ignore_exit)
+CFLAGS  += -DFTNR_HOST_RED_IGNORE_EXIT
+endif
+ifeq ($(RED),shared_stage)
+CFLAGS  += -DFTNR_HOST_RED_SHARED_STAGE
+endif
+ifeq ($(RED),per_tile_barrier)
+CFLAGS  += -DNORM_ROLE_TEST_RED_PER_TILE_BARRIER
+endif
+ifeq ($(RED),no_stagger)
+CFLAGS  += -DFTNR_HOST_RED_NO_STAGGER
+endif
+ifeq ($(RED),face0_only)
+CFLAGS  += -DFTNR_HOST_RED_FACE0_ONLY
+endif
+ifeq ($(RED),order)
+CFLAGS  += -DNORM_ROLE_TEST_RED_ORDER
+endif
+ifeq ($(RED),no_dependency)
+CFLAGS  += -DNORM_ROLE_TEST_RED_NO_DEPENDENCY
+endif
+LDLIBS  := -lm
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_op_norm_role.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+SUPPORT := ft_tt_test_report.c
+TARGET  := $(BUILD)/test_norm_role
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program link: Apple's make 3.81 cannot be trusted with same-second edits (§9).
+$(TARGET): test_norm_role.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_norm_role.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

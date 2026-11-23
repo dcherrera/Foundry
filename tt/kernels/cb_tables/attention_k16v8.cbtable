@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# attention_k16v8.cbtable
+#   attention_bfp4_b.cbtable with SEPARATE K and V cache formats: cb_k is Float16_b, cb_v is Bfp8_b
+#   (each read straight off its own cache; the KV append packs K and V to their own tile,
+#   ft_tt_op_memory.h §1.6); every other buffer stays Float16_b. Build with
+#   KERNEL_DEFINES="-DATTN_K_TILE_BYTES=2048 -DATTN_V_TILE_BYTES=1088": the reader then fetches
+#   2048-byte K and 1088-byte V tiles and the compute kernel points unpacker A at each matmul's
+#   own in1 format (QK^T reads cb_k, PV reads cb_v).
+#   Must match the L1 CB config ft_tt_op_attention_place_cbs_mixed_kv() writes at launch.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+# in                                          index  format     tile geometry
+cb  0  Float16_b 32 32 16 4   # cb_q        the packed query, as the reader built it
+cb  1  Float16_b 32 32 16 4   # cb_k        one K block
+cb  2  Bfp8_b    32 32 16 4   # cb_v        one V block
+cb  3  Float16_b 32 32 16 4   # cb_const    scaler, 1/sqrt(d), tail mask, dead mask
+cb 14  Float16_b 32 32 16 4   # cb_qs       the scaled query
+
+# intermediates
+cb  4  Float16_b 32 32 16 4   # cb_s        scores, then the exponentials in place
+cb  5  Float16_b 32 32 16 4   # cb_scratch  the mask bounce
+cb  6  Float16_b 32 32 16 4   # cb_m_a      running max, ping
+cb  7  Float16_b 32 32 16 4   # cb_m_b      running max, pong
+cb  8  Float16_b 32 32 16 4   # cb_l        running row sum
+cb  9  Float16_b 32 32 16 4   # cb_lsum     this block's row sum
+cb 10  Float16_b 32 32 16 4   # cb_c        exp(m_old - m_new), then 1/l
+cb 11  Float16_b 32 32 16 4   # cb_o        the output accumulator
+cb 12  Float16_b 32 32 16 4   # cb_pv       this block's P.V
+
+# out
+cb 16  Float16_b 32 32 16 4   # cb_out

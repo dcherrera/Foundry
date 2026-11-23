@@ -1,0 +1,63 @@
+# Foundry Swarm Coordinator
+# Central training server that aggregates gradients and broadcasts weights
+
+FROM debian:bookworm-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Foundry source
+WORKDIR /foundry
+COPY . .
+
+# Build Foundry with swarm module
+RUN make clean && make all
+
+# Build coordinator binary
+RUN gcc -O3 -march=native -pthread \
+    -I. \
+    -o bin/swarm_coordinator \
+    swarm/coordinator.c \
+    swarm/protocol.c \
+    swarm/network.c \
+    tensor/tensor.c \
+    optim/optim.c \
+    -lm
+
+# Runtime image
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    libpthread-stubs0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy binaries and config
+COPY --from=builder /foundry/bin/swarm_coordinator /app/
+COPY --from=builder /foundry/swarm/docker/config/ /app/config/
+
+# Create directories
+RUN mkdir -p /app/checkpoints /app/logs
+
+# Environment
+ENV SW_PORT=7100
+ENV SW_CHECKPOINT_DIR=/app/checkpoints
+ENV SW_LOG_DIR=/app/logs
+ENV SW_MIN_WORKERS=2
+ENV SW_LEARNING_RATE=1e-4
+ENV SW_TOTAL_STEPS=100000
+
+# Expose coordinator port
+EXPOSE 7100
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD netstat -an | grep -q ":7100.*LISTEN" || exit 1
+
+# Default command
+CMD ["/app/swarm_coordinator", "--config", "/app/config/coordinator.toml"]

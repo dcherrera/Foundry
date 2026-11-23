@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# vector_add_float32.cbtable
+#   A DIFFERENT tile format and a DIFFERENT page size from everything Foundry had run on
+#   the card up to 2026-08-12: 32x32 Float32, so a tile is 4096 bytes rather than 2048.
+#   This is the table that shows the descriptor generator is really driven by the CB
+#   configuration -- the same kernel source built against the legacy uniform Float16_b
+#   descriptors unpacks these bytes as bfloat16 and returns garbage
+#   (tests/test_phase2_cb_formats.c runs both and compares).
+#
+#   What the generator derives from `Float32` and does NOT read from this file: the
+#   source registers cannot hold Float32 without fp32 destination accumulation, so
+#   unpack_dst and pack_src become Float16_b while unpack_src and pack_dst stay Float32.
+#   That is the hardware's format-derivation rule, not ours (measured).
+#
+#   Consequence for a test: values pass through bfloat16 inside the core, so only inputs
+#   whose sums are exactly representable there stay byte-exact. Small integers are.
+#
+#   The reader and writer must be built with a matching 4096-byte tile compile-time arg;
+#   data-movement kernels have no descriptor header to tell them.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 0
+
+cb  0  Float32 32 32 16 4
+cb  1  Float32 32 32 16 4
+cb 16  Float32 32 32 16 4

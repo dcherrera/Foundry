@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — S2 on-card completion, the wait sidecar off hardware.
+#
+#   make -f Makefile.precondition run    build and run; no card
+#   make -f Makefile.precondition red    the compare accepts one count early: MUST fail
+#
+# NO CARD. It runs the KERNEL'S OWN parse / compare (kernels/resident_precondition_protocol.h,
+# the inline every resident reader compiles) against the host queue's token arithmetic
+# (ft_tt_queue.c) and the queue-block layout. Both targets rebuild from scratch: Apple's GNU
+# make 3.81 has one-second mtimes, and a red loop on incremental make can run the previous
+# binary (coding-best-practices.md §9).
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-precondition
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c \
+           ft_tt_test_report.c \
+           test_precondition_protocol.c
+
+.PHONY: run red clean
+
+run:
+	rm -rf $(BUILD) && mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(SOURCES) -o $(BUILD)/test_precondition_protocol
+	./$(BUILD)/test_precondition_protocol
+
+red:
+	rm -rf $(BUILD) && mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -DFTQ_PRE_HOST_RED_OFF_BY_ONE $(SOURCES) -o $(BUILD)/test_precondition_red
+	! ./$(BUILD)/test_precondition_red
+
+clean:
+	rm -rf $(BUILD)

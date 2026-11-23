@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# reduce_float16b.cbtable
+#   The CB contract for the resident REDUCE triad (resident_reduce_compute.c) — ONE
+#   binary answering softmax, RMS norm, layer norm and the MoE router normalise.
+#
+#     cb  0  Float16_b  2048 B   activations, Wt pages -- a whole row block resident
+#     cb  1  Float16_b  2048 B   the reduce scaler: 1.0, or 1/W for a mean
+#     cb  2  Float16_b  2048 B   the FIRST pass's column (row max / mean / scale)
+#     cb  3  Float16_b  2048 B   the SECOND pass's column
+#     cb  4  Float16_b  2048 B   the intermediate stream (exp / x^2 / (x-mean)^2), Wt pages
+#     cb  5  Float16_b  2048 B   eps * W / 32, one tile
+#     cb  6  Float16_b  2048 B   gamma, Wt pages when the chain multiplies by it
+#     cb  7  Float16_b  2048 B   beta,  Wt pages when the chain adds it
+#     cb  8  Float16_b  2048 B   final-chain scratch A, one page
+#     cb  9  Float16_b  2048 B   final-chain scratch B, one page
+#     cb 16  Float16_b  2048 B   output
+#
+#   The reader and writer must be built with tile_bytes=2048 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you.
+#
+#   A CB IS DECLARED HERE EVEN WHEN THE RESIDENT SHAPE GIVES IT ONE PAGE. gamma and beta
+#   are only Wt pages deep for a residency that norms; a softmax-only residency places them
+#   at one page so a stray descriptor asking for them blocks in cb_reserve_back and is
+#   retired by its bound, instead of writing to a circular buffer the host never configured
+#   — which would be a NoC write to an address nobody chose (spec 7.3).
+#
+#   EVERY CB IS THE SAME FORMAT ON PURPOSE, and it is load-bearing rather than incidental.
+#   reduce.h's REDUCE_ROW SUM path swaps the operands onto SrcA/SrcB and asks the caller for
+#   a reconfig_data_format(scaler, data) before reduce_init; that call exists to fix a
+#   format MISMATCH between the two operands, so with one format across the contract there
+#   is nothing for it to fix. rms_norm_compute.c omits it on the same grounds and scores
+#   0.999979 on silicon. A future member that consumes block-float scores has to put that
+#   call back, and the comment in resident_reduce_compute.c says where.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- fp32 destination accumulation, ON, and here it earns its keep
+# ---------------------------------------------------------------------------
+# docs/tt_bringup_log.md 19 measured 13-35x accuracy for zero wall clock on the matmul, and
+# the mechanism was that a 16-bit DST re-quantises a RUNNING SUM once per accumulation
+# step. EVERY member of this family is exactly that shape: reduce_tile accumulates the row
+# into DST across all Wt tiles, so at Wt = 128 the sum is re-rounded 128 times with the
+# accumulator at 16 bits. This is not a transplanted result, it is the same failure mode in
+# a second op — and it is the reason to check it for every reduce that gets written here.
+#
+# DST capacity: one tile at a time, dst_register always 0, so the halved Float32 capacity
+# cannot bind.
+#
+# ---------------------------------------------------------------------------
+# math_fidelity 4 -- CHOSEN, same reason as everywhere else here
+# ---------------------------------------------------------------------------
+# Only level with an a-priori accuracy guarantee, and free on a data-movement-bound op
+# (docs/tt_bringup_log.md 16.3, MEASURED on the matmul; INFERRED for this op).
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb  3  Float16_b 32 32 16 4
+cb  4  Float16_b 32 32 16 4
+cb  5  Float16_b 32 32 16 4
+cb  6  Float16_b 32 32 16 4
+cb  7  Float16_b 32 32 16 4
+cb  8  Float16_b 32 32 16 4
+cb  9  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

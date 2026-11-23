@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# render_widen.cbtable
+#   THE bf16 -> fp32 HALF OF THE ACTIVATION STRIP BRIDGE. The SAME THREE KERNEL SOURCES as
+#   `eltwise` (resident_eltwise_reader.c / resident_eltwise_compute.c /
+#   resident_vector_writer.c), placed with a bf16 INPUT and an fp32 OUTPUT:
+#
+#     cb  0  Float16_b  2048 B   input A -- a bf16 activation strip, row 0
+#     cb  1  Float16_b  2048 B   input B -- a strip of ZEROS, so kVecFnAdd is a copy
+#     cb  2  Float16_b  2048 B   scratch, only kVecFnSiluMul uses it; sized to match A
+#     cb 16  Float32    4096 B   output -- the same values as fp32 tiles
+#
+#   READER_CTARGS carries 2048 and WRITER_CTARGS carries 4096. Those are two INDEPENDENT
+#   compile-time args on two different processors (build_tensix_program.sh dispatches three
+#   separate CTARGS lists), and this is the first program in the tree where they DISAGREE with
+#   each other on purpose. Each still agrees with its own circular buffer, which is the actual
+#   contract; nothing on the card checks either.
+#
+# ---------------------------------------------------------------------------
+# WHY A PROGRAM AND NOT A MIXED gdn_float32.cbtable
+# ---------------------------------------------------------------------------
+# The obvious move -- make the GDN op's CB_IN Float16_b and read `ssm_qkv` in place -- is the
+# one thing this hardware will not do. `emit_tensix_cb_formats.py`'s
+# `conditional_destination_format()` is a WHOLE-PROGRAM decision: Float32 CBs unpack into Tf32
+# source registers only when `dst_accum_mode` is on AND **every** CB of the program is
+# Float32. One bf16 CB anywhere in the table demotes the recurrent state and the conv weights
+# to Float16_b in SrcA, which is the one thing the GDN family exists to avoid -- it carries
+# state across tokens and the CPU oracle accumulates in fp64 for that reason. So the format
+# change has to happen in a DIFFERENT program, and this is it.
+#
+# In THIS program the same demotion is free: the input really is bf16, so unpacking it into a
+# bf16 source register loses nothing, and the pack from an fp32 DST to a Float32 CB is exact.
+#
+# ---------------------------------------------------------------------------
+# THE FUNCTION IS kVecFnAdd AGAINST A ZERO STRIP, AND THAT IS WHY THIS NEEDS NO KERNEL CHANGE
+# ---------------------------------------------------------------------------
+# There is no identity in `ft_tt_op_vector_function` and adding one would change
+# `resident_eltwise_compute.c`, which would make every eltwise-family program stale by content
+# provenance and cost a re-validation of the shipped `eltwise` binary. `x + 0` is exact in
+# every format on this list, and a zero operand costs nothing to produce: every strip
+# allocator in Pantheon already stages its allocation zeroed, so the B buffer is allocated and
+# never written. The cost is one extra DRAM read stream, which this op is nowhere near bound
+# by.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- required, for the OUTPUT side
+# ---------------------------------------------------------------------------
+# `derive_format_roles()` gives a Float32 CB `pack_src = Float32` only when fp32 destination
+# accumulation is on; with it off the packer's source would be the conditional format
+# (Float16_b) and the fp32 output would be a bf16 value stored in four bytes -- a render that
+# renders nothing, with nothing refusing. The all-bf16 `eltwise` table ships `dst_accum_mode 1`
+# already, so this is the same setting and not a new risk.
+#
+# math_fidelity 4: HiFi4, same as every other table here. An add against zero is exact at any
+# level; the setting is kept uniform so a fidelity difference is never a candidate when this
+# program is compared against `eltwise`.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb 16  Float32   32 32 16 4

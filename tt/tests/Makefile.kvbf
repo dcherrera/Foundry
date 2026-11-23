@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+#
+# Makefile.kvbf -- off-hardware gate for the block-float KV cache (kernels/ft_kv_block_float.h
+# vs convert/ft_bfp.c, and the KV append encoding on a block-float cache).
+#
+#   make -f Makefile.kvbf          -> build-kvbf/test_kv_block_float
+#   make -f Makefile.kvbf red      -> clean rebuild (make 3.81 skips same-second edits)
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-kvbf
+
+WARNINGS := -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wstrict-prototypes \
+            -Wformat=2
+CFLAGS   := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR) -I$(SRC_DIR)/kernels
+LDLIBS   := -lm
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c $(SRC_DIR)/ft_tt_arch.c $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c $(SRC_DIR)/ft_tt_tlb.c $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c $(SRC_DIR)/ft_tt_noc.c $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c $(SRC_DIR)/ft_tt_kernel_blob.c $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c $(SRC_DIR)/ft_tt_launch.c $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c $(SRC_DIR)/ft_tt_op_memory.c $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c $(SRC_DIR)/ft_tt_watchdog.c $(SRC_DIR)/convert/ft_bfp.c
+
+TARGET := $(BUILD)/test_kv_block_float
+
+.PHONY: all red clean
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $@
+
+$(TARGET): test_kv_block_float.c $(BACKEND) ../kernels/ft_kv_block_float.h | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

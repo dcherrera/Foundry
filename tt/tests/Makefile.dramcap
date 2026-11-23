@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — DRAM read capacity.
+#
+# ON CARD ONLY. This is the measurement that settles the per-bank contradiction between
+# the cooperative-matmul round (~42 GB/s a bank) and the earlier DRAM round (>= 537 GB/s
+# across 14 cores). See test_dram_capacity.c's header for the design.
+#
+#   make -f Makefile.dramcap PHASE1B=1 all
+#
+# PHASE1B=1 is mandatory: without it every device call returns FT_TT_EPERM before touching
+# the NoC, which is the whole point of the fence (spec §7.3 — a wrong coordinate hangs the
+# chip).
+#
+# Run through run_dram_capacity_suite.sh, never directly: the last rule is that the cores
+# it used must be proven to still BOOT *and* still COMPUTE, and the COMPUTE half is
+# `ft_tt_core probe`, a different program.
+#
+# ---------------------------------------------------------------------------
+# THE PROGRAM DIRECTORY
+# ---------------------------------------------------------------------------
+# Like the multicast bench, this is NOT a build_tensix_program.sh triad output: the bench
+# needs one BRISC kernel and a compute no-op rather than a reader/compute/writer triad, so
+# the per-class builders are driven directly into one directory. dram_bandwidth_reader.c
+# takes NO compile-time args — everything about the call is ft_tensix_runtime_arg(0..12),
+# deliberately, because one binary for every arm is the measurement's method. So `CTARGS=0`
+# is a placeholder the builders require, not a contract.
+#
+# On the card host, ABSOLUTE paths (K=$PWD/../kernels, D=/tmp/ttk_dramcap):
+#
+#   CTARGS=0 NOC=0 ../build_tensix_dataflow_kernel.sh \
+#       $K/dram_bandwidth_reader.c brisc $D
+#   CTARGS=0 ../build_tensix_kernel.sh $K/noop_compute.c $D
+#   CTARGS=16,2048 NOC=1 ../build_tensix_dataflow_kernel.sh \
+#       $K/vector_add_writer.c ncrisc $D
+#
+# All three into the SAME directory and in that order, because each builder writes the
+# firmware it linked against and they must agree; the test loads the mask 0x1d (DM0 + all
+# three TRISCs, NOT DM1), so the ncrisc image is built for completeness and never loaded.
+#
+# `make red` rebuilds from scratch. Apple ships GNU make 3.81, whose one-second mtime
+# granularity silently skips a rebuild of a source edited in the same second as its object,
+# so an incremental mutation loop can be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-dramcap
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_dram_stripe.c \
+           $(SRC_DIR)/ft_tt_dram_nearest.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c \
+           ft_tt_phase2_l1_layout.c
+
+.PHONY: all red clean
+
+all: $(BUILD)/test_dram_capacity
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# `sort` DEDUPLICATES: hardware_session_sources.mk gained ft_tt_udrv_claim.c, which BACKEND
+# also names, and a whole-program link of one file twice is a multiple-definition error.
+# A whole-program link, not incremental objects: this is built once and run against the
+# card, and a stale object there is a wrong answer on silicon.
+$(BUILD)/test_dram_capacity: test_dram_capacity.c dram_capacity_placement_sweeps.inc $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(sort $(BACKEND) $(SUPPORT))
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

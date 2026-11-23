@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the USERSPACE DRIVER's ARC PROBE SEQUENCE, on the card.
+#
+#   make -f Makefile.udrvarc red                          full rebuild; run nothing
+#   sudo ./build-udrvarc/test_udrv_card_arc               rung 1 only, sends NOTHING
+#   sudo ./build-udrvarc/test_udrv_card_arc write         rungs 1-6
+#   sudo ./build-udrvarc/test_udrv_card_arc write hold    ... plus the 35 s idle hold
+#
+# THIS BINARY SENDS MESSAGES TO THE ARC, which is why it is not in `Makefile.udrv`:
+# that file's whole claim is that its source list cannot reach a device. It is
+# separate from `Makefile.udrvnoc` because it needs neither the launch layer nor
+# the tt-kmd NoC backend — the only vendor surface it uses is the chardev, for
+# window arbitration (ALLOCATE_TLB), for the second reader (QUERY_MAPPINGS) and
+# for the ORACLE (SMC_MSG, which makes tt-kmd send an ARC message we chose).
+#
+# `write` is required before a single word reaches the ARC. A run started by
+# muscle memory opens the card, derives the ARC coordinate and stops.
+#
+# A malformed ARC message can hang the ARC, and the ARC is what the card's power
+# and clocks run on. Recovery is `ft_tt_core recover <n> --rung 3 --driver udrv
+# --write --then-probe`, then retrain the link.
+#
+# Root is required: /sys/bus/pci/devices/*/resource0 is 0600 root:root.
+#
+# `red` rebuilds from scratch every time — GNU make 3.81's one-second mtime
+# granularity means an incremental mutation loop can be running the PREVIOUS
+# binary (coding-best-practices.md §9).
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-udrvarc
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+DEPFLAGS := -MMD -MP
+
+# The `load` arm boots real firmware through the tt-kmd backend, so the Phase 1b
+# fence has to be open.
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+CFLAGS += -I$(SRC_DIR)/tools
+
+# The arch table and the coordinate module, so the ARC tile is DERIVED and never
+# written down in the test. `ft_tt_device.c` rides along only for ft_tt_log_error,
+# which the arch and coordinate modules call — the same link every other suite in
+# this directory makes (Makefile.coord). NOTHING here opens the chardev through
+# that layer: the one chardev this binary holds is opened by the test itself, and
+# it is the ORACLE.
+SUPPORT_SRC := $(SRC_DIR)/ft_tt_arch.c \
+               $(SRC_DIR)/ft_tt_arch_blackhole.c \
+               $(SRC_DIR)/ft_tt_coord.c \
+               $(SRC_DIR)/ft_tt_device.c \
+               $(SRC_DIR)/ft_tt_kmd.c \
+               $(SRC_DIR)/ft_tt_tlb.c \
+               $(SRC_DIR)/ft_tt_noc.c \
+               $(SRC_DIR)/ft_tt_buffer.c \
+               $(SRC_DIR)/ft_tt_elf.c \
+               $(SRC_DIR)/ft_tt_kernel_blob.c \
+               $(SRC_DIR)/ft_tt_arc_telemetry.c \
+               $(SRC_DIR)/ft_tt_tensix_claim.c \
+               $(SRC_DIR)/ft_tt_udrv_claim.c \
+               $(SRC_DIR)/ft_tt_launch.c \
+               $(SRC_DIR)/tools/ft_tt_core_probe.c \
+               $(SRC_DIR)/tools/ft_tt_core_status.c \
+               $(SRC_DIR)/ft_tt_queue.c \
+               $(HARDWARE_SESSION_SOURCES) \
+               ft_tt_program_directory.c \
+               ft_tt_phase2_l1_layout.c
+
+# The userspace driver — the half under test.
+UDRV := $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c \
+        $(SRC_DIR)/ft_tt_udrv_tlb_encode.c \
+        $(SRC_DIR)/ft_tt_udrv_noc.c \
+        $(SRC_DIR)/ft_tt_udrv_arc_msg.c \
+        $(SRC_DIR)/ft_tt_udrv_arc_probe.c \
+        $(SRC_DIR)/ft_tt_udrv_reset.c
+
+SUPPORT := ft_tt_test_report.c
+
+SOURCES := $(SUPPORT_SRC) $(UDRV) $(SUPPORT) test_udrv_card_arc.c
+OBJECTS := $(sort $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o))))
+TARGET  := $(BUILD)/test_udrv_card_arc
+
+.PHONY: all red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SRC_DIR)/tools/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+
+red: clean $(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

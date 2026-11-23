@@ -1,0 +1,17 @@
+cc -Wall -Wextra -std=c11 -O3 -march=native -ffast-math -I. -o potluck/tests/test_pl_batch potluck/tests/test_pl_batch.c potluck/pl_batch.c -lm
+./potluck/tests/test_pl_batch
+  [93mb1_identity_order                                 [0m[31m[FAIL][0m
+    potluck/tests/test_pl_batch.c:43 - Expected true: check_hand_plan(order, exp)
+  [93mb1_reversed_order                                 [0m[31m[FAIL][0m
+    potluck/tests/test_pl_batch.c:50 - Expected true: check_hand_plan(order, exp)
+  [93mb2_n_valid                                        [0m[31m[FAIL][0m
+    potluck/tests/test_pl_batch.c:61 - Expected 5 == 4
+  [93mb3_accumulation                                   [0m[31m[FAIL][0m
+    potluck/tests/test_pl_batch.c:116 - Expected 2 == 1
+  [93mb4_bad_args                                       [0m[92m[PASS][0m
+
+[31m  SOME TESTS FAILED[0m
+
+  5 total   [92m1 passed[0m   [31m4 failed[0m
+
+make: *** [test-potluck-batch] Error 1

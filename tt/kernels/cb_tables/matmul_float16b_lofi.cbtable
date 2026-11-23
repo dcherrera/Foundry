@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_float16b_lofi.cbtable
+#   Diagnostic twin of matmul_float16b.cbtable, NOT a shipped configuration. Identical in
+#   every field except math_fidelity, so that a program built from this table and one
+#   built from matmul_float16b.cbtable differ in EXACTLY one compile-time setting and can
+#   be A/B'd on the card without any other variable moving.
+#
+#   Why this exists: docs/tt_bringup_log.md §16.3 found that on the six real MiniCPM5-1B
+#   matmul shapes (all long-K, Kt >= 48), LoFi measures BETTER PCC and max-abs than HiFi4
+#   — backwards from what less arithmetic precision should do — while on `smoke`, the one
+#   short-K shape (Kt=2), the ordering is normal (HiFi4 better). That reversal was left
+#   INFERRED, not measured: "probably 16-bit DST accumulation dominating rather than
+#   product precision." This table is what makes it possible to hold DST_ACCUM_MODE fixed
+#   (0, matching the shipped configuration) and vary ONLY fidelity across a K sweep, which
+#   is the first of the two orthogonal experiments the inversion needs
+#   (foundry_blackhole_backend_dev_notes.md task: "does the gap scale with K").
+#
+#   NEVER pointed to by build_tensix_program.sh in Makefile.ops or any shipped program
+#   directory. It exists only for foundry/tt/tests/test_fidelity_sweep.c.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  0
+approx         0
+dst_accum_mode 0
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

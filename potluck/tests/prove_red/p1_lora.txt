@@ -1,0 +1,30 @@
+red: lora dh without scale fails l1
+
+# Mutation: remove s* from dh line in pl_lora.c (line 153)
+# Original: dh[t * rank + r] = s * sum;
+# Mutated:  dh[t * rank + r] = sum;
+
+# Verify mutation causes l1_backward_fd to FAIL on A and x but pass B:
+cc -Wall -Wextra -std=c11 -O3 -march=native -ffast-math -I. -o potluck/tests/test_pl_lora potluck/tests/test_pl_lora.c potluck/pl_lora.c potluck/pl_rng.c -lm
+./potluck/tests/test_pl_lora
+  l1_backward_fd                                    [FAIL]
+    potluck/tests/test_pl_lora.c:245 - Expected true: rel < 1e-4
+  l2_forward                                        [PASS]
+  l3_accumulation                                   [PASS]
+  l4_init                                           [PASS]
+
+  4 total   3 passed   1 failed
+
+# Restore via git checkout (git diff --stat empty)
+# git diff --stat shows no changes to pl_lora.c after checkout
+
+# Verify PASS after restore:
+rm -f potluck/tests/test_pl_lora
+make test-potluck-lora
+./potluck/tests/test_pl_lora
+  l1_backward_fd                                    [PASS]
+  l2_forward                                        [PASS]
+  l3_accumulation                                   [PASS]
+  l4_init                                           [PASS]
+
+  4 total   4 passed   0 failed

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_router.cbtable
+#   The MoE ROUTER program (`rtriad_router`, qwen36 plan Phase 5.3): bf16 activations, bf16
+#   weights (Qwen3.6's F32 router is exactly bf16-representable, so the tiles hold it with no
+#   loss), and FP32 OUTPUT tiles, so the 256 logits reach the routing step without the bf16
+#   rounding that makes near-ties common (spec §4.3 step 1). DST accumulates in fp32
+#   (dst_accum_mode 1); the packer's source format follows the Float32 output CB.
+#
+#     cb  0  Float16_b  2048 B   activations
+#     cb  1  Float16_b  2048 B   router weights (N-major)
+#     cb 16  Float32    4096 B   logits; the writer is built with out tile 4096
+#
+#   Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float32   32 32 16 4

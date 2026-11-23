@@ -1,0 +1,67 @@
+# Foundry Swarm Worker
+# Training worker that computes gradients and sends to coordinator
+#
+# Multi-architecture support for heterogeneous hardware:
+# - linux/amd64 (desktops, servers, laptops)
+# - linux/arm64 (Raspberry Pi 4, newer ARM devices)
+# - linux/arm/v7 (Raspberry Pi 3, older ARM)
+
+FROM debian:bookworm-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Foundry source
+WORKDIR /foundry
+COPY . .
+
+# Build Foundry with swarm module
+# Use -march=native for best performance on target architecture
+RUN make clean && make all
+
+# Build worker binary
+RUN gcc -O3 -pthread \
+    -I. \
+    -o bin/swarm_worker \
+    swarm/worker.c \
+    swarm/protocol.c \
+    swarm/network.c \
+    tensor/tensor.c \
+    optim/optim.c \
+    -lm
+
+# Runtime image
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    libpthread-stubs0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy binaries and config
+COPY --from=builder /foundry/bin/swarm_worker /app/
+COPY --from=builder /foundry/swarm/docker/config/ /app/config/
+
+# Create directories
+RUN mkdir -p /app/data /app/logs
+
+# Environment - these can be overridden at runtime
+ENV SW_COORDINATOR_HOST=coordinator
+ENV SW_COORDINATOR_PORT=7100
+ENV SW_DATA_PATH=/app/data
+ENV SW_LOG_DIR=/app/logs
+ENV SW_BATCH_SIZE=0
+ENV SW_NUM_THREADS=0
+ENV SW_SHARD_INDEX=-1
+
+# Health check - verify worker can reach coordinator
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD nc -z ${SW_COORDINATOR_HOST} ${SW_COORDINATOR_PORT} || exit 1
+
+# Default command
+CMD ["/app/swarm_worker", "--config", "/app/config/worker.toml"]

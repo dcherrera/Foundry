@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_mixw.cbtable
+#   The mixed-weight resident matmul (`rtriad_mixw`): matmul_bfp8_b.cbtable plus ONE entry
+#   that carries the Bfp4_b weight's format and tile size for the compute thread.
+#
+#     cb 0  Float16_b  2048 B   activations
+#     cb 1  Bfp8_b     1088 B   weights: the ONLY weight CB the host places; its 1,088 B pages
+#                               hold Bfp8_b tiles, or Bfp4_b tiles at a 576 B stride
+#     cb 2  Bfp4_b      576 B   FORMAT AND SIZE ONLY, never placed: the unpacker's SrcA format
+#                               and tile size for a descriptor with word 13 bit 30 set
+#     cb 16 Float16_b  2048 B   output
+#
+#   cb 0/1/16 and the three settings are matmul_bfp8_b.cbtable's, so a Bfp8 descriptor
+#   unpacks, multiplies and packs exactly as `rtriad_bfp8` does. The settings' measured
+#   reasons (HiFi4, fp32 accumulate) are recorded there and in matmul_bfp4_b.cbtable, which
+#   measured both on Bfp4_b. Nex-n2 qwen38_tt_mixw_spec.md 6.1 is the design.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp8_b    32 32 16 4
+cb  2  Bfp4_b    32 32 16 4
+cb 16  Float16_b 32 32 16 4

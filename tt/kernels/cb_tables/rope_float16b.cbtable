@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# rope_float16b.cbtable
+#   The CB contract for the resident ROPE triad (resident_rope_compute.c).
+#
+#     cb  0  Float16_b  2048 B   the activation, tile column c of a head
+#     cb  1  Float16_b  2048 B   the PARTNER tile, ftr_partner_tile(c) of the same head
+#     cb  2  Float16_b  2048 B   cos(angle) for column c, from the table
+#     cb  3  Float16_b  2048 B   SIGNED sin(angle) for column c: -sin low half, +sin high
+#     cb  4  Float16_b  2048 B   staging: in * cos
+#     cb  5  Float16_b  2048 B   staging: partner * sin
+#     cb 16  Float16_b  2048 B   output
+#
+#   The reader and writer must be built with tile_bytes=2048 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you.
+#
+#   EVERY CB IS THE SAME FORMAT, and here that is a real decision rather than an accident:
+#   the TABLE is a bf16 operand beside bf16 activations, so no reconfig_data_format() is
+#   needed anywhere and the two staging buffers can be added without one either. A future
+#   fp32 table (see ft_tt_op_rope.h on what bf16 costs the angle) would make cb 2 and cb 3 a
+#   different format, and that is a mixed-format contract exactly like matmul_bfp8_b's —
+#   normal, not exotic — but it would need the reconfig calls this kernel omits.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- fp32 destination accumulation, ON
+# ---------------------------------------------------------------------------
+# docs/tt_bringup_log.md §19: 13-35x accuracy for ZERO wall clock on the matmul, because
+# these ops are data-movement bound. Every op written from here on turns it on unless it has
+# a measured reason not to, and this one does not.
+#
+# What it buys HERE specifically: the two products are computed in fp32 in DST and then
+# packed to bf16 before the add, so each rotated element carries exactly two bf16 roundings
+# (one per product) plus one for the sum. With a 16-bit DST the products would also be
+# rounded on the way INTO the accumulator, i.e. an extra rounding of a value that is about to
+# be rounded again. This is not the matmul's running-sum failure mode — there is no K loop —
+# so the effect is small and NOT measured here; the setting is free either way.
+#
+# DST capacity: one tile at a time, dst_register always 0, so the halved Float32 capacity
+# cannot bind.
+#
+# ---------------------------------------------------------------------------
+# math_fidelity 4 -- CHOSEN, same reason as everywhere else here
+# ---------------------------------------------------------------------------
+# Only level with an a-priori accuracy guarantee (more mantissa bits per product), and free
+# on a data-movement-bound op (docs/tt_bringup_log.md §16.3, MEASURED on the matmul;
+# INFERRED for this op). RoPE does even less math per byte than the matmul — three FPU
+# passes over four tile streams — so if fidelity is free there it is free here.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb  3  Float16_b 32 32 16 4
+cb  4  Float16_b 32 32 16 4
+cb  5  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# gdn_float32.cbtable
+#   The CB contract for the resident GATED-DELTA-NET triad (resident_gdn_compute.c) — ONE
+#   binary answering both phases of Qwen3.5's linear layer, selected by kGdnShape's phase
+#   byte (resident_gdn_protocol.h).
+#
+#     cb  0  Float32  4096 B   CONV: the qkv projection.  DELTA: the staged q|k|v
+#     cb  1  Float32  4096 B   CONV: the rolling window.  DELTA: the [S,S] carried state
+#     cb  2  Float32  4096 B   DELTA: k then q ROW-REPLICATED — scaler AND rank-1 operand
+#     cb  3  Float32  4096 B   CONV: the conv1d weight taps.  DELTA: v / decay / beta columns
+#     cb  4  Float32  4096 B   the READER's private scratch — never pushed, never popped
+#     cb  5  Float32  4096 B   DELTA: the (b) reduce's column (pred)
+#     cb  6  Float32  4096 B   CONV: the running tap sum.  DELTA: (v - pred) * beta
+#     cb  7  Float32  4096 B   CONV: one tap's product.    DELTA: k_replica * delta
+#     cb  8  Float32  4096 B   DELTA: the COMPUTE thread's private working state
+#     cb  9  Float32  4096 B   MULTI-ROW DELTA: the COMPUTE thread's carry of a head's state
+#                               from one verify row to the next (kGdnCbCarry)
+#     cb 16  Float32  4096 B   output — the updated state THEN y, or conv_out THEN the window
+#
+#   cb 8 IS NOT A CONVENIENCE. PHASE DELTA's working state lived in cb 0 beside PHASE CONV's
+#   qkv stream, and the two phases push that buffer from DIFFERENT PROCESSORS. The dataflow
+#   cb_push_back INCREMENTS the tiles_received stream register; the compute one keeps a local
+#   counter and STORES it over the same register. So the first DELTA push discarded every
+#   increment the reader had ever made, the register went backwards, and the consumer's
+#   received - acked wrapped to a huge unsigned: cb_wait_front on cb 0 never blocked again for
+#   the rest of the run. Measured on silicon 2026-08-18 — PHASE CONV's second pass copied
+#   whatever the eight cb-0 pages happened to hold, source tile s for output tile t satisfying
+#   s = t (mod 8) at all 256 tiles.
+#
+#   The reader and writer must be built with tile_bytes=4096 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you; the
+#   reduce family's table carries the same warning for the same reason.
+#
+# ---------------------------------------------------------------------------
+# EVERY CB IS Float32, AND THAT IS THE WHOLE REASON THIS TABLE EXISTS
+# ---------------------------------------------------------------------------
+# `vector_add_float32.cbtable` already ships Float32 CBs, and its own comment records what
+# happens with `dst_accum_mode 0`: "the source registers cannot hold Float32 without fp32
+# destination accumulation, so unpack_dst and pack_src become Float16_b while unpack_src and
+# pack_dst stay Float32" (the hardware format-derivation rule, measured). That is an fp32 CB
+# that does bf16 arithmetic — accurate storage wrapped around a bf16 multiply.
+#
+# MEASURED 2026-08-18: a Float32 CB unpacks into Float16_b in the SOURCE registers unless
+# every CB of the program is Float32 AND fp32 destination accumulation is on. So
+# `dst_accum_mode 1` below is MANDATORY here rather than a tuning knob, and a mixed table —
+# bf16 activations with an fp32 state, which is the obvious way to save link bytes — would
+# silently put the recurrence back on bf16 mantissas.
+#
+# ---------------------------------------------------------------------------
+# WHY THAT MATTERS MORE HERE THAN ANYWHERE ELSE IN THIS BACKEND
+# ---------------------------------------------------------------------------
+# This is the only op in the backend that CARRIES STATE ACROSS TOKENS. Every other family is
+# a pure function of its inputs, so a rounding error is one token's error. Here it is the
+# initial condition of the next token: the CPU oracle accumulates its dots in fp64 on
+# purpose and its own comment names a token-60-90 divergence onset for doing them in
+# float32. The acceptance is a 48-token completion for exactly this reason, and a table that
+# quietly demoted the state to bf16 would pass a single-step comparison and fail that.
+#
+# The bar is the CUDA arm — fp32, 1e-3 relative — not the oracle's fp64. A Tensix cannot do
+# fp64, so bit-equality was never available and this table buys the most that is.
+#
+# DST capacity: one tile at a time, dst_register always 0, so the HALVED Float32 DST
+# capacity cannot bind. Same argument reduce_float16b.cbtable makes.
+#
+# ---------------------------------------------------------------------------
+# math_fidelity 4 — and here it is NOT free, unlike everywhere else
+# ---------------------------------------------------------------------------
+# DEV_NOTES.md 5 records the sweep: fidelity is flat to 0.6% on the matmul because that op is
+# data-movement bound at every setting. This op is not obviously in that regime — the delta
+# rule reads one tile-row of state and issues four reduces, two broadcasts and an add over
+# it, so the arithmetic-to-bytes ratio is far higher than a matvec's. HiFi4 is chosen anyway
+# because it is the only level with an a-priori accuracy guarantee and this is the one op
+# whose errors compound. If this family ever measures math-bound, the sweep belongs in a
+# round that measures it, and the answer is a SECOND table rather than an edit to this one.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float32 32 32 16 4
+cb  1  Float32 32 32 16 4
+cb  2  Float32 32 32 16 4
+cb  3  Float32 32 32 16 4
+cb  4  Float32 32 32 16 4
+cb  5  Float32 32 32 16 4
+cb  6  Float32 32 32 16 4
+cb  7  Float32 32 32 16 4
+cb  8  Float32 32 32 16 4
+cb  9  Float32 32 32 16 4
+cb 16  Float32 32 32 16 4

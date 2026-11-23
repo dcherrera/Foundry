@@ -1,0 +1,13 @@
+cc -Wall -Wextra -std=c11 -O3 -march=native -ffast-math -I. -pthread -o potluck/tests/test_pl_rng potluck/tests/test_pl_rng.c potluck/pl_rng.c -lm -pthread
+./potluck/tests/test_pl_rng
+  [93mr1                                                [0m[31m[FAIL][0m
+    potluck/tests/test_pl_rng.c:29 - Expected -3754171494439245448 == -2152535657050944081
+  [93mr2                                                [0m[92m[PASS][0m
+  [93mr3                                                [0m[92m[PASS][0m
+  [93mr4                                                [0m[92m[PASS][0m
+  [93mr5                                                [0m[92m[PASS][0m
+
+[31m  SOME TESTS FAILED[0m
+
+  5 total   [92m4 passed[0m   [31m1 failed[0m
+

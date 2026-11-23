@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_bfp4_b.cbtable
+#   The BFP4 weight contract. `ffn_gate` and `ffn_up` are Bfp4_b in the production
+#   precision ledger (spec 6.4, foundry/convert/ft_tt_precision_ledger.c), so this is the
+#   format the first end-to-end model run consumes for 2 of every 7 matmuls in a layer --
+#   and until 2026-08-12 no kernel had ever been given one. The emitter modelled it and
+#   ft_tt_op_l1_layout.h sized it; nothing had executed it.
+#
+#   Three CBs, three different tile sizes:
+#     cb 0  Float16_b  2048 B   activations
+#     cb 1  Bfp4_b      576 B   weights, straight out of the FTTW artifact
+#     cb 16 Float16_b  2048 B   output
+#
+#   576 = 512 mantissa bytes (4 bits x 1024 elements) + 64 bytes of shared exponents,
+#   which is exactly what foundry/convert/ft_bfp.c emits and what the
+#   artifact stores per tile. So an upload is a byte copy, the same as Bfp8_b -- Route B
+#   (spec 6.3) at the other end of its range.
+#
+#   The matmul reader must be built with in1_tile_bytes=576 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you: a reader
+#   built for 1088 against a 576-byte CB reads a page and three quarters of the next one
+#   and the run still completes.
+#
+#   dst_accum_mode is 1 -- see the measurement block under the directive.
+#
+#   math_fidelity 4, inherited from the two tables beside it and for their measured
+#   reason: this op is data-movement bound at every depth, so a 4x arithmetic difference
+#   moved wall time by 0.6% and there is no throughput to trade accuracy for
+#   (docs/tt_bringup_log.md 16.3). BFP4 gives the FPU FEWER mantissa bits to work with,
+#   not more, so it is the last configuration that would want a cheaper multiply.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+# ---------------------------------------------------------------------------
+# Flipped 0 -> 1 on 2026-08-13, measured on THIS format, beside matmul_bfp8_b.cbtable.
+# ---------------------------------------------------------------------------
+# Three interleaved rounds on Tensix 44, prefetch 64, HiFi4, both arms built at once from
+# one firmware build. KERNEL column of tests/test_ops.c -- kernel against the CPU fp32
+# reference on the SAME packed weights, so the format's own quantisation cancels and what
+# is scored is the accumulator:
+#
+#            shape                   Kt   PCC 0 -> 1                 max abs 0 -> 1
+#            ffn_gate      32x1536   48   0.999880663 -> 0.999998611  0.0780 -> 0.00396  19.7x
+#            ffn_up        32x1536   48   0.999881414 -> 0.999998620  0.0708 -> 0.00705  10.1x
+#            ffn_gate narrow         48   0.999877421 -> 0.999998585  0.0528 -> 0.00385  13.7x
+#
+# FREE, on the same three rounds: 0.878 / 0.878 / 0.347 ms in both arms, 513.7-515.8 and
+# 144.7-145.1 GFLOP/s in both, ns/pair-net 127 and 452 in both.
+#
+# AND IT CLOSES THE QUESTION PHASE 4 LEFT OPEN -- "BFP4 measures BETTER than BFP8 on card,
+# which is backwards for the formats". It was never measuring the formats. With fp32
+# accumulate every block-float shape lands on the SAME kernel-PCC floor, 0.9999986 +/-
+# 2e-8, Bfp8_b and Bfp4_b alike and independent of Kt: the residual is bf16 activation and
+# output rounding, which both formats share. The inversion was 16-bit accumulator error,
+# which grows with K, and Bfp8's case was Kt=144 against Bfp4's Kt=48 -- exactly the
+# "the tell was that the effect scaled with K" reading in DEV_NOTES 3. The FORMAT ordering
+# lives in test_ops.c's END-TO-END column (against the pre-pack fp32 tensor), where it is
+# and always was the expected one: Bfp8_b 0.99998, Bfp4_b 0.9939-0.9960, unmoved by the
+# accumulator.
+#
+# The packer note this comment used to carry is answered in matmul_bfp8_b.cbtable: the
+# emitted descriptors differ in `DST_ACCUM_MODE` alone, because pack_src comes from the
+# OUTPUT CB and that is Float16_b.
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp4_b    32 32 16 4
+cb 16  Float16_b 32 32 16 4

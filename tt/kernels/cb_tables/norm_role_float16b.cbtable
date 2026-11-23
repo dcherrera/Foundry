@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# norm_role_float16b.cbtable
+#   The CB contract for the PERSISTENT NORM ROLE (resident_norm_role_compute.c; indices are
+#   resident_norm_role_protocol.h's kNrCb*). One residual add + RMS norm step a descriptor.
+#
+#     cb  0  Float16_b  2048 B   input slice, S pages
+#     cb  1  Float16_b  2048 B   reduce scaler, 2 pages (this step, prefetched next)
+#     cb  2  Float16_b  2048 B   rsqrt column, 1 page
+#     cb  3  Float16_b  2048 B   resident h, 2S pages
+#     cb  4  Float16_b  2048 B   this member's x^2 slice, S pages
+#     cb  5  Float16_b  2048 B   eps * W / 32, 2 pages
+#     cb  6  Float16_b  2048 B   gamma slice, 2S pages
+#     cb  7  Float16_b  2048 B   every member's x^2, T pages (the exchange lands here)
+#     cb  8  Float16_b  2048 B   gamma-step scratch, S pages
+#     cb  9  (data movement)     the schedule table, one page
+#     cb 10  (data movement)     exchange flags, one page
+#     cb 16  Float16_b  2048 B   output slice, S pages
+#
+#   THE SAME CONTRACT AS BOTH PROGRAMS IT REPLACES. reduce_float16b.cbtable and
+#   eltwise_float16b.cbtable are Float16_b 32x32 everywhere, math_fidelity 4, approx 0,
+#   dst_accum_mode 1; so is this, which is what lets one hardware startup serve the eltwise
+#   ADD verbs and the reduce verbs, and what makes every pack point today's
+#   (tests/test_norm_role.c compares the three tables).
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb  3  Float16_b 32 32 16 4
+cb  4  Float16_b 32 32 16 4
+cb  5  Float16_b 32 32 16 4
+cb  6  Float16_b 32 32 16 4
+cb  7  Float16_b 32 32 16 4
+cb  8  Float16_b 32 32 16 4
+cb  9  Float16_b 32 32 16 4
+cb 10  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

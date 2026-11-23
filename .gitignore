@@ -1,0 +1,145 @@
+# Build outputs
+build/
+*.o
+*.a
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled binaries
+*/tests/test_*
+!*/tests/test_*.c
+!*/tests/test_*.cu
+*/tests/validate_*
+*/tests/bench_*
+!*/tests/bench_*.c
+!*/tests/bench_*.cu
+!*/tests/bench_*.m
+!*/tests/validate_*.c
+examples/test_*
+!examples/test_*.c
+
+# barswap test binaries (source tracked, binaries not)
+barswap/tests/gpu_owner
+barswap/tests/vram_persist
+barswap/tests/compute_persist
+barswap/tests/xcard_persist
+barswap/tests/roundrobin_persist
+barswap/tests/gpu_switch_probe
+barswap/tests/worker_switch
+examples/rwkvx_generate
+examples/rfa_generate
+examples/rfa_train
+examples/rfa_lora_merge
+examples/model_convert
+examples/train_mlp
+examples/bench_hybridmem
+examples/quantize_model
+examples/pth_convert
+*.dSYM/
+bin/*
+!bin/.gitkeep
+
+# Test artifacts
+*.log
+test_output/
+
+# PyTorch comparison suite outputs (`make compare-test` regenerates both dirs)
+tensor/testing_suite/data/
+tensor/testing_suite/results/
+
+# TeamIDE: only what its PM reads from git is tracked -- project.yml and the
+# tasks/plans/notes/agents markdown (TeamIDE reads the kanban via `git ls-tree`,
+# so a blanket .teamide/ rule would hide it). Everything else under .teamide/ is
+# machine- or session-specific: subrepos.json (per-user clone URLs), chat
+# history, activity log, agent runs and reports, caches.
+.teamide/*
+!.teamide/project.yml
+!.teamide/tasks/
+!.teamide/plans/
+!.teamide/notes/
+!.teamide/agents/
+
+# Tool/IDE project directories
+.claude/
+metal/tests/test_gemm_q4_k
+metal/tests/test_gemm_q4_k_f16
+metal/tests/bench_dispatch
+
+# build artifacts
+*.o
+*.a
+*.d
+*.ptx
+cuda/tests/bench_bandwidth
+cuda/tests/bench_matvec
+cuda/tests/test_moe_expert_quants
+cuda/tests/test_kvq4_scale
+cuda/tests/test_topk_logits
+cuda/tests/test_moe_router_rank
+cuda/tests/test_fused_q80
+cuda/tests/test_matvec_q80_g4
+cuda/tests/test_same_board
+cuda/tests/test_moe_q80_bw
+cuda/tests/bench_q2_0_gonogo
+cuda/tests/bench_q80_tile
+cuda/tests/test_matvec_q80_ksplit
+cuda/tests/bench_q80_ksplit
+cuda/tests/test_copy_2d_graph
+cuda/tests/test_xchg_2d
+cuda/tests/test_moe_q80_rowsplit
+
+# scale-test corpus (100MB, not source)
+data/enwik8
+
+# Python bytecode — was tracked, and .pyc files bake in absolute source paths
+__pycache__/
+*.pyc
+
+# Metal test/bench binaries — tracking these means make will not rebuild
+# them after a checkout, so a stale binary silently benchmarks old code.
+metal/tests/bench_attn_split
+metal/tests/bench_matvec_bandwidth
+metal/tests/test_metal
+metal/tests/test_metal_*
+metal/tests/test_matvec_*
+!metal/tests/*.c
+!metal/tests/*.h
+!metal/tests/*.m
+!metal/tests/*.md
+# Hand-recorded bench results (bench_dispatch.m / bench_matvec_bandwidth.m): local only.
+metal/tests/RESULTS_*.md
+
+# Tenstorrent backend test build dirs (build-coord, build-attn, ...)
+tt/tests/build*/
+tt/convert/tests/build*/
+
+# Tenstorrent kernel program directories (matmul, matmul_bfp8, matmul_bfp4, ...) —
+# built by build_tensix_program.sh from tt/kernels/, one per op. Mixed .o/.elf/.h/.cpp/.ld
+# output that the generic *.o rule above only partly covers; a `git add -A`
+# already swept these into commits once.
+tt/programs/
+
+
+# K80 strap kernel: build outputs and the build-time kernel config (third-party; never committed).
+barswap/k80_quirk/prebuilt/
+barswap/k80_quirk/out/
+barswap/k80_quirk/target.config
+
+# RWKV World vocab (BlinkDL, Apache-2.0): fetched at build time by rwkvx/data/fetch_rwkv_vocab.sh.
+rwkvx/data/rwkv_vocab_v20230424.txt
+rwkvx/data/rwkv_vocab_v20230424.txt.part
+/.release/cleanroom/q3k_scales/check
+
+# Ingot: conversion outputs and downloads; the CLI test script is source
+ingot/cache/
+!ingot/tests/test_*.sh

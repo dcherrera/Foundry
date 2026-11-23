@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the FUSED-SWIGLU resident matmul (rtriad_bfp8_swiglu), off hardware.
+#
+#   make -f Makefile.swiglu run
+#
+# NO CARD. Compares the fused compute's SILU_MUL sequence with eltwise SILU_MUL's from the two
+# SOURCES (FT_TT_KERNEL_DIR, default ../kernels — run from tt/tests), models the fused
+# descriptor's pass order / panel FIFO / writer order against the unfused ops bit for bit, and
+# runs the writer's replica lookup over the members' range record.
+#
+# RED builds, each must FAIL (the objects are rebuilt per arm in their own directory):
+#   make -f Makefile.swiglu RED=no_stage run      the model skips the bf16 silu staging
+#   make -f Makefile.swiglu RED=mirror_skip run   the range record drops one mirror
+#   make -f Makefile.swiglu RED=panel_wrap run    the first panel layout (card fix 1)
+
+CC      ?= cc
+SRC_DIR := ..
+RED     ?=
+BUILD   := ../build/test-swiglu$(if $(RED),-red-$(RED),)
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+ifeq ($(RED),no_stage)
+CFLAGS  += -DSWIGLU_TEST_RED_NO_STAGE
+endif
+ifeq ($(RED),mirror_skip)
+CFLAGS  += -DSWIGLU_TEST_RED_MIRROR_SKIP
+endif
+ifeq ($(RED),panel_wrap)
+CFLAGS  += -DSWIGLU_TEST_RED_PANEL_WRAP
+endif
+LDLIBS  := -lm
+
+DEPFLAGS := -MMD -MP
+
+OBJECTS := $(BUILD)/test_swiglu_fusion.o $(BUILD)/ft_tt_test_report.o \
+           $(BUILD)/ft_tt_op_replicas.o
+TARGET  := $(BUILD)/test_swiglu_fusion
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(OBJECTS:.o=.d)

@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — splitting one group's broadcast into <=4-destination pieces.
+#
+# ONE program, OFF HARDWARE. The arithmetic that keeps a cooperative matmul's multicast
+# inside the standing four-destination hazard limit, and that keeps every piece inside the
+# group. Both failure modes are silent on silicon — a piece one column too wide writes into
+# another residency's core, a piece one column too narrow leaves a member computing from
+# the previous block — so neither is allowed to need a card to be proven.
+#
+#   make -f Makefile.broadcastpartition check
+#   make -f Makefile.broadcastpartition red      # rebuild from scratch, then run
+#
+# `red` exists because Apple ships GNU make 3.81, whose one-second mtime granularity
+# silently skips a rebuild of a source edited in the same second as its object — so an
+# incremental mutation loop can be running the PREVIOUS binary. The
+# mutation battery in tools/run_broadcast_partition_gates.sh removes the object AND the
+# binary for the same reason.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-broadcastpartition
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+# SANITIZE=1 adds AddressSanitizer and UBSan. Worth running by hand after any change to the
+# piece loop: `rectangle_count` is that loop's own counter and it sits immediately after the
+# piece array, so a bound that stops being right does not produce a wrong answer — it
+# overwrites the counter with rectangle data and SPINS. That is why the mutation battery's
+# capacity arm shrinks the array instead of loosening the bound (see the note there).
+ifdef SANITIZE
+CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer
+endif
+
+# The partition delegates its rectangle arithmetic and every coordinate refusal to
+# ft_tt_multicast.c, which reaches ft_tt_device.c only for the logger and the error codes.
+# Nothing in this list opens a device, which is what makes it runnable anywhere.
+SOURCES := $(SRC_DIR)/ft_tt_group_broadcast_partition.c \
+           $(SRC_DIR)/ft_tt_multicast.c \
+           $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           ft_tt_test_report.c
+
+.PHONY: all check red clean
+
+all: $(BUILD)/test_group_broadcast_partition $(BUILD)/test_resident_multicast_args
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/test_group_broadcast_partition: test_group_broadcast_partition.c $(SOURCES) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(SOURCES)
+
+# The resident cooperative plan adds the arg block and the rendezvous reset on top of the
+# partition, and reaches ft_tt_launch.c only for the `ft_tt_noc_access` vtable the reset
+# writes through — which the suite fills with a RECORDER, so this still opens no device.
+MULTICAST_SOURCES := $(SOURCES) $(SRC_DIR)/ft_tt_op_matmul_resident_multicast.c
+
+$(BUILD)/test_resident_multicast_args: test_resident_multicast_args.c $(MULTICAST_SOURCES) \
+                                       | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(MULTICAST_SOURCES)
+
+check: all
+	./$(BUILD)/test_group_broadcast_partition
+	./$(BUILD)/test_resident_multicast_args
+
+red: clean all
+	./$(BUILD)/test_group_broadcast_partition
+	./$(BUILD)/test_resident_multicast_args
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

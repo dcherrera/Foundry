@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_bfp8_b_lofi.cbtable — M5 TIMING PROBE ONLY (LoFi): measures the matmul MVMUL cost; never shipped
+#   The quantized-matvec CB contract: the WEIGHT operand is Bfp8_b and is consumed by the
+#   FPU natively, with no dequantising reader kernel anywhere. That is Route B (spec 6.3)
+#   made concrete, and it is the configuration Phase 4's third acceptance measures.
+#
+#   Three CBs, three different tile sizes:
+#     cb 0  Float16_b  2048 B   activations
+#     cb 1  Bfp8_b     1088 B   weights, straight out of the FTTW artifact
+#     cb 16 Float16_b  2048 B   output
+#
+#   1088 = 1024 mantissa bytes + 64 bytes of shared exponents, which is
+#   exactly what foundry/convert/ft_bfp.c emits and what the artifact stores per tile. So
+#   an upload is a byte copy: artifact -> DRAM -> CB, no conversion at either end.
+#
+#   The matmul reader must be built with in1_tile_bytes=1088 to match. There is no
+#   descriptor header on a data-movement core, so nothing checks that for you.
+#
+#   dst_accum_mode is 1 -- see the measurement block under the directive.
+#
+#   math_fidelity 4 is CHOSEN, not inherited, for the same measured reason as
+#   matmul_float16b.cbtable: swept LoFi / HiFi2 / HiFi3 / HiFi4, and wall time is flat to
+#   0.6% (155.4 / 157.7 / 157.2 / 157.5 GFLOP/s) because this op is data-movement bound,
+#   while PCC stays 0.99977-0.99979 at every level. There is no throughput to trade
+#   accuracy for. docs/tt_bringup_log.md §16.3.
+
+math_fidelity  0
+approx         0
+dst_accum_mode 1
+# ---------------------------------------------------------------------------
+# Flipped 0 -> 1 on 2026-08-13, on ITS OWN on-card measurement and not on the bf16 one.
+# ---------------------------------------------------------------------------
+# The caveat that kept it at 0 was real: DEV_NOTES 6's "13-35x accuracy for zero wall
+# clock" was measured bf16-in/bf16-out, and the block-float arms had never been run with
+# fp32 accumulate. They have now been -- both arms of this table built at once from one
+# firmware build, three interleaved rounds on Tensix 44, prefetch 64, HiFi4, against the
+# CPU fp32 reference on the SAME packed weights (the KERNEL column of tests/test_ops.c):
+#
+#            shape                   Kt   PCC 0 -> 1                 max abs 0 -> 1
+#            attn_q window 32x1536   48   0.999772371 -> 0.999998577  0.0980 -> 0.00782  12.5x
+#            ffn_down      32x4608  144   0.999059394 -> 0.999998596  0.2738 -> 0.00871  31.5x
+#
+# and it is FREE: 0.348 / 0.877 ms in both arms, 144.5-145.0 and 514-517 GFLOP/s in both,
+# with the device-only ns/pair-net identical at 454 and 127. The spread between the two
+# arms is smaller than the spread between rounds of one arm.
+#
+# THE PACKER WORRY THIS COMMENT USED TO CARRY DOES NOT BITE, and it is checked rather than
+# argued: emitting ft_tensix_cb_formats.h from this table at 0 and at 1 differs in ONE line,
+# `DST_ACCUM_MODE`. get_single_pack_src_format() derives the packer's source from the
+# OUTPUT CB's L1 format, which here is Float16_b -- `is_exp_b_format` on the
+# fp32_dest_acc_en branch and equal exponent widths on the other
+# both return Float16_b. CB 1 is an INPUT; nothing packs into it, so its
+# pack_src entry is never read. A table whose OUTPUT were block float would be a different
+# question and this note would not cover it.
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp8_b    32 32 16 4
+cb 16  Float16_b 32 32 16 4

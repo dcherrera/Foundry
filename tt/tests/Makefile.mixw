@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — `rtriad_mixw`, the resident
+# matmul triad taking Bfp8_b or Bfp4_b weights per descriptor, against rtriad_bfp8 and the
+# one-shot matmul_bfp4 (test_mixw_triad.c).
+#
+#   make -f Makefile.mixw PHASE1B=1 all
+#
+# ON CARD ONLY (PHASE1B=1 is mandatory to reach the card). The three programs come from the
+# blob (tools/build/explode_tensix_program_blob) or tools/check_mixw_program_gates.sh.
+
+CC      ?= cc
+SRC_DIR := ..
+
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-mixw
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  := -lm
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+CONVERT_SRC := $(CONVERT)/ft_bfp.c $(CONVERT)/ft_float_convert.c
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+.PHONY: all red clean
+
+all: $(BUILD)/test_mixw_triad
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program link; `red` rebuilds from scratch (GNU make 3.81's one-second mtime trap).
+$(BUILD)/test_mixw_triad: test_mixw_triad.c ../kernels/resident_matmul_block_protocol.h $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $< $(sort $(BACKEND) $(CONVERT_SRC) $(SUPPORT)) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)

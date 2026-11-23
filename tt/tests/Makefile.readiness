@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry TT backend — the may-I-boot-here classifier, off hardware.
+#
+# TOUCHES NO DEVICE. Every case is a pure function of a hand-built register
+# reading, so this runs on the Mac. It has to: the code under test decides
+# whether firmware is booted onto a Tensix, and the permissive failure costs a
+# whole-card reset while the strict failure drops the whole model to the
+# ~26 s/position CPU forward. Neither belongs on silicon.
+#
+#   make -f Makefile.readiness check   build and run
+#   make -f Makefile.readiness red     full rebuild, then run
+#
+# `red` deletes the tree first and exists because a green test nobody has
+# watched fail is not evidence (coding-best-practices §9). Apple ships GNU make
+# 3.81, whose one-second mtime granularity silently skips a rebuild of a source
+# edited in the same second as its object — a mutation loop on incremental make
+# can be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-readiness
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+# ft_tt_launch.c is here for ft_tt_processor_reset_bit(); the rest is what it and
+# ft_tt_core_status.c need to link. Nothing opens a device, and the NoC fence is
+# deliberately NOT defined — every device call in these objects returns
+# FT_TT_EPERM, which is the right thing for a suite that calls none of them.
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_core_status.c \
+           $(SRC_DIR)/ft_tt_core_readiness.c
+
+BACKEND_OBJECTS := $(addprefix $(BUILD)/,$(notdir $(BACKEND:.c=.o)))
+
+TARGET := $(BUILD)/test_core_readiness
+
+.PHONY: all check red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(BACKEND_OBJECTS) $(BUILD)/test_core_readiness.o
+	$(CC) $(CFLAGS) $^ -o $@ -lm
+
+check: $(TARGET)
+	./$(TARGET)
+
+red: clean $(TARGET)
+	-./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_bfp8_b_swiglu.cbtable
+#   The FUSED-SWIGLU resident matmul (program rtriad_bfp8_swiglu, -DFT_RTRIAD_SWIGLU=1):
+#   matmul_bfp8_b.cbtable's three CBs, unchanged, plus the two the SILU_MUL half needs
+#   (kernels/resident_matmul_swiglu_protocol.h) and the one the S3a residual add needs
+#   (-DFT_RTRIAD_RESADD=1, kernels/resident_matmul_resadd_protocol.h):
+#
+#     cb  0  Float16_b  2048 B   activations
+#     cb  1  Bfp8_b     1088 B   weights
+#     cb  2  Float16_b  2048 B   stage: silu(gate) packed bf16 (eltwise_float16b's cb 2)
+#     cb  3  Float16_b  2048 B   panel: a column block's gate tiles, then its up tiles
+#                                (S3a: the block's bf16(A . B) tiles, then pad)
+#     cb  4  Float16_b  2048 B   residual: a column block's residual tiles (eltwise ADD's cb 0)
+#     cb 16  Float16_b  2048 B   output
+#
+#   math_fidelity, approx and dst_accum_mode are matmul_bfp8_b's AND eltwise_float16b's
+#   (HiFi4, exact, fp32 DST), so the matmul half is the shipped matmul and the SILU_MUL (ADD)
+#   half is the shipped eltwise SILU_MUL (ADD), rounding point for rounding point. cb 0's
+#   Float16_b keeps
+#   the intermediate format Float16_b, so the emitted cb 0/1/16 arrays are matmul_bfp8_b's.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp8_b    32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb  3  Float16_b 32 32 16 4
+cb  4  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

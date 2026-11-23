@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — NoC read/write helpers + device buffer allocator.
+#
+# Kept separate from `Makefile` and `Makefile.coord` (same precedent) so this
+# file can be edited without touching the device or launch test builds.
+#
+#   make -f Makefile.noc check          build and run the UNIT half — no device
+#                                       is opened, so it runs anywhere
+#   make -f Makefile.noc red            full rebuild, then run. Use this for
+#                                       every red/green pass
+#   make -f Makefile.noc PHASE1B=1 all  open the NoC fence, then run a device
+#                                       step by hand:
+#                                         ./build-noc/test_noc hw
+#                                         ./build-noc/test_noc bw
+#
+# PHASE1B=1 is what lets a wrong NoC coordinate hang the card (spec §7.3). Do
+# not use it unsupervised, and never on a machine without the card.
+#
+# `red` rebuilds from scratch because a green test nobody has watched fail is
+# not evidence (coding-best-practices.md §9), and because Apple's GNU make 3.81
+# compares mtimes at one-second granularity — an incremental mutation loop can
+# be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-noc
+
+CFLAGS  := -std=c99 -O2 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and
+# the link silently mixes objects compiled against two different struct layouts
+# — which is not a build error, it is a wrong offset and a segfault (or worse, a
+# wrong answer). Adding a field to ft_tt_grid_info reproduced exactly that on
+# 2026-08-12. `-MMD -MP` makes every .o depend on the headers it read.
+DEPFLAGS := -MMD -MP
+
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           test_noc.c
+
+OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+TARGET  := $(BUILD)/test_noc
+
+.PHONY: all check red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+
+check: $(TARGET)
+	./$(TARGET) unit
+
+red: clean $(TARGET)
+	-./$(TARGET) unit
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

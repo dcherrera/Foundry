@@ -1,0 +1,53 @@
+# Foundry Swarm Worker Configuration
+#
+# All values can be overridden via environment variables:
+# SW_COORDINATOR_HOST, SW_COORDINATOR_PORT, SW_BATCH_SIZE, etc.
+
+[network]
+# Coordinator connection
+coordinator_host = "coordinator"
+coordinator_port = 7100
+
+# Reconnection settings
+reconnect_attempts = 10
+reconnect_delay_sec = 5
+
+[hardware]
+# Number of CPU threads (0 = auto-detect)
+num_threads = 0
+
+# Maximum memory in MB (0 = auto-detect)
+max_memory_mb = 0
+
+[training]
+# Batch size (0 = auto from hardware profile)
+batch_size = 0
+
+# Gradient accumulation steps (0 = auto, coordinator can override)
+accumulation_steps = 0
+
+[data]
+# Path to training data
+path = "/app/data"
+
+# Data shard index (-1 = auto-assign from coordinator)
+shard_index = -1
+
+[compression]
+# Gradient compression: "none", "fp16", "topk", "qsgd"
+# Note: Coordinator can override this
+type = "topk"
+
+# TopK ratio
+topk_ratio = 0.1
+
+[identity]
+# Worker ID (empty = auto-generate from hostname)
+worker_id = ""
+
+[logging]
+# Log level: "debug", "info", "warn", "error"
+level = "info"
+
+# Log file (empty for stdout)
+file = ""

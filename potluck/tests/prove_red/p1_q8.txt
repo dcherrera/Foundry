@@ -1,0 +1,15 @@
+cc -Wall -Wextra -std=c11 -O3 -march=native -ffast-math -I. -o potluck/tests/test_pl_q8 potluck/tests/test_pl_q8.c potluck/pl_q8.c tt/convert/ft_float_convert.c -lm  
+./potluck/tests/test_pl_q8
+=== test_pl_q8 ===
+  [93mq1                                                [0m[92m[PASS][0m
+  [93mq2                                                [0m[92m[PASS][0m
+  [93mq3                                                [0m[92m[PASS][0m
+  [93mq4                                                [0m[31m[FAIL][0m
+    potluck/tests/test_pl_q8.c:137 - Expected true: maxr > 0 && maxd / maxr <= 1e-5
+  [93mq5                                                [0m[92m[PASS][0m
+
+[31m  SOME TESTS FAILED[0m
+
+  5 total   [92m4 passed[0m   [31m1 failed[0m
+
+make[2]: *** [test-potluck-q8] Error 1

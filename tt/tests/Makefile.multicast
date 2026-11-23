@@ -1,0 +1,159 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the NoC multicast primitive.
+#
+# Two programs, deliberately split by whether they need silicon:
+#
+#   test_multicast_rectangle   OFF HARDWARE. The rectangle arithmetic and every refusal.
+#                              Builds and runs on the Mac while somebody else owns the card.
+#   test_relaunch_gate         OFF HARDWARE. The verdict stage 3c's re-launch experiment
+#                              reaches, one mutation per ground — including the three
+#                              VACUITY grounds, which is what stops "the second launch was
+#                              fine" from being a sentence the instrument could not have
+#                              contradicted.
+#   test_multicast_bench       ON CARD. The measurement: what a multicast costs against N
+#                              cores each reading the same block from DRAM; and, under
+#                              FT_TT_MULTICAST_EXPERIMENT, the two arms that ask whether the
+#                              broadcast is the cause of the >4-destination wedge at all.
+#
+#   make -f Makefile.multicast check                 # off-hardware only, no card needed
+#   make -f Makefile.multicast PHASE1B=1 all         # both
+#
+# The on-card program needs the NoC fence open, so PHASE1B=1 is mandatory for it: without
+# it every device call returns FT_TT_EPERM before touching the NoC, which is the whole
+# point of the fence (spec §7.3 — a wrong coordinate hangs the chip).
+#
+# Run the on-card half through run_multicast_suite.sh, never directly: the suite's last
+# rule is that the cores it used must be proven to still BOOT *and* still COMPUTE, and the
+# COMPUTE half is `ft_tt_core probe`, a different program.
+#
+# ---------------------------------------------------------------------------
+# THE PROGRAM DIRECTORY — recorded here 2026-08-14, and BUILT before it was written down.
+# ---------------------------------------------------------------------------
+# It lived only inside run_multicast_suite.sh's header. This is the ONE program directory
+# in the tree that is NOT a build_tensix_program.sh output: the bench needs three
+# unrelated kernels rather than a reader/compute/writer triad, so the three per-class
+# builders are driven directly into one directory.
+#
+# The ctargs are DERIVED. multicast_bench_reader.c takes NO compile-time args at all —
+# role, iterations, payload, the rectangle, both semaphores and both DRAM addresses are
+# ft_tensix_runtime_arg(0..19) (:176-195), deliberately, because one binary playing all
+# three roles is the measurement's method. noop_compute.c takes none either. So `CTARGS=0`
+# on those two is a placeholder the builders require, not a contract; only the ncrisc
+# writer's 16,2048 is real (vector_add_writer.c:45-46, cb_out / tile_bytes).
+#
+# On the card host, ABSOLUTE paths throughout (K=$PWD/../kernels, D=$PWD/../programs/multicast):
+#
+#   CTARGS=0 NOC=0 ../build_tensix_dataflow_kernel.sh \
+#       $K/multicast_bench_reader.c brisc $D
+#   CTARGS=0 ../build_tensix_kernel.sh $K/noop_compute.c $D
+#   CTARGS=16,2048 NOC=1 ../build_tensix_dataflow_kernel.sh \
+#       $K/vector_add_writer.c ncrisc $D
+#
+# All three into the SAME directory and in that order, because each builder writes the
+# firmware it linked against and they must agree; test_multicast_bench.c loads the mask
+# 0x1d (DM0 + all three TRISCs, NOT DM1), so the ncrisc image is built for completeness
+# and never loaded.
+#
+# `make red` rebuilds from scratch. Apple ships GNU make 3.81, whose one-second mtime
+# granularity silently skips a rebuild of a source edited in the same second as its object,
+# so an incremental mutation loop can be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-multicast
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_multicast.c \
+           $(SRC_DIR)/ft_tt_dram_stripe.c \
+           $(SRC_DIR)/ft_tt_group_shared_operand.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c \
+           ft_tt_phase2_l1_layout.c ft_tt_relaunch_gate.c \
+           ft_tt_split_broadcast_geometry.c
+
+# The off-hardware program links only what it uses. ft_tt_group_shared_operand.c reaches
+# ft_tt_coord.c for the live-grid partitioner, and ft_tt_coord.c reaches the arch tables —
+# but nothing in this list opens a device, which is what makes it runnable anywhere.
+OFFLINE_SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+                   $(SRC_DIR)/ft_tt_device.c \
+                   $(SRC_DIR)/ft_tt_arch.c \
+                   $(SRC_DIR)/ft_tt_arch_blackhole.c \
+                   $(SRC_DIR)/ft_tt_coord.c \
+                   $(SRC_DIR)/ft_tt_multicast.c \
+                   $(SRC_DIR)/ft_tt_group_shared_operand.c \
+                   ft_tt_test_report.c
+
+# The re-launch verdict links nothing but itself and the reporter. That is the point of it
+# being a separate module: it is the decision stage 3c reaches on silicon, proven red here.
+GATE_SOURCES := ft_tt_relaunch_gate.c ft_tt_test_report.c
+
+# The split geometry needs the rectangle arithmetic it delegates to, and nothing else. Same
+# reason: these refusals protect the card, so they are proven without one.
+GEOMETRY_SOURCES := ft_tt_split_broadcast_geometry.c $(SRC_DIR)/ft_tt_multicast.c \
+                    $(SRC_DIR)/ft_tt_kmd.c $(SRC_DIR)/ft_tt_device.c \
+                    $(SRC_DIR)/ft_tt_arch.c $(SRC_DIR)/ft_tt_arch_blackhole.c \
+                    $(SRC_DIR)/ft_tt_coord.c ft_tt_test_report.c
+
+.PHONY: all check red clean
+
+all: $(BUILD)/test_multicast_rectangle $(BUILD)/test_relaunch_gate \
+     $(BUILD)/test_split_broadcast_geometry $(BUILD)/test_multicast_bench
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program links, not incremental objects: these are built once and run against the
+# card, and a stale object there is a wrong answer on silicon.
+$(BUILD)/test_multicast_rectangle: test_multicast_rectangle.c $(OFFLINE_SOURCES) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(OFFLINE_SOURCES)
+
+$(BUILD)/test_relaunch_gate: test_relaunch_gate.c $(GATE_SOURCES) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(GATE_SOURCES)
+
+$(BUILD)/test_split_broadcast_geometry: test_split_broadcast_geometry.c $(GEOMETRY_SOURCES) \
+                                        | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(GEOMETRY_SOURCES)
+
+$(BUILD)/test_multicast_bench: test_multicast_bench.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(SUPPORT)
+
+check: $(BUILD)/test_multicast_rectangle $(BUILD)/test_relaunch_gate \
+       $(BUILD)/test_split_broadcast_geometry
+	./$(BUILD)/test_multicast_rectangle
+	./$(BUILD)/test_relaunch_gate
+	./$(BUILD)/test_split_broadcast_geometry
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

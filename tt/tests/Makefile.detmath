@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — kernels/ft_det_math.h, the integer-only fp32 gate math that the
+# host and the card's RISC-V reader core must compute bit-identically.
+#
+#   make -f Makefile.detmath all     -> build-detmath/test_det_math       (off hardware)
+#   make -f Makefile.detmath run     full acceptance (exhaustive sweeps, ~30 s, 8 threads)
+#   make -f Makefile.detmath red     clean rebuild, then --red: MUST exit non-zero
+#   make -f Makefile.detmath size    rv32im -Os text/rodata of the whole library (clang)
+#   make -f Makefile.detmath x86     x86_64 build run under Rosetta 2: add/mul vs native SSE
+#                                    with MXCSR FTZ|DAZ (macOS only; informational)
+#   ./build-detmath/test_det_math --emit vectors.bin 100000 1   on-card comparison vectors
+#
+# The header is compiled THREE times (det_math_arm.c): as shipped, and twice with one
+# constant mutated (the red arms). Objects are rebuilt whole and `red` deletes the tree first:
+# Apple's make 3.81 skips a rebuild of a source edited in the same second (best-practices §9).
+
+CC      ?= cc
+BUILD   := build-detmath
+RV_CC   ?= /opt/homebrew/opt/llvm/bin/clang
+RV_SIZE ?= /opt/homebrew/opt/llvm/bin/llvm-size
+RV_NM   ?= /opt/homebrew/opt/llvm/bin/llvm-nm
+
+CFLAGS  := -std=c99 -O2 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong -pthread
+LDLIBS  := -lm -pthread
+DEPFLAGS := -MMD -MP
+
+HEADERS := ../kernels/ft_det_math.h ../kernels/ftgc_compact.h det_math_arm.h
+TARGET  := $(BUILD)/test_det_math
+X86_TARGET := $(BUILD)/test_det_math_x86
+ARMS    := $(BUILD)/arm_production.o $(BUILD)/arm_red_round_half.o \
+           $(BUILD)/arm_red_exp_coefficient.o $(BUILD)/arm_red_fast_log1p.o \
+           $(BUILD)/arm_red_fast_newton.o
+
+.PHONY: all run red size x86 clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $@
+
+$(BUILD)/arm_production.o: det_math_arm.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ det_math_arm.c
+
+$(BUILD)/arm_red_round_half.o: det_math_arm.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -DFT_DET_ROUND_HALF=0x7Fu \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_round_half \
+	    -DDET_MATH_ARM_NAME='"red_round_half"' -c -o $@ det_math_arm.c
+
+$(BUILD)/arm_red_exp_coefficient.o: det_math_arm.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -DFT_DET_EXP_C6=0x33333333u \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_exp_coefficient \
+	    -DDET_MATH_ARM_NAME='"red_exp_coeff"' -c -o $@ det_math_arm.c
+
+$(BUILD)/arm_red_fast_log1p.o: det_math_arm.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -DFT_DET_FAST_LOG1P_C3=0x20000000u \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_fast_log1p \
+	    -DDET_MATH_ARM_NAME='"red_fast_log1p"' -c -o $@ det_math_arm.c
+
+$(BUILD)/arm_red_fast_newton.o: det_math_arm.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -DFT_DET_FAST_NEWTON_STEPS=2 \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_fast_newton \
+	    -DDET_MATH_ARM_NAME='"red_fast_newton"' -c -o $@ det_math_arm.c
+
+$(TARGET): test_det_math.c $(ARMS) $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_det_math.c $(ARMS) $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+red: clean
+	$(MAKE) -f Makefile.detmath all
+	@if ./$(TARGET) --red; then echo "RED ARMS PASSED: the test is vacuous"; exit 1; \
+	 else echo "red OK: the mutated arms fail as they must"; fi
+
+# The same three arms and test, compiled for x86_64 (always from scratch); Rosetta 2 runs it.
+X86_CFLAGS := -arch x86_64 $(CFLAGS)
+x86: | $(BUILD)
+	rm -f $(BUILD)/x86_*.o $(X86_TARGET)
+	$(CC) $(X86_CFLAGS) -c -o $(BUILD)/x86_production.o det_math_arm.c
+	$(CC) $(X86_CFLAGS) -DFT_DET_ROUND_HALF=0x7Fu -DDET_MATH_ARM_FN=det_math_arm_red_round_half \
+	    -DDET_MATH_ARM_NAME='"red_round_half"' -c -o $(BUILD)/x86_red_round_half.o det_math_arm.c
+	$(CC) $(X86_CFLAGS) -DFT_DET_EXP_C6=0x33333333u \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_exp_coefficient \
+	    -DDET_MATH_ARM_NAME='"red_exp_coeff"' -c -o $(BUILD)/x86_red_exp_coefficient.o det_math_arm.c
+	$(CC) $(X86_CFLAGS) -DFT_DET_FAST_LOG1P_C3=0x20000000u \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_fast_log1p \
+	    -DDET_MATH_ARM_NAME='"red_fast_log1p"' -c -o $(BUILD)/x86_red_fast_log1p.o det_math_arm.c
+	$(CC) $(X86_CFLAGS) -DFT_DET_FAST_NEWTON_STEPS=2 \
+	    -DDET_MATH_ARM_FN=det_math_arm_red_fast_newton \
+	    -DDET_MATH_ARM_NAME='"red_fast_newton"' -c -o $(BUILD)/x86_red_fast_newton.o det_math_arm.c
+	$(CC) $(X86_CFLAGS) -o $(X86_TARGET) test_det_math.c $(BUILD)/x86_production.o \
+	    $(BUILD)/x86_red_round_half.o $(BUILD)/x86_red_exp_coefficient.o \
+	    $(BUILD)/x86_red_fast_log1p.o $(BUILD)/x86_red_fast_newton.o $(LDLIBS)
+	arch -x86_64 ./$(X86_TARGET) --binary
+
+# Size estimate: the out-of-line arm (all eight functions + tables) for rv32im at -Os.
+# Undefined symbols must be empty: any __udivdi3/__clzsi2/soft-float call is a defect.
+size: | $(BUILD)
+	$(RV_CC) --target=riscv32-unknown-elf -march=rv32im -mabi=ilp32 -Os -ffreestanding \
+	    -fno-builtin -std=c99 -Wall -Werror -c -o $(BUILD)/arm_rv32.o det_math_arm.c
+	$(RV_SIZE) -A $(BUILD)/arm_rv32.o | grep -E 'text|rodata|data|bss|Total'
+	@echo "undefined symbols:"; $(RV_NM) -u $(BUILD)/arm_rv32.o
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

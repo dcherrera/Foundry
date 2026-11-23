@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# reduce_float32.cbtable
+#   THE SAME RESIDENT REDUCE TRIAD AS reduce_float16b.cbtable, PLACED AT Float32. Same three
+#   kernel sources, same compile-time CB indices, same eleven-buffer contract — the ONLY
+#   differences are the format word on every row, `dst_accum_mode 1`, and the 4096-byte page
+#   the two data-movement kernels must be built for:
+#
+#     cb  0  Float32  4096 B   activations, Wt pages -- a whole row block resident
+#     cb  1  Float32  4096 B   the reduce scaler: 1.0, or 1/W for a mean
+#     cb  2  Float32  4096 B   the FIRST pass's column (row max / mean / scale)
+#     cb  3  Float32  4096 B   the SECOND pass's column
+#     cb  4  Float32  4096 B   the intermediate stream (exp / x^2 / (x-mean)^2), Wt pages
+#     cb  5  Float32  4096 B   eps * scaler-dependent value, one tile
+#     cb  6  Float32  4096 B   gamma, Wt pages when the chain multiplies by it
+#     cb  7  Float32  4096 B   beta,  Wt pages when the chain adds it
+#     cb  8  Float32  4096 B   final-chain scratch A, one page
+#     cb  9  Float32  4096 B   final-chain scratch B, one page
+#     cb 16  Float32  4096 B   output
+#
+#   The reader and writer must be built with tile_bytes=4096 to match, and the HOST must
+#   build the constants buffer at 4096 too — `ft_tt_op_reduce_build_constants()` takes the
+#   page size for exactly this reason. There is no descriptor header on a data-movement core
+#   and no format field on the wire, so nothing checks either of those for you: a 2048-byte
+#   constants buffer under this table is a scaler tile made of half a tile and whatever
+#   followed it, and it produces a smoothly wrong norm rather than a refusal.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS TABLE EXISTS: THE bf16 REDUCE IS 9x THE GATE ON A NARROW NORM
+# ---------------------------------------------------------------------------
+# MEASURED on silicon 2026-08-19 (`PN_TT_GDN_NORMCHECK=1`, Ornith's real per-layer data, W =
+# 128 = one GDN head): the q/k L2 norm scores 8.599e-03 max-norm relative PER HEAD and the
+# output gated norm 1.283e-02, against a 1e-3 gate — 146,844 of 196,608 q/k elements past it.
+#
+# The two candidate levers were priced apart off-hardware on the same shape
+# (`tests/test_vector_ops.c`, "the bf16 REDUCE alone is past the 1e-3 gate"): the REDUCE
+# contributes 6.126e-03 and rendering an fp32 operand into a bf16 activation strip adds only
+# 1.0e-03 on top. So an fp32 strip in front of a bf16 reduce buys almost nothing and the CB
+# TABLE is the whole lever. This file is that lever, and it needs no kernel source change:
+# every trip count in the triad comes from the descriptor, and the page size reaches the two
+# dataflow kernels as a compile-time arg.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- MANDATORY, not a tuning knob
+# ---------------------------------------------------------------------------
+# A Float32 CB unpacks into Float16_b in the SOURCE registers unless EVERY CB of the program
+# is Float32 AND fp32 destination accumulation is on (the hardware format-derivation rule, measured;
+# `vector_add_float32.cbtable` ships the `dst_accum_mode 0` half of that and its own
+# comment records the demotion). Half-converting this table would buy nothing at all — it
+# would be an fp32 buffer wrapped around a bf16 multiply, which is what we already have.
+#
+# `gdn_float32.cbtable` makes the same argument and it is the same hardware rule.
+#
+# DST capacity: one tile at a time, dst_register always 0, so the HALVED Float32 DST capacity
+# cannot bind. Same argument reduce_float16b.cbtable makes.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS TABLE DOES **NOT** REACH: Tf32
+# ---------------------------------------------------------------------------
+# Fully Float32 is not fp32 arithmetic, and THIS BUILD PROVES IT RATHER THAN ASSUMING IT: the
+# generated `ft_tensix_cb_formats.h` carries `ft_cb_unpack_src_format = 0` (Float32) beside
+# `ft_cb_unpack_dst_format = 4`, and 4 is **Tf32** (tensix_types.h). Tf32 is E8M10 — ten stored
+# mantissa bits — and the unpacker TRUNCATES rather than rounds, ~4.9e-4 an operand and biased
+# low. `math_fidelity` cannot recover it: the bits are gone before the FPU sees the operand.
+#
+# So this table has a floor, and modelled off-hardware at W = 128
+# (`ft_tt_vector_model_reduce_program_float32()`, tests/test_vector_ops.c) the two GDN members
+# land on OPPOSITE SIDES of it:
+#
+#     q/k L2   bf16 7.143e-03  ->  Float32 8.406e-04   CLEARS 1e-3
+#     RMS      bf16 8.101e-03  ->  Float32 1.566e-03   DOES NOT
+#
+# The difference is the CHAIN LENGTH, not the member: L2's final chain is one step and RMS's is
+# two (gamma, then scale), every step is a CB round trip, and every round trip is one more
+# Tf32 unpack of the value. Running the same program with an fp32 unpack the hardware does not
+# have gives 1.0e-07 and 2.1e-07 — so the entire Float32 residue is truncation and the next
+# lever is the chain's step count, which is kernel source and not a table.
+#
+# The same residue is on the GDN value path (`card/want` 0.9955-0.9977, below 1 on 768 of 768
+# head-layers), which is what says this is the hardware and not this family.
+#
+# ---------------------------------------------------------------------------
+# THE Wt CEILING IS LOWER HERE, AND IT IS NOT A DEFECT
+# ---------------------------------------------------------------------------
+# `ft_tt_op_reduce_max_tile_cols()` divides the 1.29 MiB arena by the page size, so doubling
+# the page halves the widest residency this program can serve: 107 tile columns for the
+# gamma-carrying union, against 217 at bf16. The model's own RMS norms are `n_embd/32` = 128
+# and DO NOT FIT — they stay on the bf16 `reduce` program, which is why this is an ADDITIONAL
+# program and not a replacement. The GDN per-head norms are Wt = 4.
+#
+# ---------------------------------------------------------------------------
+# math_fidelity 4 -- CHOSEN, same reason as everywhere else here
+# ---------------------------------------------------------------------------
+# Only level with an a-priori accuracy guarantee, and this is the one family whose whole
+# purpose here is precision. `math_fidelity 0` stalls a resident triad and wedges its Tensix
+# (measured on the GDN family), so the low end is not merely worse, it is unavailable.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float32 32 32 16 4
+cb  1  Float32 32 32 16 4
+cb  2  Float32 32 32 16 4
+cb  3  Float32 32 32 16 4
+cb  4  Float32 32 32 16 4
+cb  5  Float32 32 32 16 4
+cb  6  Float32 32 32 16 4
+cb  7  Float32 32 32 16 4
+cb  8  Float32 32 32 16 4
+cb  9  Float32 32 32 16 4
+cb 16  Float32 32 32 16 4

@@ -1,0 +1,150 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the EMBEDDED PROGRAM BLOB's off-device suite.
+#
+#   make -f Makefile.programblob check    # fixtures, build, run both gates
+#   make -f Makefile.programblob red      # clean first, then the above
+#   make -f Makefile.programblob gates    # the whole mutation battery (slow, thorough)
+#
+# NO DEVICE. Nothing here calls ft_tt_runtime_open(), ft_tt_runtime_boot_core() or anything
+# else that reaches a card, and the build does NOT define FT_TT_PHASE1B_NOC_ENABLED, so the
+# NoC fence is closed: every device call in the linked backend returns FT_TT_EPERM before
+# issuing a transaction. ft_tt_runtime.c is linked because the OVERRIDE arm calls its two
+# file loaders, and linking it drags the backend in with it — the same arrangement
+# test_launch already uses to run off-card.
+#
+# WHOLE-PROGRAM LINKS, NO OBJECT FILES. Apple ships GNU make 3.81, whose one-second mtime
+# granularity silently skips a rebuild of a source edited in the same second as its object,
+# so a mutation loop over incremental objects can be testing the PREVIOUS binary
+# (coding-best-practices.md §9). There are no .o files to go stale here, and `red` deletes
+# the binaries as well.
+#
+# WHY THERE ARE TWO BINARIES. test_program_blob is compiled against a GENERATED FIXTURE
+# blob and checks the mechanism. test_program_blob_empty checks that the EMPTY state refuses
+# loudly instead
+# of passing over zero programs. Each asserts WHICH header it got, so neither can quietly
+# become a re-run of the other.
+
+CC      ?= cc
+SRC_DIR := ..
+TOOLS   := ../tools
+BUILD   := build-programblob
+
+# Where make_program_blob_fixtures.py writes, and where the generated fixture header lands.
+FIXTURES ?= /tmp/ft_tt_program_blob_fixtures
+FIXTURE_HEADER := $(FIXTURES)/ft_tt_programs_fixture.h
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+# ft_tt_runtime.c is the reason for most of this list: it is the file the override arm
+# calls, and it references the launch, NoC, TLB and coordinate layers. Since 2026-08-17 it
+# also dispatches to the USERSPACE DRIVER, so ft_tt_runtime_udrv.c and the ft_tt_udrv_*
+# modules under it come with it. None of them is reached here — no card is opened — but they
+# must LINK, and that is itself a gate: a seam that only builds where the card is, is a seam
+# nobody finds broken until the card has moved.
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c \
+           $(SRC_DIR)/ft_tt_udrv_tlb_encode.c \
+           $(SRC_DIR)/ft_tt_udrv_noc.c \
+           $(SRC_DIR)/ft_tt_udrv_noc_bank.c \
+           $(SRC_DIR)/ft_tt_udrv_arc_msg.c \
+           $(SRC_DIR)/ft_tt_udrv_arc_probe.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_runtime.c \
+           $(SRC_DIR)/ft_tt_runtime_udrv.c \
+           $(SRC_DIR)/ft_tt_udrv_reset.c \
+           $(SRC_DIR)/ft_tt_program_blob.c \
+           $(SRC_DIR)/ft_tt_program_resolve.c \
+           ft_tt_test_report.c
+
+FIXTURE_TARGET := $(BUILD)/test_program_blob
+EMPTY_TARGET   := $(BUILD)/test_program_blob_empty
+DEFINES_TARGET := $(BUILD)/test_program_defines
+
+.PHONY: all check red gates fixtures clean
+
+all: $(FIXTURE_TARGET) $(EMPTY_TARGET) $(DEFINES_TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# The fixtures and the fixture blob are ONE step: a generated header without the directories
+# it was generated from cannot be byte-compared against anything.
+fixtures: $(FIXTURE_HEADER)
+
+$(FIXTURE_HEADER): make_program_blob_fixtures.py $(TOOLS)/emit_tensix_program_header.py
+	rm -rf $(FIXTURES)
+	python3 make_program_blob_fixtures.py $(FIXTURES)
+	python3 $(TOOLS)/emit_tensix_program_header.py -o $@ \
+	    --kernels $(FIXTURES)/kernels --toolchain fixture-1.0 \
+	    --recipe 'make_program_blob_fixtures.py' \
+	    --program $(FIXTURES)/programs/prog_alpha \
+	    --program $(FIXTURES)/programs/prog_beta \
+	    --program $(FIXTURES)/programs/prog_gamma
+
+$(FIXTURE_TARGET): $(FIXTURE_HEADER) test_program_blob.c $(BACKEND) | $(BUILD)
+	rm -f $@
+	$(CC) $(CFLAGS) -I$(FIXTURES) \
+	    -DFT_TT_PROGRAMS_HEADER='"ft_tt_programs_fixture.h"' \
+	    test_program_blob.c $(BACKEND) -o $@
+
+# The empty arm builds against its OWN empty header, not the shipping one. It used to compile
+# against $(SRC_DIR)/ft_tt_programs.h and pass only because that file was still the placeholder
+# -- so the moment a real blob was generated (2026-08-17) its six checks failed, having asserted
+# a property of the artifact rather than of the code. An empty-state gate that can only pass
+# before the work is done is backwards.
+$(BUILD)/ft_tt_programs_empty.h: | $(BUILD)
+	printf '%s\n' \
+	    '/* GENERATED for test_program_blob_empty -- the empty-blob arm needs an empty blob' \
+	    ' * regardless of what the shipping header holds. Not the placeholder; a fixture. */' \
+	    '#ifndef FT_TT_PROGRAMS_H' \
+	    '#define FT_TT_PROGRAMS_H' \
+	    'static const ft_tt_program_blob_entry *const ft_tt_program_blob_table_storage[1] = { 0 };' \
+	    '#define ft_tt_program_blob_table ft_tt_program_blob_table_storage' \
+	    '#define FT_TT_PROGRAM_BLOB_TABLE_COUNT 0u' \
+	    '#endif' > $@
+
+$(EMPTY_TARGET): test_program_blob_empty.c $(BACKEND) $(BUILD)/ft_tt_programs_empty.h | $(BUILD)
+	rm -f $@
+	$(CC) $(CFLAGS) -I$(BUILD) -DFT_TT_PROGRAMS_HEADER='"ft_tt_programs_empty.h"' \
+	    test_program_blob_empty.c $(BACKEND) -o $@
+
+# The defines arm builds against the SHIPPING header on purpose: it checks the records this
+# tree actually embeds (rtriad_mixw's comma-joined `defines=` must read as SyncFull).
+$(DEFINES_TARGET): test_program_defines.c $(BACKEND) $(SRC_DIR)/ft_tt_programs.h | $(BUILD)
+	rm -f $@
+	$(CC) $(CFLAGS) test_program_defines.c $(BACKEND) -o $@
+
+check: $(FIXTURE_TARGET) $(EMPTY_TARGET) $(DEFINES_TARGET)
+	@rc=0; \
+	echo "=== $(FIXTURE_TARGET) ==="; ./$(FIXTURE_TARGET) $(FIXTURES) || rc=1; \
+	echo "=== $(EMPTY_TARGET) ==="; ./$(EMPTY_TARGET) $(FIXTURES) || rc=1; \
+	echo "=== $(DEFINES_TARGET) ==="; ./$(DEFINES_TARGET) || rc=1; \
+	exit $$rc
+
+# The battery. Every gate above is re-run against a header that has been damaged in one
+# specific way, and each damaged build MUST fail for the stated reason — a red for some
+# other reason proves nothing about the check it was aimed at.
+gates: fixtures
+	bash run_program_blob_gates.sh
+
+red: clean check
+
+clean:
+	rm -rf $(BUILD) $(FIXTURES)

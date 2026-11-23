@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# gate_narrow.cbtable
+#   THE fp32 -> bf16 SEAM, MOVED ONTO AN OP THAT WAS ALREADY HAPPENING. The SAME THREE
+#   KERNEL SOURCES as `eltwise` (resident_eltwise_reader.c / resident_eltwise_compute.c /
+#   resident_vector_writer.c), with ONE CB changed:
+#
+#     cb  0  Float16_b  2048 B   input A -- `z`, the bf16 gate projection, row 0
+#     cb  1  Float32    4096 B   input B -- `y_norm`, the fp32 gated-RMS output, row 0
+#     cb  2  Float16_b  2048 B   scratch -- silu(z), staged between the two DST sections
+#     cb 16  Float16_b  2048 B   output  -- `gated`, the bf16 strip ssm_out projects from
+#
+#   READER_CTARGS carries 2048 for A and 4096 for B (arg 4, added 2026-08-25);
+#   WRITER_CTARGS carries 2048. Three independent lists, each agreeing with its own
+#   circular buffer, which is the actual contract. Nothing on the card checks any of them.
+#
+# ---------------------------------------------------------------------------
+# THIS IS render_narrow's UNPACK, AT THE SAME POINT IN THE PIPELINE, BIT FOR BIT
+# ---------------------------------------------------------------------------
+# `conditional_destination_format()` (tools/emit_tensix_cb_formats.py) scans EVERY CB and
+# returns Tf32 only when `dst_accum_mode` is on AND every CB is Float32. This table is MIXED,
+# so the conditional format is Float16_b and `derive_format_roles()` gives cb 1
+# `unpack_src = Float32`, `unpack_dst = Float16_b` -- the unpacker converts fp32 to bf16 on
+# the way into SrcB, and that conversion TRUNCATES.
+#
+# That is EXACTLY what `render_narrow` does today, one descriptor earlier: there the fp32
+# strip is cb 0, it truncates into SrcA, `x + 0` carries it through an fp32 DST unchanged,
+# and the pack writes a value already exactly representable in bf16. The bf16 strip that
+# lands in DRAM is then unpacked bf16->bf16 by the shipped all-bf16 `eltwise` program and
+# multiplied. Here the same truncation happens in SrcB and the same product is formed. The
+# operand the multiplier sees is the same bits; the DRAM round trip in between is what goes.
+#
+# So this is a MIXED table used the way the strip bridge's own note says a mixed table is
+# correct: the demotion the conditional format performs is free WHEN THE OPERAND REALLY IS
+# GOING TO BE bf16. `gdn_float32.cbtable` is the case where it is not -- one bf16 CB there
+# would put the recurrence's carried state and conv weights on bf16 mantissas, which is why
+# the seam could never be folded into the GDN op itself.
+#
+# ---------------------------------------------------------------------------
+# WHY NOT THE GDN WRITER -- REFUTED, DO NOT RETRY
+# ---------------------------------------------------------------------------
+# The other place this seam could sit is the GDN block's own output CB. It cannot:
+# `gdn_float32.cbtable`'s cb 16 carries the UPDATED RECURRENT STATE as well as `y`
+# (resolve_tile_count returns state and y interleaved per tile-row). One CB, one page size,
+# two sinks -- narrowing it to bf16 narrows the state the next token reads.
+#
+# ---------------------------------------------------------------------------
+# EVERY OTHER ROLE IS IDENTICAL TO eltwise_float16b.cbtable
+# ---------------------------------------------------------------------------
+# cb 0, cb 2 and cb 16 are byte-for-byte the shipped elementwise entries, so the MATH and
+# PACK descriptor arrays this table generates are the shipped ones: `ft_tensix_math_hw_configure`
+# takes `ft_cb_unpack_dst_format[cb_in0]` and `ft_cb_unpack_dst_format[cb_in1]`, both Float16_b here and
+# there, and the packer only ever sees cb 16. The ONLY changed word in the whole descriptor
+# set is cb 1's `ft_cb_unpack_src_format`, 5 -> 0. That is the change, and it is the whole change.
+#
+# The compute kernel needs no source change for a second reason worth stating: formats are
+# programmed ONCE, per source register section, by `eltwise_hw_startup(cb_in0, cb_in1, cb_out)`
+# -- SEC0 from cb_in0, SEC1 from cb_in1 -- and `ft_tensix_unpack_ab()` afterwards writes only
+# base addresses. The gated multiply's `mul_tiles(cb_scratch, cb_in1)` uses SEC0 for the
+# scratch page, whose format and 2048 B page size match cb_in0's; SEC1 stays cb_in1's. So the
+# mixed table lands on exactly the register section that wants it.
+#
+# dst_accum_mode 1 and math_fidelity 4: the shipped elementwise settings, unchanged. The
+# fidelity is uniform across every table here so that a fidelity difference is never a
+# candidate when this program is compared against `eltwise`.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float32   32 32 16 4
+cb  2  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

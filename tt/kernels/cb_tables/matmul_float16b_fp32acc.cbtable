@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_float16b_fp32acc.cbtable
+#   Diagnostic twin of matmul_float16b.cbtable, NOT a shipped configuration. Identical
+#   except dst_accum_mode, which turns on fp32_dest_acc_en (Wormhole/Blackhole tech
+#   report, tech_reports/matrix_engine/matrix_engine.md "Fp32 Dest Acc (or
+#   DST_ACCUM_MODE)"): with it off the destination register holds Float16_b (16-bit)
+#   values and every matmul_tiles() call across the K loop rounds its partial sum back
+#   down to that width before the next K-tile's product is added; with it on, DST holds
+#   Float32 end to end.
+#
+#   Why this exists: docs/tt_bringup_log.md §16.3's inversion (LoFi beats HiFi4 on every
+#   long-K shape, reverses on the one short-K shape) was left as an INFERRED explanation
+#   — "probably 16-bit DST accumulation dominating rather than product precision" — with
+#   no measurement distinguishing it from a fidelity-phase artifact. If the 16-bit
+#   accumulator is really what dominates, turning it OFF (this table, at HiFi4 fixed)
+#   should (a) raise accuracy well past both 16-bit arms on the long-K shapes, because the
+#   K-scaling rounding term this table removes is exactly the one that grows with Kt, and
+#   (b) remove the reversal, because HiFi4's more accurate products are no longer being
+#   clobbered by 16-bit write-back rounding every K-tile. See
+#   matmul_float16b_lofi_fp32acc.cbtable for the fourth cell of the 2x2 (fidelity x
+#   accumulator width) design this is half of.
+#
+#   Same DST capacity warning the tech report gives: Float32 dest fits half as many tiles
+#   as Float16_b per DstSync half. This kernel only ever holds ONE tile in DST at a time
+#   (matmul_compute.c's dst_register is always 0, one tile accumulated across the whole
+#   K loop before pack), so the halving does not bind here.
+#
+#   NEVER pointed to by build_tensix_program.sh in Makefile.ops or any shipped program
+#   directory. It exists only for foundry/tt/tests/test_fidelity_sweep.c.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

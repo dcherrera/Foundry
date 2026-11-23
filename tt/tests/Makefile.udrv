@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the USERSPACE DRIVER's off-device suite.
+#
+#   make -f Makefile.udrv check     # build and run all five gates
+#   make -f Makefile.udrv red       # clean first, then build and run
+#
+# NO DEVICE, AND NO PATH TO ONE. Every source under test here is either a pure
+# function (TLB register encoding, ARC message encoding, ring arithmetic),
+# filesystem-only (sysfs parsing, flock claims), or an explicitly unimplemented
+# seam (ft_tt_udrv_pci_map_bar). Nothing links ft_tt_kmd.c and nothing can
+# open /dev/tenstorrent — that is a property of the source list, not a
+# convention, and it is why this suite is safe to run while another agent owns
+# the card.
+#
+# `red` rebuilds from scratch every time. Apple ships GNU make 3.81, whose
+# one-second mtime granularity silently skips a rebuild of a source edited in
+# the same second as its object, so a mutation loop that relies on incremental
+# make can be testing the PREVIOUS binary (coding-best-practices.md §9). Every
+# mutation in this round's battery was run through `red`.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-udrv
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+DEPFLAGS := -MMD -MP
+
+COMMON_SOURCES := ft_tt_test_report.c
+
+TLB_SOURCES   := $(SRC_DIR)/ft_tt_udrv_tlb_encode.c test_udrv_tlb_encode.c $(COMMON_SOURCES)
+PCI_SOURCES   := $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c  test_udrv_pci_sysfs.c  $(COMMON_SOURCES)
+ARC_SOURCES   := $(SRC_DIR)/ft_tt_udrv_arc_msg.c    test_udrv_arc_msg.c    $(COMMON_SOURCES)
+CLAIM_SOURCES := $(SRC_DIR)/ft_tt_udrv_claim.c      test_udrv_claim.c      $(COMMON_SOURCES)
+TENSIX_SOURCES := $(SRC_DIR)/ft_tt_udrv_claim.c $(SRC_DIR)/ft_tt_tensix_claim.c \
+                  test_tensix_claim.c $(COMMON_SOURCES)
+# The RESET path belongs in this suite and not in a card one: every hardware access it makes
+# is a pread/pwrite on `<device_dir>/config` and it takes that directory as a parameter, so a
+# fixture directory holding a synthetic 4096-byte config file exercises all of it -- including
+# the shapes a real card cannot be asked for (a looping capability list, a version-1 PCI
+# Express capability, a device answering 0xFFFF, a config space that refuses writes).
+RESET_SOURCES := $(SRC_DIR)/ft_tt_udrv_reset.c      test_udrv_reset.c
+# The COPY SHAPE and the window walk are a header (ft_tt_noc_copy.h), shared verbatim by the
+# tt-kmd transport and the userspace one, so the gate for them belongs here: it moves bytes
+# between two host buffers and links nothing at all.
+COPY_SOURCES  := test_noc_copy.c $(COMMON_SOURCES)
+
+TLB_OBJECTS   := $(addprefix $(BUILD)/,$(notdir $(TLB_SOURCES:.c=.o)))
+PCI_OBJECTS   := $(addprefix $(BUILD)/,$(notdir $(PCI_SOURCES:.c=.o)))
+ARC_OBJECTS   := $(addprefix $(BUILD)/,$(notdir $(ARC_SOURCES:.c=.o)))
+CLAIM_OBJECTS := $(addprefix $(BUILD)/,$(notdir $(CLAIM_SOURCES:.c=.o)))
+TENSIX_OBJECTS := $(addprefix $(BUILD)/,$(notdir $(TENSIX_SOURCES:.c=.o)))
+RESET_OBJECTS := $(addprefix $(BUILD)/,$(notdir $(RESET_SOURCES:.c=.o)))
+COPY_OBJECTS  := $(addprefix $(BUILD)/,$(notdir $(COPY_SOURCES:.c=.o)))
+
+TARGETS := $(BUILD)/test_udrv_tlb_encode \
+           $(BUILD)/test_udrv_pci_sysfs \
+           $(BUILD)/test_udrv_arc_msg \
+           $(BUILD)/test_udrv_claim \
+           $(BUILD)/test_tensix_claim \
+           $(BUILD)/test_udrv_reset \
+           $(BUILD)/test_noc_copy
+
+.PHONY: all check red clean
+
+all: $(TARGETS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/test_udrv_tlb_encode: $(TLB_OBJECTS)
+	$(CC) $(CFLAGS) $(TLB_OBJECTS) -o $@
+
+$(BUILD)/test_udrv_pci_sysfs: $(PCI_OBJECTS)
+	$(CC) $(CFLAGS) $(PCI_OBJECTS) -o $@
+
+$(BUILD)/test_udrv_arc_msg: $(ARC_OBJECTS)
+	$(CC) $(CFLAGS) $(ARC_OBJECTS) -o $@
+
+$(BUILD)/test_udrv_claim: $(CLAIM_OBJECTS)
+	$(CC) $(CFLAGS) $(CLAIM_OBJECTS) -o $@
+
+$(BUILD)/test_tensix_claim: $(TENSIX_OBJECTS)
+	$(CC) $(CFLAGS) $(TENSIX_OBJECTS) -o $@
+
+$(BUILD)/test_udrv_reset: $(RESET_OBJECTS)
+	$(CC) $(CFLAGS) $(RESET_OBJECTS) -o $@
+
+$(BUILD)/test_noc_copy: $(COPY_OBJECTS)
+	$(CC) $(CFLAGS) $(COPY_OBJECTS) -o $@
+
+check: $(TARGETS)
+	@rc=0; \
+	for t in $(TARGETS); do \
+	    echo "=== $$t ==="; \
+	    ./$$t || rc=1; \
+	done; \
+	exit $$rc
+
+red: clean check
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

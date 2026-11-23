@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_bfp8_split.cbtable
+#   The control arm of the qwen36 plan 1.4 price bench: bfp_split_matmul_compute.c with a
+#   BFP8_B weight in cb 1 (mode 1, one pass) — Ornith's weight format, and the format an
+#   expanded BFP6_B tile is consumed in. cb 2 is declared only so the kernel's three-CB
+#   layout is the same build; mode 1 never touches it.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp8_b    32 32 16 4
+cb  2  Bfp8_b    32 32 16 4
+cb 16  Float16_b 32 32 16 4

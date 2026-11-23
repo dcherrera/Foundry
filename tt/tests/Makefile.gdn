@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the GATED-DELTA-NET op family's acceptance.
+#
+#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row
+#
+# NO PHASE1B, AND NO CARD. This suite is off-hardware by construction: it pins the wire
+# contract between ft_tt_op_gdn.h and kernels/resident_gdn_protocol.h by PARSING the device
+# header, and exercises the host driver's encoding, refusals and CB placement. It opens no
+# device, so it runs anywhere — including on the Mac, which is where the code is written.
+#
+# It reads kernels/resident_gdn_protocol.h through FT_TT_KERNEL_DIR (default ../kernels).
+# Running it from another directory without setting that is a FAILURE and not a skip: a
+# suite that silently stops checking the wire contract is worse than no suite, because the
+# contract it checks is one nothing else enforces.
+#
+# WHAT IS NOT HERE YET: the on-card arm. The reader/compute/writer triad does not exist, so
+# there is nothing to run against pn_qwen35moe_ssm_recurrence. When it does, the gate is
+# 1e-3 RELATIVE against that oracle and not bit-equality — the oracle accumulates its dots
+# in fp64 on purpose and a Tensix cannot, so the bar is the CUDA arm's. That is decided
+# here, in writing, before the gate exists.
+
+CC      ?= cc
+SRC_DIR := ..
+CONVERT := ../convert
+BUILD   := build-gdn
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  := -lm
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — which is not a
+# build error, it is a wrong offset (best-practices §9).
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_gdn.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+SUPPORT := ft_tt_test_report.c
+
+TARGET := $(BUILD)/test_gdn_ops
+TARGET_ROWS := $(BUILD)/test_gdn_multi_row
+
+.PHONY: all red clean
+
+all: $(TARGET) $(TARGET_ROWS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# A whole-program link rather than incremental objects, and `red` deletes the tree first,
+# because Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently
+# skip a rebuild of a source edited in the same second as its object (best-practices §9).
+$(TARGET): test_gdn_ops.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_ops.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+$(TARGET_ROWS): test_gdn_multi_row.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_multi_row.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

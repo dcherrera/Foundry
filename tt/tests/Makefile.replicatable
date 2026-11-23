@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the resident replica table, off hardware.
+#
+#   make -f Makefile.replicatable run
+#
+# NO CARD. It links the host encoder (ft_tt_op_replicas.c) against the KERNEL'S OWN lookup
+# (kernels/resident_output_replicas.h, the same inline resident_vector_writer.c compiles),
+# so the two cannot drift: there is one search and this suite runs it.
+#
+# Three red arms are built in and run every time — a missing magic word, a bank-only key,
+# and a duplicated destination. Each of them is a silent wrong answer on silicon: a stale
+# replica returns a plausible number with every kernel completing.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-replicatable
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  :=
+
+DEPFLAGS := -MMD -MP
+
+OBJECTS := $(BUILD)/test_replica_table.o $(BUILD)/ft_tt_test_report.o \
+           $(BUILD)/ft_tt_op_replicas.o
+TARGET  := $(BUILD)/test_replica_table
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(OBJECTS:.o=.d)

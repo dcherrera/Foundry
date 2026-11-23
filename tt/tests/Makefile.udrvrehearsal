@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — THE REHEARSAL: the card with tt-kmd UNLOADED.
+#
+#   make -f Makefile.udrvrehearsal red             full rebuild; run nothing
+#   sudo ./build-udrvrehearsal/test_udrv_rehearsal          read-only rungs
+#   sudo ./build-udrvrehearsal/test_udrv_rehearsal write    + the ARC bring-up
+#   sudo ./build-udrvrehearsal/test_udrv_rehearsal reset    + an ASIC reset
+#
+# THE POINT OF THIS FILE IS ITS SOURCE LIST. There is no `ft_tt_kmd.c`, no
+# `ft_tt_tlb.c`, no `ft_tt_noc.c`, no `ft_tt_device.c` — nothing that can open
+# `/dev/tenstorrent/0`. `ft_tt_arch`, `ft_tt_coord` and `ft_tt_arch_blackhole`
+# are pure tables and arithmetic, and they are here so the ARC tile and the
+# Tensix coordinates are DERIVED rather than written down in the test.
+#
+# `ft_tt_log_error` is the one symbol the arch and coordinate modules call that
+# lives in `ft_tt_device.c`. Rather than link that file — which would put the
+# chardev path in the binary and make the claim above false — the test provides
+# its own, in ft_tt_rehearsal_log.c.
+#
+# Root is required: /sys/bus/pci/devices/*/resource0 is 0600 root:root. And
+# /tmp/ft_tt_udrv.d is created by whoever gets there first, so a sudo run leaves
+# it root-owned; `--claim-root` exists for that.
+#
+# `red` rebuilds from scratch every time — GNU make 3.81's one-second mtime
+# granularity means an incremental mutation loop can be running the PREVIOUS
+# binary (coding-best-practices.md §9).
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-udrvrehearsal
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+DEPFLAGS := -MMD -MP
+
+# Pure tables and arithmetic. NOTHING here can reach a device.
+SUPPORT_SRC := $(SRC_DIR)/ft_tt_arch.c \
+               $(SRC_DIR)/ft_tt_arch_blackhole.c \
+               $(SRC_DIR)/ft_tt_coord.c
+
+# The userspace driver — the whole of what is under test.
+UDRV := $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c \
+        $(SRC_DIR)/ft_tt_udrv_tlb_encode.c \
+        $(SRC_DIR)/ft_tt_udrv_noc.c \
+        $(SRC_DIR)/ft_tt_udrv_claim.c \
+        $(SRC_DIR)/ft_tt_udrv_arc_msg.c \
+        $(SRC_DIR)/ft_tt_udrv_arc_probe.c \
+        $(SRC_DIR)/ft_tt_udrv_reset.c
+
+SUPPORT := ft_tt_test_report.c ft_tt_rehearsal_log.c
+
+SOURCES := $(SUPPORT_SRC) $(UDRV) $(SUPPORT) test_udrv_rehearsal.c
+OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+TARGET  := $(BUILD)/test_udrv_rehearsal
+
+.PHONY: all red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+
+red: clean $(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

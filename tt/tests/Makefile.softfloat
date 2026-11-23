@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Host proof of fw/ft_softfloat.c against hardware binary32 (see test_softfloat.c).
+#   make -f Makefile.softfloat check    green run
+#   make -f Makefile.softfloat red      same, built with ties-away rounding: MUST fail
+CC ?= cc
+BUILD := build-softfloat
+FLAGS := -std=c99 -O2 -ffp-contract=off -Wall -Wextra -Werror -DFT_SOFTFLOAT_HOST_TEST
+
+check:
+	rm -rf $(BUILD) && mkdir -p $(BUILD)
+	$(CC) $(FLAGS) ../fw/ft_softfloat.c test_softfloat.c -o $(BUILD)/test_softfloat
+	./$(BUILD)/test_softfloat
+
+red:
+	rm -rf $(BUILD) && mkdir -p $(BUILD)
+	$(CC) $(FLAGS) -DFT_SOFTFLOAT_RED_TIES_AWAY ../fw/ft_softfloat.c test_softfloat.c \
+		-o $(BUILD)/test_softfloat_red
+	! ./$(BUILD)/test_softfloat_red
+
+.PHONY: check red

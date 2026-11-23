@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the attention FAST EXP (-DATTN_FAST_EXP), off hardware.
+#
+#   make -f Makefile.attnfastexp run
+#
+# NO CARD. Emulates kernels/ft_tensix_sfpu_exp_attention.h instruction by instruction in fp32
+# (fused and split SFPMAD) over a dense sweep of [-88, 0] and checks it against exp(): max
+# relative error <= 2^-9, exact 0 for masked scores. The accurate body is the emulator control.
+#
+# RED builds, each must FAIL (objects rebuilt per arm in their own directory):
+#   make -f Makefile.attnfastexp RED=drop_term run   the emulation drops c2 (degree 1)
+#   make -f Makefile.attnfastexp RED=no_clamp run    no max(a, -88): the mask value wraps
+#
+# The polynomial itself: python3 fit_attn_exp_poly.py (numpy).
+
+CC      ?= cc
+SRC_DIR := ..
+RED     ?=
+BUILD   := ../build/test-attnfastexp$(if $(RED),-red-$(RED),)
+
+CFLAGS  := -std=c99 -O2 -g -ffp-contract=off \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+ifeq ($(RED),drop_term)
+CFLAGS  += -DATTN_FAST_EXP_TEST_RED_DROP_TERM
+endif
+ifeq ($(RED),no_clamp)
+CFLAGS  += -DATTN_FAST_EXP_TEST_RED_NO_CLAMP
+endif
+LDLIBS  := -lm
+
+DEPFLAGS := -MMD -MP
+
+OBJECTS := $(BUILD)/test_attn_fast_exp.o $(BUILD)/ft_tt_test_report.o
+TARGET  := $(BUILD)/test_attn_fast_exp
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(OBJECTS:.o=.d)

@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the Phase 2 follow-up tests.
+#
+# Kept separate from `Makefile`, `Makefile.noc` and `Makefile.coord` (the same precedent)
+# so this file can be edited without touching the builds that are already green.
+#
+#   make -f Makefile.phase2_followups PHASE1B=1 all
+#
+# Every program needs the card AND the NoC fence open, so PHASE1B=1 is mandatory:
+# without it every device call returns FT_TT_EPERM before touching the NoC, which is the
+# whole point of the fence (spec §7.3 — a wrong coordinate hangs the chip).
+#
+# Every program takes a build_tensix_program.sh output directory and reads BOTH the
+# firmware and the kernels from it, because a kernel is linked at its own firmware's
+# __fw_export_text_end and the two are one build output.
+#
+#   ./build-phase2b/test_phase2_cb_formats ../programs/vector_add_float32 ../programs/vector_add_float32_legacydesc
+#   ./build-phase2b/test_phase2_dram          ../programs/vector_add
+#   ./build-phase2b/test_phase2_core_to_core  ../programs/vector_add
+#   FT_TT_FIRMWARE_DIR=../programs/vector_add ./build-phase2b/test_phase2_reaim_cost
+#
+# ---------------------------------------------------------------------------
+# HOW THE PROGRAM DIRECTORIES ARE BUILT — recorded 2026-08-14, and each one BUILT
+# before it was written down.
+# ---------------------------------------------------------------------------
+# This file listed the directories its programs take and never said how to make one, so
+# none of them could be run at all. The ctargs below are DERIVED from each kernel's own
+# `ft_tensix_compile_time_arg(N)` declarations, not copied from a run — that function has
+# no bounds check, so a wrong-length list builds cleanly and reads past the array
+# (kernels/resident_gather_reader.c:43, and the bug it produced in Makefile.memory).
+#
+#   vector_add_reader.c:45-47   (0) cb_in0  (1) cb_in1  (2) tile_bytes
+#   vector_add_compute.c:73-75  (0) cb_in0  (1) cb_in1  (2) cb_out
+#   vector_add_writer.c:45-46   (0) cb_out  (1) tile_bytes
+#   delay_compute.c             none — it spins on a RUNTIME arg
+#   noc_write_probe.c:45-49     none — destination and length are RUNTIME args
+#   noop_compute.c              none
+#
+# Run these on the card host (SFPI lives there) with ABSOLUTE paths for every source and for
+# the output directory — build_tensix_program.sh reports a misleading
+# `chlkc_unpack.cpp: No such file or directory` on a relative one. K=$PWD/../kernels:
+#
+#   READER_CTARGS=0,1,2048 COMPUTE_CTARGS=0,1,16 WRITER_CTARGS=16,2048 \
+#     ../build_tensix_program.sh $K/vector_add_reader.c $K/vector_add_compute.c \
+#         $K/vector_add_writer.c $PWD/../programs/vector_add
+#
+#   # Float32: 4096-byte pages, and the ONLY difference between the pair is the table.
+#   READER_CTARGS=0,1,4096 COMPUTE_CTARGS=0,1,16 WRITER_CTARGS=16,4096 \
+#     CB_TABLE=$K/cb_tables/vector_add_float32.cbtable \
+#     ../build_tensix_program.sh $K/vector_add_reader.c $K/vector_add_compute.c \
+#         $K/vector_add_writer.c $PWD/../programs/vector_add_float32
+#   READER_CTARGS=0,1,4096 COMPUTE_CTARGS=0,1,16 WRITER_CTARGS=16,4096 \
+#     ../build_tensix_program.sh $K/vector_add_reader.c $K/vector_add_compute.c \
+#         $K/vector_add_writer.c $PWD/../programs/vector_add_float32_legacydesc
+#
+# EACH PAIR WAS CHECKED FOR VACUITY at build time, because a recipe that produces two
+# identical directories makes its test green for the wrong reason: the two descriptor
+# builds differ on trisc0. None of these is RELOCATE_KERNEL_TEXT=1 — every one of these kernels
+# fits its own firmware hole, and these tests predate the slab.
+#
+# FT_TT_TENSIX_INDEX picks the core the single-core programs drive (default 0) and
+# FT_TT_TENSIX_PEER_INDEX the second core test_phase2_core_to_core needs (default
+# FT_TT_TENSIX_INDEX + 1), so two workers can share the card without editing sources.
+#
+# In each pair the second invocation is the RED half and must fail. A green run of both
+# halves would mean the check cannot tell the two builds apart (best-practices §9).
+#
+# `red` rebuilds from scratch every time: Apple ships GNU make 3.81, whose one-second
+# mtime granularity silently skips a rebuild of a source edited in the same second as its
+# object, so an incremental mutation loop can be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-phase2b
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and
+# the link silently mixes objects compiled against two different struct layouts
+# — which is not a build error, it is a wrong offset and a segfault (or worse, a
+# wrong answer). Adding a field to ft_tt_grid_info reproduced exactly that on
+# 2026-08-12. `-MMD -MP` makes every .o depend on the headers it read.
+DEPFLAGS := -MMD -MP
+
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c \
+           ft_tt_phase2_l1_layout.c
+
+# test_phase2_watcher and test_phase2_noc_sanitize were removed in clean-room Phase 7: they
+# tested the watcher of the retired TT firmware; Foundry's firmware has none (WATCHER=1 is
+# refused by the builders).
+PROGRAMS := test_phase2_cb_formats test_phase2_dram test_phase2_core_to_core \
+            test_phase2_reaim_cost
+TARGETS  := $(addprefix $(BUILD)/,$(PROGRAMS))
+
+.PHONY: all red clean
+
+all: $(TARGETS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program links, not incremental objects: these binaries are built once and run
+# against the card, and a stale object here is a wrong answer on silicon.
+$(BUILD)/%: %.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $< $(BACKEND) $(SUPPORT)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

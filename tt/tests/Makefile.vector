@@ -1,0 +1,217 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 6's VECTOR op family: the ELTWISE binary (SiLU,
+# sigmoid, add, mul, sub, SiLU-gated multiply) and the REDUCE binary (softmax, RMS norm,
+# layer norm, router normalise).
+#
+# TWO BINARIES, TWO BUILD TREES, AND THE FENCE BETWEEN THEM IS THE POINT.
+#
+#   make -f Makefile.vector all                 -> build-vector/test_vector_ops
+#     The OFF-HARDWARE gate. Built WITHOUT -DFT_TT_PHASE1B_NOC_ENABLED, so every device
+#     call in the objects it links would return FT_TT_EPERM before touching the NoC. That
+#     is not a formality: it means this binary cannot reach the card even if it is wrong,
+#     which is what makes it safe to run while somebody else owns the silicon.
+#
+#   make -f Makefile.vector PHASE1B=1 card      -> build-vector-card/test_phase6_vector
+#     The ON-CARD acceptance. PHASE1B=1 is mandatory and deliberate (spec §7.3 — a wrong
+#     NoC coordinate hangs the chip and costs a physical power cycle).
+#
+# The two trees are separate because the flag changes what the backend objects DO. Sharing
+# a tree would mean a stale object from the other configuration linking silently, which is
+# not a build error — it is a wrong answer (dev notes §5, and best-practices §9).
+#
+# Run the off-hardware gate from this directory, so FT_TT_KERNEL_DIR's default resolves:
+#   ./build-vector/test_vector_ops && ./build-vector/test_reduce_schedule
+#
+# Run the on-card acceptance (detached, and never with these cores in use by another
+# worker) -- AFTER `make -f Makefile.vector check-programs`, which is not optional:
+#   make -f Makefile.vector check-programs
+#   FT_TT_FIRMWARE_DIR=../programs/eltwise FT_TT_TENSIX_INDEX=101 \
+#     ./build-vector-card/test_phase6_vector ../programs/eltwise ../programs/reduce
+#
+# A GREEN FROM A STALE PROGRAM DIRECTORY IS THE FAILURE MODE THIS SUITE HAS ACTUALLY HAD.
+# All seven directories under programs/ once carried `.src` sidecars naming `.cpp` files
+# deleted weeks earlier, so this file's greens -- and the four mutation numbers quoted in
+# test_phase6_vector.c's own comment -- were produced by images nobody could rebuild.
+# `check-programs` reads the sidecars nothing used to read; see
+# ../tools/check_tensix_program_sources.sh.
+#
+# The two program directories are RELOCATE_KERNEL_TEXT=1 builds. Pass the kernel sources by
+# ABSOLUTE path: the generated chlkc_*.cpp `#include`s the path it was given, and it is
+# resolved relative to the OUTPUT directory, not the working one.
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1,2048 COMPUTE_CTARGS=0,1,2,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=$PWD/kernels/cb_tables/eltwise_float16b.cbtable \
+#     build_tensix_program.sh $PWD/kernels/resident_eltwise_reader.c \
+#         $PWD/kernels/resident_eltwise_compute.c $PWD/kernels/resident_vector_writer.c \
+#         programs/eltwise
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,5,6,7,2048,1 \
+#     COMPUTE_CTARGS=0,1,2,3,4,5,6,7,8,9,16,1 WRITER_CTARGS=16,2048,1 \
+#     CB_TABLE=$PWD/kernels/cb_tables/reduce_float16b.cbtable \
+#     build_tensix_program.sh $PWD/kernels/resident_reduce_reader.c \
+#         $PWD/kernels/resident_reduce_compute.c $PWD/kernels/resident_vector_writer.c \
+#         programs/reduce
+#
+# THE ACTIVATION STRIP BRIDGE is two MORE programs off the SAME three eltwise sources, and
+# their recipes live here because a recipe that lives only in a `.prov` record is a recipe
+# nobody reads — reduce_fp32's was written down nowhere in tree for a whole round. The reader
+# and the writer are built at DIFFERENT tile sizes ON PURPOSE: that difference IS the render.
+# Each still matches its own circular buffer, and nothing checks either for you.
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1,2048 COMPUTE_CTARGS=0,1,2,16,1 \
+#     WRITER_CTARGS=16,4096,1 CB_TABLE=$PWD/kernels/cb_tables/render_widen.cbtable \
+#     build_tensix_program.sh $PWD/kernels/resident_eltwise_reader.c \
+#         $PWD/kernels/resident_eltwise_compute.c $PWD/kernels/resident_vector_writer.c \
+#         programs/render_widen
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,4096,1,4096 COMPUTE_CTARGS=0,1,2,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=$PWD/kernels/cb_tables/render_narrow.cbtable \
+#     build_tensix_program.sh $PWD/kernels/resident_eltwise_reader.c \
+#         $PWD/kernels/resident_eltwise_compute.c $PWD/kernels/resident_vector_writer.c \
+#         programs/render_narrow
+#
+# THE GATE THAT DELETES THE NARROW HALF is a FIFTH program off the same three sources, and it
+# is the first one whose two INPUT streams are different sizes: 2048 B for A, 4096 B for B
+# (READER_CTARGS arg 4, added 2026-08-25). Under `gate_narrow.cbtable` the fp32 B operand gets
+# `unpack_src Float32 / unpack_dst Float16_b / tile_size 4096` — the SAME descriptor triple
+# `render_narrow` gives its own fp32 input, so the truncating fp32->bf16 unpack happens on the
+# gate's own multiply instead of one descriptor and one DRAM round trip earlier.
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1,4096 COMPUTE_CTARGS=0,1,2,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=$PWD/kernels/cb_tables/gate_narrow.cbtable \
+#     build_tensix_program.sh $PWD/kernels/resident_eltwise_reader.c \
+#         $PWD/kernels/resident_eltwise_compute.c $PWD/kernels/resident_vector_writer.c \
+#         programs/gate_narrow
+#
+# ALL FIVE SHARE A WRITER SOURCE, so a change to resident_vector_writer.c obliges every one of
+# them — which is why the eltwise stage is still in the on-card suite: it is the check
+# that the shared writer still serves the family it was written for. All five also share the
+# READER source, so arg 4 obliges all five: the four pre-existing recipes pass their own A
+# size and rebuild BYTE-IDENTICAL, which is the control that says the new argument is inert
+# when it is not used.
+#
+# Both must be built against ONE firmware build: a kernel is linked against its own
+# firmware's exported symbols, so mixing directories is a wedged core, not a configuration.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-vector
+CARD_BUILD := build-vector-card
+
+WARNINGS := -Wall -Wextra -Werror -pedantic \
+            -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+            -fstack-protector-strong
+
+CFLAGS  := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR)
+LDLIBS  := -lm
+
+# `card` and `all` are separate invocations on purpose: the PHASE1B flag changes what the
+# backend objects DO, so one command line cannot honestly produce both.
+ifneq ($(filter card probe,$(MAKECMDGOALS)),)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — not a build error,
+# a wrong offset (a downstream client hit exactly this; so did ft_tt_grid_info here on 2026-08-12).
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c \
+           $(SRC_DIR)/ft_tt_op_vector.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+# ft_float_convert is READ, not modified: the reference needs the same bf16 rounding the
+# card will apply, and compiling it in rather than reimplementing it is what keeps the
+# reference honest about rounding while staying independent about the OP.
+CONVERT_SRC := $(CONVERT)/ft_float_convert.c
+
+SUPPORT := ft_tt_test_report.c ft_tt_vector_reference.c
+CARD_SUPPORT := $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+TARGET      := $(BUILD)/test_vector_ops
+# P3: the reduce schedule word, its refusals and the streamed reader's policy, off-hardware.
+SCHEDULE_TARGET := $(BUILD)/test_reduce_schedule
+CARD_TARGET := $(CARD_BUILD)/test_phase6_vector
+
+# The multi-tile MAX probe. Same configuration as `card` (it drives the card), its own
+# target because it is a QUESTION and not an acceptance: it answers whether a row MAX wider
+# than one tile may be expressed as repeated reduce_tile calls, and it is not part of the
+# suite `card` runs.
+PROBE_TARGET := $(CARD_BUILD)/test_reduce_max_multitile
+
+.PHONY: all card probe red clean check-programs
+
+all: $(TARGET) $(SCHEDULE_TARGET)
+
+card: $(CARD_TARGET)
+
+probe: $(PROBE_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
+
+# Whole-program links, not incremental objects. `red` deletes the tree first, because
+# Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently skip a
+# rebuild of a source edited in the same second as its object — which has already produced
+# three "runs" of the same stale binary here (best-practices §9, dev notes §3).
+$(TARGET): test_vector_ops.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(LDLIBS)
+
+$(SCHEDULE_TARGET): test_reduce_schedule.c $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c $(LDLIBS)
+
+$(CARD_TARGET): test_phase6_vector.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+                | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+	    $(LDLIBS)
+
+$(PROBE_TARGET): test_reduce_max_multitile.c $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c \
+                 $(CARD_SUPPORT) | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c \
+	    $(CARD_SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD) $(CARD_BUILD)
+
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)
+
+# ---------------------------------------------------------------------------
+# Refuse a program directory built from sources that have since moved. Reads the `.src`
+# sidecars every program build already writes and nothing used to read.
+# ---------------------------------------------------------------------------
+PROGRAM_DIRS ?= ../programs/eltwise ../programs/reduce
+
+check-programs:
+	@bash ../tools/check_tensix_program_sources.sh $(PROGRAM_DIRS)

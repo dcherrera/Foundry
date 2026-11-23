@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+#
+# Makefile.kvtile -- off-hardware gate for the whole-tile KV pack
+# (kernels/ft_kv_block_float.h ft_kv_bf_pack_tile_words vs the per-row packer).
+#
+#   make -f Makefile.kvtile          -> build-kvtile/test_kv_block_float_tile [tiles.bin]
+#   make -f Makefile.kvtile red      -> clean rebuild (make 3.81 skips same-second edits)
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-kvtile
+
+WARNINGS := -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wstrict-prototypes \
+            -Wformat=2
+CFLAGS   := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR) -I$(SRC_DIR)/kernels
+DEPFLAGS := -MMD -MP
+
+TARGET := $(BUILD)/test_kv_block_float_tile
+
+.PHONY: all red clean
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $@
+
+$(TARGET): test_kv_block_float_tile.c ../kernels/ft_kv_block_float.h | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $<
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

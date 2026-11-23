@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# The CHUNKWISE GATED-DELTA-NET triad's circular buffer table.
+#
+#   kernels/resident_gdnc_{reader,compute,writer}.c, program `gdnc`.
+#
+# ---------------------------------------------------------------------------
+# EVERY BUFFER IS Float32, AND THAT IS A WHOLE-PROGRAM DECISION RATHER THAN SIX
+# INDEPENDENT ONES
+# ---------------------------------------------------------------------------
+# `tools/emit_tensix_cb_formats.py`'s `conditional_destination_format()` scans EVERY CB:
+# a Float32 buffer unpacks into Tf32 source registers only when `dst_accum_mode` is on AND
+# every CB in the table is named Float32. ONE bf16 buffer anywhere demotes every Float32 CB's
+# `unpack_dst` to Float16_b -- which would put the rolled window, the conv weight and the
+# banded matmul's accumulator on bf16 mantissas with nothing anywhere saying so. Measured on
+# the decode family 2026-08-21; it is why the fp32<->bf16 bridge is TWO SEPARATE PROGRAMS
+# (`render_widen` / `render_narrow`) and not a mixed table.
+#
+# ---------------------------------------------------------------------------
+# `dst_accum_mode 1` IS MANDATORY, NOT PREFERRED
+# ---------------------------------------------------------------------------
+# This op carries the rolling conv window ACROSS CHUNKS. A 16-bit destination accumulator
+# re-rounds the banded matmul's `2*taps`-term sum once per chunk, and the error is the next
+# chunk's initial condition -- the same argument `gdn_float32.cbtable` makes about the
+# recurrent state, on a shorter carry.
+#
+# IT ALSO SETS THE DST CEILING AT FOUR. DST is 16 tiles of 32x32; DST_SYNC half hands MATH one
+# half at a time and accum mode halves it again. `product_batch()` in the compute kernel
+# clamps to that and to a divisor of `2*taps`; a batch above the ceiling would silently alias
+# DST tiles onto each other and produce a smoothly wrong convolution.
+#
+# ---------------------------------------------------------------------------
+# `math_fidelity 4` IS NOT FREE HERE AND IS STILL RIGHT
+# ---------------------------------------------------------------------------
+# Fidelity phases become MOP inner loops, so the banded matmul costs four passes rather than
+# one. It is kept because the products it multiplies are the model's activations against its
+# conv weights, at the head of a 24-layer recurrence -- the same place the decode family
+# spends it. `MATMUL_INNER_LOOPS` in the compute kernel is derived from this number, so
+# lowering it here changes the emitted MOP and nothing else has to change.
+#
+# ---------------------------------------------------------------------------
+# THE CB MAP -- see resident_gdnc_protocol.h for what each one carries
+# ---------------------------------------------------------------------------
+#   cb  0  CB_IN      the chunk's input tile column. Reader-produced.
+#   cb  1  CB_STATE   the ASSEMBLED window tile: row p is window plane p's row 0. Reader-
+#                     produced, and ZEROED ONCE at residency boot so rows taps-1..31 -- which
+#                     every band matrix multiplies by a zero column -- can never hold a NaN.
+#   cb  2  CB_BAND    the `2*taps` constant 0/1 band tiles. Pushed ONCE per descriptor and
+#                     popped at the end of it, so the buffer is empty at every descriptor
+#                     boundary and its push is an exact hit on the limit.
+#   cb  3  CB_VECTOR  this column's `taps` ROW-REPLICATED conv weight tiles.
+#   cb  4  CB_PROD    the `2*taps` weighted products. THERE IS NO FMA -- `mul_tiles_init`
+#                     passes `acc_to_dest=true` and the LLK hardcodes it to a literal zero for
+#                     ELWMUL on every path -- so every product is packed here and read back by
+#                     the matmul. The COMPUTE thread is its only producer.
+#   cb  5  CB_WORK    PHASE DELTA only: the compute thread's nine `[C,S]` working groups.
+#                     ITS OWN INDEX AND NOT CB_IN'S, and that is the decode family's most
+#                     expensive lesson respelled: a buffer has ONE PRODUCER for the life of a
+#                     residency, because a dataflow `cb_push_back` INCREMENTS the stream
+#                     register while the compute one keeps a LOCAL counter and STORES over it.
+#                     Sharing a buffer between the two makes `received - acked` wrap to a huge
+#                     unsigned and `cb_wait_front` stop blocking, SILENTLY, for a whole run.
+#   cb  6  CB_SCRATCH PHASE DELTA only: the READER's private page for the gate block. NEVER
+#                     PUSHED and never popped -- the staging idiom writes through a write
+#                     pointer without reserving, which is safe only while that pointer is
+#                     provably at the buffer base.
+#   cb  7  CB_DECAY   PHASE DELTA only: this head's `[C,C]` decay-ratio tile, built on the
+#                     HOST because a card-built one costs the whole precision advantage of
+#                     going chunkwise (8.6e-03 -> 1.7e-02, modelled through this unpack).
+#   cb  8  CB_CC      PHASE DELTA only: the `[C,C]` working tiles -- two Gram matrices, the
+#                     causal mask and the twelve Newton tiles. Compute-produced.
+#   cb 16  CB_OUT     CONV: two pages a column, the conv_out tile then the RAW input tile the
+#                     writer takes the window roll's `taps-1` rows out of.
+#                     DELTA: per head, `state_tiles` y tiles then `state_tiles^2` state tiles.
+#                     Either way the ORDER IS THE WIRE CONTRACT the writer's split is defined
+#                     over.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float32 32 32 16 4
+cb  1  Float32 32 32 16 4
+cb  2  Float32 32 32 16 4
+cb  3  Float32 32 32 16 4
+cb  4  Float32 32 32 16 4
+cb  5  Float32 32 32 16 4
+cb  6  Float32 32 32 16 4
+cb  7  Float32 32 32 16 4
+cb  8  Float32 32 32 16 4
+cb 16  Float32 32 32 16 4

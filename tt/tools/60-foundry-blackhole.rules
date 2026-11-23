@@ -1,0 +1,51 @@
+# 60-foundry-blackhole.rules — run Foundry on a Blackhole card WITHOUT root and WITHOUT
+# a vendor kernel module.
+#
+# Install:
+#   sudo groupadd -f tenstorrent
+#   sudo usermod -aG tenstorrent <user>          # then log out and back in, or use `sg`
+#   sudo cp 60-foundry-blackhole.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=pci --attr-match=vendor=0x1e52
+#
+# WHAT EACH LINE IS FOR, and what it CANNOT do.
+#
+# 1. The BAR files. `/sys/bus/pci/devices/<bdf>/resource0` and its write-combined companion
+#    are created 0600 root:root by the PCI core. They are the whole of the userspace
+#    driver's hardware access — the TLB register file and every 2 MiB window aperture live
+#    in BAR0 — so this is the one thing that decides whether an ordinary user can drive the
+#    card at all. udev cannot express a mode for a device's sysfs ATTRIBUTES the way it can
+#    for a device node, hence RUN+= and chgrp/chmod. BAR2 gets the same treatment because it
+#    is the second memory window and a future path may want it; it costs nothing.
+#
+# 2. MRRS. `pcie_set_readrq(pdev, 4096)` is step 1 of the vendor driver's probe, and on a
+#    machine that has never had tt-kmd nobody performs it. Foundry's own bring-up sets it
+#    (ft_tt_udrv_reset.h), but ONLY WHEN IT IS RUN AS ROOT: a config-space write is
+#    privileged, and no udev rule changes that — the kernel truncates an unprivileged read
+#    of `config` to the 64-byte standard header, so an unprivileged process cannot even find
+#    the PCI Express capability, let alone write DEVCTL. This line is therefore the root-side
+#    half of the same job, done once at device-add time by udev itself, so a non-root run
+#    inherits a correctly configured card. `5000:7000` sets DEVCTL bits 14:12 to 5 (4096
+#    bytes) and touches nothing else in the register.
+#
+# 3. MEMORY DECODE. PCI_COMMAND bit 1. `pci_enable_device()` inside the vendor probe is
+#    what normally sets it, and it SURVIVES an `rmmod`, so no measurement on a machine
+#    that had ever loaded tt-kmd could see it missing. MEASURED ON A COLD HOST (a second card host,
+#    2026-08-18, tt-kmd never installed): PCI_COMMAND reads 0x0100, the BAR0 mmap
+#    SUCCEEDS, and all 1024 words of it read 0xFFFFFFFF — indistinguishable from dead
+#    silicon. Foundry's own bring-up sets this too, and like MRRS only when run as root;
+#    this line is the root-side half so a non-root run inherits a card whose BARs answer.
+#    `0002:0002` sets bit 1 and touches nothing else — in particular NOT Bus Master, which
+#    nothing on this data path needs.
+#
+# WHAT THIS STILL DOES NOT GIVE A NON-ROOT USER, stated plainly because a serve on the
+# target board will hit it: the ASIC RESET, and therefore `ft_tt_core recover`. That is
+# three PCI config-space writes and it needs root by the same kernel rule as MRRS. Recovery
+# from a wedged core is a privileged operation on this design; everything on the data path
+# — BAR mapping, window aiming, NoC transfers, firmware boot, telemetry, the per-core flock
+# claims under /tmp — is not.
+
+ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x1e52", ATTR{device}=="0xb140", \
+  RUN+="/bin/sh -c 'chgrp tenstorrent %S%p/resource0 %S%p/resource0_wc %S%p/resource2 %S%p/resource2_wc 2>/dev/null; chmod 0660 %S%p/resource0 %S%p/resource0_wc %S%p/resource2 %S%p/resource2_wc 2>/dev/null'", \
+  RUN+="/usr/bin/setpci -s %k CAP_EXP+8.w=5000:7000", \
+  RUN+="/usr/bin/setpci -s %k COMMAND=0002:0002"

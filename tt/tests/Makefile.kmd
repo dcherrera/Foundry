@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry TT backend — off-device unit test of the kernel-driver boundary (ft_tt_kmd.c).
+#
+#   make -f Makefile.kmd check   build and run both arms
+#   make -f Makefile.kmd red     clean first, then build and run (use for every mutation)
+#
+# NO DEVICE. ft_tt_kmd.c is compiled with ft_tt_kmd_fake_syscalls.h force-included, which
+# points its open/close/ioctl/mmap/munmap seam at fakes in test_kmd.c. Nothing here can reach
+# /dev/tenstorrent. Two arms, because the NoC fence changes behaviour:
+#   test_kmd       default build — aiming a window must be -EPERM with no syscall
+#   test_kmd_noc   -DFT_TT_PHASE1B_NOC_ENABLED — aiming issues CONFIGURE_WINDOW
+#
+# `red` rebuilds from scratch: Apple's GNU make 3.81 skips a rebuild of a source edited in
+# the same second as its object (coding-best-practices.md §9).
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-kmd
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong -U_FORTIFY_SOURCE \
+           -I$(SRC_DIR) -I.
+
+DEPFLAGS := -MMD -MP
+FAKES    := -include ft_tt_kmd_fake_syscalls.h
+NOC      := -DFT_TT_PHASE1B_NOC_ENABLED
+
+TARGETS := $(BUILD)/test_kmd $(BUILD)/test_kmd_noc
+
+.PHONY: all check red clean
+
+all: $(TARGETS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/ft_tt_kmd.o: $(SRC_DIR)/ft_tt_kmd.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) $(FAKES) -c $< -o $@
+
+$(BUILD)/ft_tt_kmd_noc.o: $(SRC_DIR)/ft_tt_kmd.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) $(FAKES) $(NOC) -c $< -o $@
+
+$(BUILD)/test_kmd.o: test_kmd.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/test_kmd_noc.o: test_kmd.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) $(NOC) -c $< -o $@
+
+$(BUILD)/ft_tt_test_report.o: ft_tt_test_report.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/test_kmd: $(BUILD)/ft_tt_kmd.o $(BUILD)/test_kmd.o $(BUILD)/ft_tt_test_report.o
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD)/test_kmd_noc: $(BUILD)/ft_tt_kmd_noc.o $(BUILD)/test_kmd_noc.o \
+                       $(BUILD)/ft_tt_test_report.o
+	$(CC) $(CFLAGS) $^ -o $@
+
+check: $(TARGETS)
+	./$(BUILD)/test_kmd
+	./$(BUILD)/test_kmd_noc
+
+red: clean $(TARGETS)
+	-./$(BUILD)/test_kmd
+	-./$(BUILD)/test_kmd_noc
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

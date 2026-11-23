@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_bfp4_bfp2_split.cbtable
+#   The qwen36 plan 1.4b "no-unpack" weight: a BFP4_B high tile (cb 1, 576 B) and a BFP2_B
+#   residual tile (cb 2, 320 B = 256 datum bytes + 64 exponents), two passes into one Dst
+#   (kernels/bfp_split_matmul_compute.c). Activation and output Float16_b as matmul_bfp4_b.
+#   dst_accum_mode 1 (fp32 Dst): the two passes sum in fp32, as every matmul here does.
+#   math_fidelity is unused by that kernel (its compile-time arg 4 picks the phases).
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Bfp4_b    32 32 16 4
+cb  2  Bfp2_b    32 32 16 4
+cb 16  Float16_b 32 32 16 4

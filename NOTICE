@@ -1,0 +1,113 @@
+Foundry
+Copyright (C) 2026 David (Corey) Herrera and the Foundry contributors.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The full license text is in LICENSE.
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+
+Contributions
+-------------
+Contributions are accepted under the Contributor License Agreement in CLA.md
+(CLA-CORPORATE.md for organizations), with a Developer Certificate of Origin
+sign-off on every commit. Contributors retain copyright in their contributions.
+The signature roster is .cla/signatures.md.
+
+
+Third-party code
+----------------
+Foundry vendors no third-party libraries. It is plain C11 plus, where
+explicitly enabled at build time, the platform's own vendor SDKs -- CUDA
+(USE_CUDA=1), Metal (USE_METAL=1), and a BLAS implementation such as Apple
+Accelerate or OpenBLAS (USE_BLAS=1). Those are linked, not redistributed, and
+remain under their own licenses. Rebuilding the Tenstorrent device images needs
+the SFPI compiler (https://github.com/tenstorrent/sfpi); some tools and tests
+call python3, curl or a llama.cpp build at run time. None of these is bundled.
+
+Portions of the following files are derived from third-party work:
+
+  tt/tests/test_dma_vs_pio.c
+    ft_tt_dma_h2d() is transliterated from BlackholeDmaTransfer::h2d_transfer
+    in tt-umd (https://github.com/tenstorrent/tt-umd), modified.
+
+    tt-umd is (c) Tenstorrent AI ULC and licensed under the Apache License,
+    Version 2.0 (LICENSES/Apache-2.0.txt).
+
+  Other formerly Tenstorrent-derived files in tt/ were replaced in a 2026-10
+  clean-room; the provenance record is docs/cleanroom/tt/README.md.
+
+  tt/tests/test_dma_vs_pio.c also declares, locally, the struct layout of the
+    tt-kmd ALLOCATE_DMA_BUF ioctl (https://github.com/tenstorrent/tt-kmd,
+    GPL-2.0). Only the kernel interface layout is matched, so the program can
+    call the driver; no tt-kmd source code is included. Test file only.
+
+  barswap/k80_quirk/k80-strap-quirk.c
+    Copyright (C) 2026 David (Corey) Herrera. The BAR1 resource-shrink fixup
+    is modelled on quirk_s3_64M in the Linux kernel's drivers/pci/quirks.c
+    (https://www.kernel.org/, GPL-2.0), modified. It is built into a Linux
+    kernel, and only with the GPL-2.0 kernel. The GNU General Public License,
+    version 2, is in LICENSES/GPL-2.0.txt.
+
+  metal/kernels/fm_kernel_matvec_q4_k.{h,m}, fm_kernel_matvec_q5_k.{h,m},
+  fm_kernel_matvec_q6_k.{h,m}, fm_kernel_matvec_q8_0.{h,m},
+  cuda_kernels/fused_layer.cu, cuda_kernels/moe_expert_group.cu,
+  cuda_kernels/matvec_q3k.cu (and their PTX in cuda/fc_cuda_ptx.h),
+  and the k-quant block repack (fc_repack_*) in cuda/fc_cuda.c
+    The k-quant and Q8_0 block decoding and matvec structure are modelled on
+    ggml (https://github.com/ggml-org/ggml), Copyright (c) 2023-2026 The ggml
+    authors, MIT License, modified. The MIT License text is in
+    LICENSES/MIT.txt.
+
+  Research and reference code (not used in production)
+
+  These files are research, test and benchmark code. They are not linked
+  into, or called by, any production build.
+
+  cuda/tests/bench_matvec.c, cuda/tests/bench_q2_0_gonogo.c,
+  cuda/tests/test_moe_expert_quants.c,
+  cuda_kernels/tests/bench_matvec_nx_staging.cu,
+  cuda_kernels/tests/probe_nx_stage_mlp.cu,
+  cuda_kernels/tests/calib_nx_stage_poison.c,
+  cuda_kernels/tests/bench_moe_grid_compaction.cu,
+  cuda_kernels/tests/bench_moe_shx_staging.cu,
+  metal/tests/test_metal_q3_k.c, metal/tests/test_matvec_q4_k.c,
+  metal/tests/test_metal_matvec_q5_k.c, metal/tests/test_gemm_q4_k.c,
+  metal/tests/test_gemm_q4_k_f16.c, metal/tests/test_metal_moe_experts.c,
+  metal/tests/test_metal_region.c, metal/tests/test_metal_moe.c,
+  metal/tests/bench_matvec_bandwidth.m
+    CPU replicas and benchmarks of the k-quant kernels, modelled on ggml
+    (https://github.com/ggml-org/ggml), Copyright (c) 2023-2026 The ggml
+    authors, MIT License (LICENSES/MIT.txt), modified.
+
+  barswap/k80_quirk/archive/k80_strap_quirk.c
+    Copyright (C) 2026 David (Corey) Herrera. Superseded early version of
+    k80-strap-quirk.c, modelled on quirk_s3_64M in the Linux kernel's
+    drivers/pci/quirks.c (https://www.kernel.org/, GPL-2.0;
+    LICENSES/GPL-2.0.txt), modified. A Linux kernel module, built only with
+    the GPL-2.0 kernel.
+
+Model weights and datasets processed by Foundry carry their own licenses,
+entirely separate from this one.
+
+
+Trademarks
+----------
+No right is granted to use the "Foundry" name or any associated logo to name or
+promote a derivative product. Factual statements that your product uses Foundry
+are fine.
+
+
+Contact
+-------
+coreyh55@gmail.com

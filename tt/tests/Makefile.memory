@@ -1,0 +1,157 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 6's MEMORY op family (EMBEDDING + KV_APPEND).
+#
+# TWO BINARIES, TWO BUILD TREES, AND THE FENCE BETWEEN THEM IS THE POINT.
+#
+#   make -f Makefile.memory all                 -> build-memory/test_memory_ops
+#     The OFF-HARDWARE gate. Built WITHOUT -DFT_TT_PHASE1B_NOC_ENABLED, so every device
+#     call in the objects it links returns FT_TT_EPERM before touching the NoC. That is not
+#     a formality: it means this binary cannot reach the card even if it is wrong, which is
+#     what makes it safe to run while somebody else owns the silicon.
+#
+#   make -f Makefile.memory PHASE1B=1 card      -> build-memory-card/test_phase6_memory
+#     The ON-CARD acceptance. PHASE1B=1 is mandatory and deliberate (spec §7.3 — a wrong
+#     NoC coordinate hangs the chip and costs a physical power cycle).
+#
+# THE SHIM OBJECT IS NOT AN ACCIDENT. tests/ft_tt_memory_device_shim.c compiles the
+# arithmetic half of kernels/resident_memory_protocol.h for the host, so the off-hardware
+# suite scores THE KERNEL'S OWN face-offset and run functions rather than a C transcription
+# of them — a transcription would have agreed with itself, and face order is precisely the
+# mistake that is invisible to any metric computed through the same wrong code.
+# The header includes <stdint.h>/<stdbool.h> and nothing else,
+# which is a property to KEEP.
+#
+# It was a C++ object until 2026-08-13, purely for `extern "C"` linkage over what was then a
+# C++ header. Phase 6.6 made that header C99, so the shim is plain C now and this suite
+# needs no C++ compiler at all.
+#
+# Run the off-hardware gate from this directory, so FT_TT_KERNEL_DIR's default resolves:
+#   ./build-memory/test_memory_ops
+#
+# Run the on-card acceptance (detached, and never with these cores in use by another
+# worker):
+#   FT_TT_FIRMWARE_DIR=../programs/memory FT_TT_TENSIX_INDEX=30 \
+#     ./build-memory-card/test_phase6_memory ../programs/memory
+#
+# The program directory is a RELOCATE_KERNEL_TEXT=1 build. It has FIVE images because
+# build_tensix_program.sh builds five; only brisc.elf and ncrisc.elf are ever loaded, and
+# noop_compute.c is there to satisfy the builder rather than to run — this op has NO
+# compute thread and its enables mask is DM0|DM1 (kernels/resident_memory_protocol.h says
+# why that is safe rather than merely small).
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=16,0,1,2048,1,17 COMPUTE_CTARGS=0 \
+#     WRITER_CTARGS=16,2048,1,17 \
+#     build_tensix_program.sh kernels/resident_gather_reader.c \
+#         kernels/noop_compute.c kernels/resident_place_writer.c \
+#         programs/memory
+#
+# THE RECIPE ABOVE WAS WRONG UNTIL 2026-08-14 — it omitted the trailing CB_OUT_KV on both
+# lists, giving five/three ctargs where the kernels want six/four. Derived, not guessed:
+# resident_gather_reader.c:70-75 declares ft_tensix_compile_time_arg(0..5) as
+# CB_OUT_EMBEDDING / CB_STAGE / CB_INDEX / TILE_BYTES / WAIT_MODE / CB_OUT_KV, and
+# resident_place_writer.c:69-72 declares (0..3) as CB_OUT_EMBEDDING / TILE_BYTES /
+# WAIT_MODE / CB_OUT_KV. `ft_tensix_compile_time_arg()` has no bounds check, so a short
+# list does not fail to build — it reads past the array, which is the case
+# resident_gather_reader.c:43 documents in its own header.
+#
+# No CB_TABLE: a `.cbtable` generates ft_tensix_cb_formats.h for the COMPUTE images, and this
+# program has no compute kernel. The data-movement images learn their tile size from
+# READER_CTARGS / WRITER_CTARGS, and those two MUST agree.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-memory
+CARD_BUILD := build-memory-card
+
+WARNINGS := -Wall -Wextra -Werror -pedantic \
+            -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+            -fstack-protector-strong
+
+CFLAGS   := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR)
+LDLIBS   := -lm
+
+# `card` and `all` are separate invocations on purpose: the PHASE1B flag changes what the
+# backend objects DO, so one command line cannot honestly produce both.
+ifeq ($(filter card,$(MAKECMDGOALS)),card)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — not a build error,
+# a wrong offset.
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_memory.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+SUPPORT      := ft_tt_test_report.c
+CARD_SUPPORT := $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+TARGET      := $(BUILD)/test_memory_ops
+CARD_TARGET := $(CARD_BUILD)/test_phase6_memory
+SHIM        := $(BUILD)/ft_tt_memory_device_shim.o
+CARD_SHIM   := $(CARD_BUILD)/ft_tt_memory_device_shim.o
+
+.PHONY: all card red clean
+
+all: $(TARGET)
+
+card: $(CARD_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
+
+$(SHIM): ft_tt_memory_device_shim.c ../kernels/resident_memory_protocol.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(CARD_SHIM): ft_tt_memory_device_shim.c ../kernels/resident_memory_protocol.h | $(CARD_BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Whole-program links, not incremental objects. `red` deletes the tree first, because
+# Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently skip a
+# rebuild of a source edited in the same second as its object — which has already produced
+# three "runs" of the same stale binary here (best-practices §9, dev notes §3).
+$(TARGET): test_memory_ops.c $(BACKEND) $(SUPPORT) $(SHIM) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(SUPPORT) $(SHIM) $(LDLIBS)
+
+$(CARD_TARGET): test_phase6_memory.c $(BACKEND) $(SUPPORT) $(CARD_SUPPORT) $(CARD_SHIM) \
+                | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(SUPPORT) $(CARD_SUPPORT) $(CARD_SHIM) \
+	    $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD) $(CARD_BUILD)
+
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)

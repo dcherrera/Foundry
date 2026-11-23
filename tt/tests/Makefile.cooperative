@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the COOPERATIVE matmul: one matmul across N Tensix cores.
+#
+# Two programs, deliberately split by whether they need silicon:
+#
+#   test_cooperative_matmul_plan   OFF HARDWARE. The work split, the refusals and the runtime
+#                                  arg blocks. Builds and runs on the Mac while somebody else
+#                                  owns the card.
+#   test_cooperative_matmul        ON CARD. The measurement, and the byte comparison against
+#                                  the single-core result.
+#
+#   make -f Makefile.cooperative check              # off-hardware only, no card needed
+#   make -f Makefile.cooperative PHASE1B=1 all      # both
+#
+# The on-card program needs the NoC fence open, so PHASE1B=1 is mandatory for it: without it
+# every device call returns FT_TT_EPERM before touching the NoC, which is the whole point of
+# the fence (spec §7.3 — a wrong coordinate hangs the chip).
+#
+# Run the on-card half through run_cooperative_matmul_suite.sh, never directly: the suite's
+# last rule is that the cores it used must be proven to still BOOT *and* still COMPUTE, and the
+# COMPUTE half is `ft_tt_core probe`, a different program.
+#
+# ---------------------------------------------------------------------------
+# THE PROGRAM DIRECTORY — recorded here 2026-08-14, and BUILT before it was written down.
+# ---------------------------------------------------------------------------
+# It lived only inside run_cooperative_matmul_suite.sh's header, so this file named a suite
+# without saying how to make the suite's input. The ctargs are DERIVED, not copied:
+# cooperative_matmul_reader.c:92-95 declares ft_tensix_compile_time_arg(0..3) as CB_IN0 /
+# CB_IN1 / IN0_TILE_BYTES / IN1_TILE_BYTES, and the host driver pins those CB indices at
+# ft_tt_op_matmul_cooperative.c:20-22 (0, 1, 16). The compute and writer thirds are the
+# SHIPPED matmul_compute.c and vector_add_writer.c unchanged — a cooperating matmul is a
+# reader-side and host-side change — so their ctargs are Makefile.ops's matmul ones.
+#
+# On the card host, ABSOLUTE paths throughout (K=$PWD/../kernels):
+#
+#   RELOCATE_KERNEL_TEXT=1 \
+#   READER_CTARGS=0,1,2048,2048 COMPUTE_CTARGS=0,1,16 WRITER_CTARGS=16,2048 \
+#   CB_TABLE=$K/cb_tables/matmul_float16b.cbtable \
+#     ../build_tensix_program.sh $K/cooperative_matmul_reader.c $K/matmul_compute.c \
+#         $K/vector_add_writer.c $PWD/../programs/cooperative
+#
+# CB_TABLE is not optional and the suite script's copy of this recipe omits it. Without a
+# table the build falls back to the uniform-legacy descriptor set, which carries
+# MATH_FIDELITY 4 by DEFAULT rather than by the choice matmul_float16b.cbtable records —
+# and dst_accum_mode 0 instead of 1, a 35x accuracy difference for zero wall clock. A
+# cooperative result compared against a single-core one built WITH the table would then
+# differ for a reason that has nothing to do with cooperating.
+#
+# `make red` rebuilds from scratch. Apple ships GNU make 3.81, whose one-second mtime
+# granularity silently skips a rebuild of a source edited in the same second as its object, so
+# an incremental mutation loop can be running the PREVIOUS binary.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-cooperative
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+LDLIBS   := -lm
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_multicast.c \
+           $(SRC_DIR)/ft_tt_group_shared_operand.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_dram_stripe.c \
+           $(SRC_DIR)/ft_tt_dram_shard.c \
+           $(SRC_DIR)/ft_tt_op_matmul_cooperative.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/convert/ft_float_convert.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+# The off-hardware program links only what it uses. Nothing in this list opens a device, which
+# is what makes it runnable anywhere — the planner is pure arithmetic on purpose (a wrong
+# multicast rectangle is not a failed transaction, it is a write into a core somebody else is
+# using, so every claim about it should be provable without silicon).
+OFFLINE_SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+                   $(SRC_DIR)/ft_tt_device.c \
+                   $(SRC_DIR)/ft_tt_arch.c \
+                   $(SRC_DIR)/ft_tt_arch_blackhole.c \
+                   $(SRC_DIR)/ft_tt_coord.c \
+                   $(SRC_DIR)/ft_tt_multicast.c \
+                   $(SRC_DIR)/ft_tt_group_shared_operand.c \
+                   $(SRC_DIR)/ft_tt_udrv_claim.c \
+                   $(SRC_DIR)/ft_tt_tensix_claim.c \
+                   $(SRC_DIR)/ft_tt_launch.c \
+                   $(SRC_DIR)/ft_tt_elf.c \
+                   $(SRC_DIR)/ft_tt_buffer.c \
+                   $(SRC_DIR)/ft_tt_tlb.c \
+                   $(SRC_DIR)/ft_tt_arc_telemetry.c \
+                   $(SRC_DIR)/ft_tt_noc.c \
+                   $(SRC_DIR)/ft_tt_kernel_blob.c \
+                   $(SRC_DIR)/ft_tt_op_dispatch.c \
+                   $(SRC_DIR)/ft_tt_dram_stripe.c \
+                   $(SRC_DIR)/ft_tt_dram_shard.c \
+                   $(SRC_DIR)/ft_tt_op_matmul_cooperative.c \
+                   ft_tt_test_report.c
+
+.PHONY: all check red clean
+
+all: $(BUILD)/test_cooperative_matmul_plan $(BUILD)/test_cooperative_matmul
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program links, not incremental objects: these are built once and run against the card,
+# and a stale object there is a wrong answer on silicon.
+$(BUILD)/test_cooperative_matmul_plan: test_cooperative_matmul_plan.c $(OFFLINE_SOURCES) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(OFFLINE_SOURCES) $(LDLIBS)
+
+$(BUILD)/test_cooperative_matmul: test_cooperative_matmul.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+check: $(BUILD)/test_cooperative_matmul_plan
+	./$(BUILD)/test_cooperative_matmul_plan
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 5's ON-CARD suite.
+#
+#   make -f Makefile.phase5 PHASE1B=1 all
+#
+# PHASE1B=1 is mandatory. Without it every device call returns FT_TT_EPERM before touching
+# the NoC, which is the whole point of the fence (spec §7.3 — a wrong NoC coordinate hangs
+# the chip and costs a physical power cycle).
+#
+# The OFF-device half of Phase 5 is Makefile.queue and needs no card; run that first,
+# because everything it covers is cheaper to get wrong there.
+#
+# The two programs it drives are the SAME source built twice, which is what makes the
+# dispatch A/B measure dispatch rather than two implementations of the work:
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0 COMPUTE_CTARGS=1,1,1 WRITER_CTARGS=16,2048 \
+#     build_tensix_program.sh $K/resident_queue.c $K/noop_compute.c \
+#         $K/vector_add_writer.c ../programs/resident      # 0 = resident
+#
+#   ... READER_CTARGS=1 ... ../programs/oneshot                # 1 = one-shot, the baseline
+#
+# Pass the compute and writer sources as ABSOLUTE paths: the generated chlkc_*.cpp
+# #includes the compute source by the path it was given, and it is compiled from a
+# different directory.
+#
+# Only the BRISC image is ever loaded (BRISC_ONLY_MASK). The TRISC and NCRISC images exist
+# because the program builder makes all five and because the FIRMWARE set needs all five —
+# a kernel is linked against its own firmware's exported symbols, so firmware and kernel
+# must come from ONE build directory.
+#
+# Run (detached, and never with the card in use by another worker):
+#   FT_TT_FIRMWARE_DIR=../programs/resident FT_TT_TENSIX_INDICES=71,72,73,74 \
+#     ./build-phase5/test_phase5_resident ../programs/resident ../programs/oneshot
+#
+# FT_TT_TENSIX_INDICES moves the whole run to a second, DISJOINT core set without a
+# rebuild — a result believed on one set of cores does not generalise, and recompiling to
+# move cores makes the two runs differ by more than the cores.
+# FT_TT_QUEUE_AB_ITERATIONS sets how many descriptors each arm of the A/B runs.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-phase5
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+ifndef PHASE1B
+$(error Phase 5 drives the card: build with PHASE1B=1 or every device call is refused)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+
+SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c \
+           $(HARDWARE_SESSION_SOURCES) \
+           ft_tt_program_directory.c \
+           ft_tt_test_report.c \
+           test_phase5_resident.c
+
+OBJECTS := $(sort $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o))))
+TARGET  := $(BUILD)/test_phase5_resident
+
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

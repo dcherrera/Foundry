@@ -1,0 +1,57 @@
+# Foundry Swarm Coordinator Configuration
+#
+# All values can be overridden via environment variables:
+# SW_PORT, SW_LEARNING_RATE, SW_MIN_WORKERS, etc.
+
+[network]
+# Port to listen on
+port = 7100
+
+[training]
+# Learning rate
+learning_rate = 1e-4
+lr_min = 1e-6
+lr_warmup_steps = 1000
+total_steps = 100000
+
+[optimizer]
+# Adam parameters
+beta1 = 0.9
+beta2 = 0.999
+weight_decay = 0.01
+
+[sync]
+# Minimum workers before training starts
+min_workers = 2
+
+# Aggregate gradients after N gradient pushes
+# Set low for async training with heterogeneous hardware
+sync_every_n_grads = 5
+
+[checkpoint]
+# Directory for checkpoints
+dir = "/app/checkpoints"
+
+# Save checkpoint every N steps
+every_steps = 1000
+
+[fault_tolerance]
+# Mark worker dead after N seconds without heartbeat
+heartbeat_timeout_sec = 120
+
+# Allow workers to rejoin after disconnect
+allow_rejoin = true
+
+[compression]
+# Gradient compression: "none", "fp16", "topk", "qsgd"
+type = "topk"
+
+# TopK ratio (keep top 10% of gradients)
+topk_ratio = 0.1
+
+[logging]
+# Log level: "debug", "info", "warn", "error"
+level = "info"
+
+# Log file (empty for stdout)
+file = ""

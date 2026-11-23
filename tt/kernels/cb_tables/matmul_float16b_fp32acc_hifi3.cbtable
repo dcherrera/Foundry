@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_float16b_fp32acc_hifi3.cbtable — P-SWAP PROBE ONLY (Nex-n2 qwen38_tt_prefill_rework_spec.md §3); never shipped.
+#   matmul_float16b_fp32acc.cbtable at HiFi3: the swapped matmul (weights as in0 -> SrcB).
+#   Read only by tests/test_fidelity_swap.c. Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  3
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

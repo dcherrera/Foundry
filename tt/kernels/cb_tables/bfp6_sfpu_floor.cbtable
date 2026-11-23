@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# bfp6_sfpu_floor.cbtable
+#   Route-2 floor bench (kernels/bfp6_sfpu_floor_compute.c): a BFP6_B high plane read as the
+#   BFP4_B tile it is (cb 1), copied through Dst and packed BFP8_B (cb 16) for a matmul to read.
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  1  Bfp4_b    32 32 16 4
+cb 16  Bfp8_b    32 32 16 4

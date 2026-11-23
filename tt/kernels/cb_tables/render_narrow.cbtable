@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# render_narrow.cbtable
+#   THE fp32 -> bf16 HALF OF THE ACTIVATION STRIP BRIDGE. `render_widen.cbtable` inverted, on
+#   the same three kernel sources:
+#
+#     cb  0  Float32   4096 B   input A -- an fp32 strip, row 0
+#     cb  1  Float32   4096 B   input B -- a strip of ZEROS, so kVecFnAdd is a copy
+#     cb  2  Float32   4096 B   scratch, only kVecFnSiluMul uses it; sized to match A
+#     cb 16  Float16_b 2048 B   output -- a bf16 activation strip a matmul or the elementwise
+#                               residency can read
+#
+#   READER_CTARGS carries 4096 and WRITER_CTARGS carries 2048. See render_widen.cbtable for
+#   why the two disagree and why that is legal.
+#
+# ---------------------------------------------------------------------------
+# THIS RENDER TRUNCATES, AND THE HOST CONVERSION IT REPLACES ROUNDED
+# ---------------------------------------------------------------------------
+# The narrowing happens at the UNPACK, not at the pack: this is a mixed table, so
+# `conditional_destination_format()` is Float16_b and a Float32 CB unpacks into a Float16_b
+# source register -- and that unpack TRUNCATES toward zero rather than rounding to nearest
+# (the same mechanism measured on the Float32 reduce, where Tf32's truncation is the whole
+# residue). `ft_bf16_from_float_array()`, which is what the host did on this seam, rounds. So
+# this arm is up to 2x the rounding error of the path it replaces on ONE value per element,
+# and it is the last conversion before a bf16 consumer that would have rounded anyway.
+#
+# **That is priced against the OUTPUT, not against a relative-error bar.** The whole per-head
+# norm miss -- of which this render is the largest single term -- costs 0.158% perplexity, and
+# a 1e-3 relative bar on an intermediate tensor is refuted here: it fails an arm whose
+# 48-token output is byte-identical to the oracle.
+#
+# The way to remove the term rather than double it is an all-Float32 ELTWISE program, so the
+# `silu(z) *` gate runs in fp32 and only the final `gated` is narrowed. That is a third table
+# and one more descriptor a layer; modelled off-hardware the gate then scores 1.909e-03
+# against 1.023e-02, a 6.2x the reduce does not own. It is deliberately NOT taken here,
+# because it changes no bytes over PCIe and this bridge is about the bytes.
+#
+# ---------------------------------------------------------------------------
+# dst_accum_mode 1 -- and here it is the SHIPPED eltwise configuration, not a new one
+# ---------------------------------------------------------------------------
+# `derive_format_roles()` gives the Float16_b output CB `pack_src = Float16_b` while DST holds
+# fp32. That pairing is exactly what `eltwise_float16b.cbtable` ships and has run on silicon
+# since bring-up, so it is proven rather than assumed.
+#
+# math_fidelity 4: uniform with every other table here, and an add against zero is exact at
+# any level.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float32   32 32 16 4
+cb  1  Float32   32 32 16 4
+cb  2  Float32   32 32 16 4
+cb 16  Float16_b 32 32 16 4

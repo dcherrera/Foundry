@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the fidelity/DST_ACCUM_MODE explanatory sweep
+# (test_fidelity_sweep.c). Separate from Makefile.ops for the reason every one of these
+# per-purpose Makefiles is separate: it can be edited without touching a build that is
+# already green.
+#
+#   make -f Makefile.fidelity PHASE1B=1 all
+#
+# PHASE1B=1 is mandatory — see Makefile.ops's note, same reason (spec §7.3).
+#
+# Four program directories are its input, all diagnostic-only cbtables under
+# kernels/cb_tables/, all built from the UNCHANGED matmul_reader.c / matmul_compute.c
+# / vector_add_writer.c:
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,2048 COMPUTE_CTARGS=0,1,16 \
+#     WRITER_CTARGS=16,2048 CB_TABLE=kernels/cb_tables/matmul_float16b.cbtable \
+#     build_tensix_program.sh kernels/matmul_reader.c kernels/matmul_compute.c \
+#         kernels/vector_add_writer.c programs/matmul_fidelity_hifi4_dst16
+#
+#   ...same, CB_TABLE=kernels/cb_tables/matmul_float16b_lofi.cbtable,
+#         outdir programs/matmul_fidelity_lofi_dst16
+#
+#   ...same, CB_TABLE=kernels/cb_tables/matmul_float16b_fp32acc.cbtable,
+#         outdir programs/matmul_fidelity_hifi4_dst32
+#
+#   ...same, CB_TABLE=kernels/cb_tables/matmul_float16b_lofi_fp32acc.cbtable,
+#         outdir programs/matmul_fidelity_lofi_dst32
+#
+# VERIFIED 2026-08-14 — all four directories were actually built from this recipe and all
+# four produce five images with `.src` sidecars. The ctargs are the same DERIVATION
+# Makefile.ops's matmul recipe uses (matmul_reader.c's compile-time args 0..3 are CB_IN0 /
+# CB_IN1 / IN0_TILE_BYTES / IN1_TILE_BYTES; matmul_compute.c's 0..2 are CB_IN0 / CB_IN1 /
+# CB_OUT; vector_add_writer.c's 0..1 are CB_OUT / TILE_BYTES), and the four arms differ in
+# the CB TABLE alone — which is what makes the sweep a measurement of fidelity and
+# DST_ACCUM_MODE rather than of four different builds.
+#
+# ONE TRAP, the same one Makefile.ops records: the paths above are relative for
+# readability and build_tensix_program.sh REFUSES relative kernel sources, reporting a
+# misleading `chlkc_unpack.cpp: No such file or directory`. Invoke it with absolute paths
+# for every source and for the output directory.
+#
+# Run:
+#   FT_TT_PROGRAM_DIR=<...>/programs FT_TT_TENSIX_INDEX=101 ./build-fidelity/test_fidelity_sweep
+#
+# test_fidelity_sweep loads each of the four directories in turn — firmware AND kernel
+# together, per directory, per the pairing rule in ft_tt_program_directory.h — so there is
+# no separate firmware-boot step here the way Makefile.ops's smoke test needs.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-fidelity
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  := -lm
+
+DEPFLAGS := -MMD -MP
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c
+
+CONVERT_SRC := $(CONVERT)/ft_float_convert.c $(CONVERT)/ft_bfp.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+PROGRAMS := test_fidelity_sweep test_fidelity_swap
+TARGETS  := $(addprefix $(BUILD)/,$(PROGRAMS))
+
+.PHONY: all red clean
+
+all: $(TARGETS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program links against the card — a stale object is a wrong answer on silicon, and
+# Apple's GNU make 3.81 compares mtimes at one-second granularity (best-practices §9), so
+# `red` deletes the tree first rather than trusting incremental make.
+$(BUILD)/%: %.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

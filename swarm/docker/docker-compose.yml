@@ -1,0 +1,80 @@
+# Foundry Swarm - Docker Compose for local development/testing
+#
+# Usage:
+#   docker-compose up -d                    # Start coordinator + 2 workers
+#   docker-compose up -d --scale worker=5   # Start with 5 workers
+#   docker-compose logs -f coordinator      # Watch coordinator logs
+#   docker-compose down                     # Stop all
+
+version: "3.8"
+
+services:
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: swarm/docker/Dockerfile.coordinator
+    container_name: swarm-coordinator
+    ports:
+      - "7100:7100"
+    volumes:
+      - ./config:/app/config:ro
+      - checkpoints:/app/checkpoints
+      - logs:/app/logs
+    environment:
+      - SW_PORT=7100
+      - SW_MIN_WORKERS=2
+      - SW_LEARNING_RATE=1e-4
+      - SW_TOTAL_STEPS=100000
+      - SW_CHECKPOINT_EVERY=1000
+      - SW_HEARTBEAT_TIMEOUT=60
+    networks:
+      - swarm-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7100"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: swarm/docker/Dockerfile.worker
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - training-data:/app/data:ro
+      - logs:/app/logs
+    environment:
+      - SW_COORDINATOR_HOST=coordinator
+      - SW_COORDINATOR_PORT=7100
+      - SW_DATA_PATH=/app/data
+      - SW_BATCH_SIZE=0          # Auto-detect
+      - SW_NUM_THREADS=0         # Auto-detect
+      - SW_SHARD_INDEX=-1        # Auto-assign
+    networks:
+      - swarm-net
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    restart: unless-stopped
+
+networks:
+  swarm-net:
+    driver: bridge
+
+volumes:
+  checkpoints:
+    driver: local
+  logs:
+    driver: local
+  training-data:
+    driver: local

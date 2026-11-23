@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the BLOCKED-COLUMN resident matmul, off hardware.
+#
+#   make -f Makefile.matmulblock all && ./build-matmulblock/test_matmul_block
+#
+# NO CARD. The suite models resident_matmul_reader.c's read grid and L1 layout and
+# resident_matmul_compute.c's indexed unpacks, then checks that the (A tile, B tile) pairs
+# reaching each DST tile are exactly the matmul. That is the one property an SrcA stride or
+# an L1 layout error breaks, and on the card it breaks it SILENTLY — every kernel completes.
+#
+# It reads kernels/resident_queue_protocol.h through FT_TT_KERNEL_DIR (default ../kernels)
+# to pin the parameter-word contract. Running it from another directory without setting that
+# is a FAILURE and not a skip.
+#
+# Two red arms are built in and run every time: an un-strided MOP and a K-major L1 layout.
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-matmulblock
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I$(SRC_DIR)/kernels
+LDLIBS  :=
+
+# Header dependency tracking. Without it, editing a header rebuilds nothing and the link
+# silently mixes objects compiled against two different layouts (best-practices §9).
+DEPFLAGS := -MMD -MP
+
+SOURCES := test_matmul_block.c ft_tt_test_report.c
+OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+TARGET  := $(BUILD)/test_matmul_block
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(OBJECTS:.o=.d)

@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# matmul_float16b.cbtable
+#   The bf16 matmul's CB contract, and the file that makes MATH_FIDELITY a CHOICE.
+#
+#   Three CBs, all Float16_b 2048 B:
+#     cb  0  activations
+#     cb  1  weights
+#     cb 16  output
+#
+#   Until 2026-08-12 the bf16 matmul named no CB table at all, so it inherited
+#   build_tensix_kernel.sh's uniform-legacy set — which is where MATH_FIDELITY = 4 came
+#   from. Nobody chose it. That mattered because a fidelity level is a MULTIPLIER on the
+#   matmul's math cycles: the matmul MOP's inner loop count is set to the
+#   fidelity value, so a 32x32x32 matmul_tiles is 16 cycles at LoFi and 64 at HiFi4
+#   (GEMM_FLOPS.md:107). The descriptor content is otherwise identical to the legacy set
+#   for the three CBs this kernel uses; the unused ones become Invalid, which nothing
+#   reads.
+#
+#   THE FIDELITY DECISION IS HiFi4, AND IT IS NOT A TRADE. Swept at LoFi / HiFi2 / HiFi3 /
+#   HiFi4 against the whole Phase 4 PCC suite: a 4x arithmetic difference moved wall time
+#   by 0.6%, inside the run-to-run spread, because the matmul is data-movement bound at
+#   every depth — one tile is 64 cycles = 80 ns at HiFi4 and the reader delivers a pair
+#   every 104 ns. With no throughput to gain, the choice is on accuracy alone, and HiFi4 is
+#   the level with the a-priori guarantee (more mantissa bits per product).
+#   Full PCC and max-abs tables, including the unexplained result that LoFi measures BETTER on the long-K shapes: docs/tt_bringup_log.md §16.3.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+#   cb <index> <format> <tile_r> <tile_c> <face_r> <num_faces>
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+# ---------------------------------------------------------------------------
+# Flipped 0 -> 1 on 2026-08-13, and it should have happened months earlier.
+# ---------------------------------------------------------------------------
+# §19 MEASURED this on THIS kernel and these shapes: ffn_down max-abs 2.187 -> 0.0626
+# (35x), PCC 0.998878 -> 0.999999, and 473.3 -> 473.4 GFLOP/s -- i.e. free, because the
+# op is data-movement bound and the accumulator costs nothing. §19's own conclusion was
+# "Ship it."
+#
+# It was then applied to every op written AFTERWARDS -- eltwise, reduce, rope, topk,
+# attention all default to 1 -- and never back-ported to the kernel it was measured on.
+# So the single highest accuracy-per-cost finding in this project was live everywhere
+# except its own subject. Found by an upstream-comparison round noticing that the two
+# DEEPEST accumulation chains were the two still running a 16-bit accumulator.
+#
+# The two block-float tables followed on 2026-08-13, on their OWN on-card measurement
+# rather than on this one -- §19's caveat was bf16-in/bf16-out and it was honoured. Their
+# numbers, and the Phase 4 "BFP4 beats BFP8" question they close, are in
+# matmul_bfp4_b.cbtable. Nothing in this family now runs a 16-bit accumulator. Free at
+# scale is measured for THIS table: Mt=32 gives 631.0 GFLOP/s at PCC 0.999999, so the
+# halved DST tile capacity does not bind.
+
+cb  0  Float16_b 32 32 16 4
+cb  1  Float16_b 32 32 16 4
+cb 16  Float16_b 32 32 16 4

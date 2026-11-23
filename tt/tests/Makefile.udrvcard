@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the USERSPACE DRIVER's ON-CARD bring-up.
+#
+#   make -f Makefile.udrvcard red       full rebuild; run nothing
+#   sudo ./build-udrvcard/test_udrv_card_tlb        rungs 1-3, WRITES NOTHING
+#   sudo ./build-udrvcard/test_udrv_card_tlb write  rungs 1-4, writes registers
+#
+# THIS IS THE ONE udrv MAKEFILE THAT PRODUCES A BINARY THAT CAN TOUCH THE CARD,
+# and it is separate from `Makefile.udrv` for exactly that reason: that file's
+# whole claim is that its source list cannot reach a device, and a target here
+# would quietly destroy it.
+#
+# The binary defaults to the read-only rungs. Writing a register needs the
+# `write` argument, so a run started by muscle memory cannot write one. That
+# matters for the mutation battery: an encoder mutation run with `write` would
+# aim windows at addresses nobody chose, whereas the same mutation run with the
+# default only mis-PREDICTS what tt-kmd wrote, which is precisely the red proof
+# rung 3 wants.
+#
+# Root is required: /sys/bus/pci/devices/*/resource0 is 0600 root:root. A udev
+# rule would replace that (see ft_tt_udrv_pci_sysfs.h) and has not been used
+# here.
+#
+# `red` rebuilds from scratch every time — GNU make 3.81's one-second mtime
+# granularity means an incremental mutation loop can be running the PREVIOUS
+# binary (coding-best-practices.md §9).
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-udrvcard
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR) -I.
+
+DEPFLAGS := -MMD -MP
+
+SOURCES := $(SRC_DIR)/ft_tt_udrv_tlb_encode.c \
+           $(SRC_DIR)/ft_tt_udrv_pci_sysfs.c \
+           test_udrv_card_tlb.c \
+           ft_tt_test_report.c
+
+OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+TARGET  := $(BUILD)/test_udrv_card_tlb
+
+.PHONY: all red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@
+
+red: clean $(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

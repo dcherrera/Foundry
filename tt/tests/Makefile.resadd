@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — S3a, the residual ADD in the fused resident matmul
+# (rtriad_bfp8_swiglu built with -DFT_RTRIAD_RESADD=1), off hardware.
+#
+#   make -f Makefile.resadd run
+#
+# NO CARD. Compares the fused ADD's verbs with eltwise ADD's from the two SOURCES
+# (FT_TT_KERNEL_DIR, default ../kernels — run from tt/tests), pins the compute's block layout,
+# and models the panel / residual CB rings across mixed SwiGLU and RESADD descriptors.
+#
+# RED build, must FAIL (objects rebuilt in their own directory):
+#   make -f Makefile.resadd RED=panel_nb run    a RESADD block takes NB panel pages, not 2*NB
+
+CC      ?= cc
+SRC_DIR := ..
+RED     ?=
+BUILD   := ../build/test-resadd$(if $(RED),-red-$(RED),)
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+ifeq ($(RED),panel_nb)
+CFLAGS  += -DRESADD_TEST_RED_PANEL_NB
+endif
+LDLIBS  := -lm
+DEPFLAGS := -MMD -MP
+OBJECTS := $(BUILD)/test_resadd_fusion.o $(BUILD)/ft_tt_test_report.o
+TARGET  := $(BUILD)/test_resadd_fusion
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(OBJECTS:.o=.d)

@@ -1,0 +1,150 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 4's op acceptance.
+#
+# Separate from Makefile, Makefile.noc, Makefile.coord and Makefile.phase2_followups for
+# the same reason those are separate from each other: this file can be edited without
+# touching a build that is already green.
+#
+#   make -f Makefile.ops PHASE1B=1 all
+#
+# PHASE1B=1 is mandatory. Without it every device call returns FT_TT_EPERM before touching
+# the NoC, which is the whole point of the fence (spec §7.3 — a wrong coordinate hangs the
+# chip and costs a physical power cycle).
+#
+# The programs it drives are RELOCATE_KERNEL_TEXT=1 builds, one directory each:
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2,3,2048 \
+#     COMPUTE_CTARGS=0,1,2,3,4,5,6,16 WRITER_CTARGS=16,2048 \
+#     build_tensix_program.sh kernels/rms_norm_reader.c kernels/rms_norm_compute.c \
+#         kernels/vector_add_writer.c programs/rms_norm
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,2048 COMPUTE_CTARGS=0,1,16 \
+#     WRITER_CTARGS=16,2048 CB_TABLE=kernels/cb_tables/matmul_float16b.cbtable \
+#     build_tensix_program.sh kernels/matmul_reader.c kernels/matmul_compute.c \
+#         kernels/vector_add_writer.c programs/matmul
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1088 COMPUTE_CTARGS=0,1,16 \
+#     WRITER_CTARGS=16,2048 CB_TABLE=kernels/cb_tables/matmul_bfp8_b.cbtable \
+#     build_tensix_program.sh kernels/matmul_reader.c kernels/matmul_compute.c \
+#         kernels/vector_add_writer.c programs/matmul_bfp8
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,576 COMPUTE_CTARGS=0,1,16 \
+#     WRITER_CTARGS=16,2048 CB_TABLE=kernels/cb_tables/matmul_bfp4_b.cbtable \
+#     build_tensix_program.sh kernels/matmul_reader.c kernels/matmul_compute.c \
+#         kernels/vector_add_writer.c programs/matmul_bfp4
+#
+# The bf16 matmul takes a CB TABLE now where it used to take none. The descriptors for the
+# three CBs it uses are identical to the legacy uniform set; what the table adds is that
+# MATH_FIDELITY is stated in a file with its reason instead of inherited from the emitter's
+# default.
+#
+# build_tensix_program.sh fails on RELATIVE kernel source paths — it reports a misleading
+# `chlkc_unpack.cpp: No such file or directory`, not a "no such source" error, because the
+# failure is in a generated file it tries to read back from its own scratch directory, not
+# in the argument you passed. Invoke it with ABSOLUTE paths for every kernel source and for
+# the program directory, e.g. from tt/tests/:
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,576 COMPUTE_CTARGS=0,1,16 \
+#     WRITER_CTARGS=16,2048 CB_TABLE=$(pwd)/../kernels/cb_tables/matmul_bfp4_b.cbtable \
+#     ../build_tensix_program.sh $(pwd)/../kernels/matmul_reader.c $(pwd)/../kernels/matmul_compute.c \
+#         $(pwd)/../kernels/vector_add_writer.c $(pwd)/../programs/matmul_bfp4
+#
+# This has caught two people so far.
+#
+# Run:
+#   FT_TT_FIRMWARE_DIR=../programs/matmul FT_TT_PROGRAM_DIR=../programs \
+#   FT_TT_FTTW=<path to a converted .fttw artifact> \
+#   FT_TT_TENSIX_INDEX=75 FT_TT_MATMUL_PREFETCH=64 FT_TT_OP_REPEATS=3 ./build-ops/test_ops
+#
+# FT_TT_TENSIX_INDEX: 14 cores are damaged and cannot compute — 0-9, 14, 15, 28, 42, 70.
+# Verified healthy: 71-75. On a damaged core every op
+# scores PCC -nan; the round-trip and non-finite instruments at the top of the run are what
+# tell that apart from a broken kernel.
+# FT_TT_MATMUL_PREFETCH: K-tiles per NoC barrier. 1 is the Phase 4 behaviour; 64 asks for the
+# whole K loop and the driver shrinks it to the largest divisor of Kt. Worth 5.9x.
+# FT_TT_OP_REPEATS: keep the fastest of N launches. FT_TT_OPS: subset of the three ops.
+#
+# The firmware directory must be one of the three program directories: all three were
+# built from the same firmware sources and their fw_*.elf are byte-identical, which is
+# checked rather than assumed (the md5s are in docs/tt_bringup_log.md §13). A kernel is
+# linked against its own firmware's exported symbols, so mixing builds is a wedged core,
+# not a configuration.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-ops
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  := -lm
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and
+# the link silently mixes objects compiled against two different struct layouts
+# — which is not a build error, it is a wrong offset and a segfault (or worse, a
+# wrong answer). Adding a field to ft_tt_grid_info reproduced exactly that on
+# 2026-08-12. `-MMD -MP` makes every .o depend on the headers it read.
+DEPFLAGS := -MMD -MP
+
+
+ifdef PHASE1B
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c \
+           $(SRC_DIR)/ft_tt_op_rms_norm.c \
+           $(SRC_DIR)/ft_tt_fttw.c
+
+# The conversion library is READ, not modified: the test needs ft_bfp to produce a genuine
+# Bfp8_b weight and to reconstruct the values the FPU will see, and ft_float_convert for
+# bf16. Compiling it in rather than reimplementing it is what keeps the reference honest
+# about quantization while staying independent about the OP.
+CONVERT_SRC := $(CONVERT)/ft_bfp.c $(CONVERT)/ft_float_convert.c
+
+SUPPORT := ft_tt_test_report.c $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+PROGRAMS := test_ops
+TARGETS  := $(addprefix $(BUILD)/,$(PROGRAMS))
+
+.PHONY: all red clean
+
+all: $(TARGETS)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+# Whole-program links, not incremental objects: these run against the card, and a stale
+# object here is a wrong answer on silicon. `red` deletes the tree first, because Apple's
+# GNU make 3.81 compares mtimes at one-second granularity and will silently skip a rebuild
+# of a source edited in the same second as its object (best-practices §9).
+$(BUILD)/%: %.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

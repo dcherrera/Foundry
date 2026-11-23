@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# topk_float16b.cbtable
+#   The CB descriptor contract for the resident TOPK/SAMPLE program.
+#
+#   IT DESCRIBES ONE CB AND THE COMPUTE THREAD NEVER READS IT. That is not an oversight and
+#   it is the interesting fact about this op: top-k is a scalar streaming selection between
+#   two DATA-MOVEMENT processors (resident_topk_protocol.h §2), so the tile stream goes
+#   BRISC -> NCRISC and no unpacker or packer is involved at any point.
+#
+#   The table still has to exist and still has to be right, because
+#   tools/emit_tensix_cb_formats.py generates ft_tensix_cb_formats.h for the three TRISC
+#   images whether they use it or not, and a CB the table does not list gets
+#   DataFormat::Invalid. cb 0 is listed at the format the reader and the selector are built
+#   for so the descriptor array the host writes and the descriptors the compute images were
+#   compiled against agree byte for byte -- there is NO runtime check of that agreement
+#   (docs/tt_kernel_model.md §11), and "the compute thread would not have noticed" is not a
+#   reason to leave a contract inconsistent.
+#
+#   math_fidelity and dst_accum_mode are recorded rather than inherited, per §16 --
+#   HiFi4 and fp32 DST, matching every other Phase 6 table. Neither reaches any instruction
+#   in this program; they are here so that a future round which DOES put the SFPU to work
+#   (resident_topk_compute.c names the two-stage shape and the number that would justify
+#   it) starts from a stated choice instead of an emitter default.
+#
+#   Format: tools/emit_tensix_cb_formats.py
+
+math_fidelity  4
+approx         0
+dst_accum_mode 1
+
+cb  0  Float16_b 32 32 16 4

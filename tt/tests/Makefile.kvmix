@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+#
+# Makefile.kvmix -- off-hardware gate for a MIXED KV cache (K and V in different formats:
+# K Bfp8_b / V Bfp4_b and the like): the two appends' encodings, the attention placement and
+# parameters with K and V paged separately, and the four mixed programs' CB tables.
+#
+#   make -f Makefile.kvmix          -> build-kvmix/test_kv_mixed_format
+#   make -f Makefile.kvmix red      -> clean rebuild (make 3.81 skips same-second edits)
+
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-kvmix
+
+WARNINGS := -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wstrict-prototypes \
+            -Wformat=2
+CFLAGS   := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR) -I$(SRC_DIR)/kernels
+LDLIBS   := -lm
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c $(SRC_DIR)/ft_tt_arch.c $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c $(SRC_DIR)/ft_tt_tlb.c $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c $(SRC_DIR)/ft_tt_noc.c $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c $(SRC_DIR)/ft_tt_kernel_blob.c $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c $(SRC_DIR)/ft_tt_launch.c $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c $(SRC_DIR)/ft_tt_op_attention.c \
+           $(SRC_DIR)/ft_tt_op_memory.c $(SRC_DIR)/ft_tt_queue.c $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c $(SRC_DIR)/convert/ft_float_convert.c
+
+CB_TABLES := $(wildcard $(SRC_DIR)/kernels/cb_tables/attention_k*v*.cbtable)
+TARGET := $(BUILD)/test_kv_mixed_format
+
+.PHONY: all red clean
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $@
+
+$(TARGET): test_kv_mixed_format.c $(BACKEND) $(CB_TABLES) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

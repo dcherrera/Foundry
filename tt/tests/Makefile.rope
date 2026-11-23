@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 6's ROPE op (partial NeoX rotary position embedding).
+#
+# TWO BINARIES, TWO BUILD TREES, AND THE FENCE BETWEEN THEM IS THE POINT.
+#
+#   make -f Makefile.rope all                 -> build-rope/test_rope_ops
+#     The OFF-HARDWARE gate. Built WITHOUT -DFT_TT_PHASE1B_NOC_ENABLED, so every device call
+#     in the objects it links returns FT_TT_EPERM before touching the NoC. That is not a
+#     formality: it means this binary cannot reach the card even if it is wrong, which is
+#     what makes it safe to run while somebody else owns the silicon.
+#
+#   make -f Makefile.rope PHASE1B=1 card      -> build-rope-card/test_phase6_rope
+#     The ON-CARD acceptance. PHASE1B=1 is mandatory and deliberate (spec §7.3 — a wrong NoC
+#     coordinate hangs the chip and costs a physical power cycle).
+#
+# The two trees are separate because the flag changes what the backend objects DO. Sharing a
+# tree would mean a stale object from the other configuration linking silently, which is not
+# a build error — it is a wrong answer (dev notes §5, best-practices §9).
+#
+# Run the off-hardware gate from this directory, so FT_TT_KERNEL_DIR's default resolves:
+#   ./build-rope/test_rope_ops
+#
+# Run the on-card acceptance (detached, and never with these cores in use by another worker):
+#   FT_TT_FIRMWARE_DIR=../programs/rope FT_TT_TENSIX_INDEX=40 \
+#     ./build-rope-card/test_phase6_rope ../programs/rope
+#
+# The program directory is a RELOCATE_KERNEL_TEXT=1 build:
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2,3,2048,1 COMPUTE_CTARGS=0,1,2,3,4,5,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=kernels/cb_tables/rope_float16b.cbtable \
+#     build_tensix_program.sh kernels/resident_rope_reader.c \
+#         kernels/resident_rope_compute.c kernels/resident_rope_writer.c \
+#         programs/rope
+#
+# It must be built against the SAME firmware build as anything else loaded on that core: a
+# kernel is linked against its own firmware's exported symbols, so mixing directories is a
+# wedged core, not a configuration.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-rope
+CARD_BUILD := build-rope-card
+
+WARNINGS := -Wall -Wextra -Werror -pedantic \
+            -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+            -fstack-protector-strong
+
+CFLAGS  := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR)
+LDLIBS  := -lm
+
+# `card` and `all` are separate invocations on purpose: the PHASE1B flag changes what the
+# backend objects DO, so one command line cannot honestly produce both.
+ifeq ($(filter card,$(MAKECMDGOALS)),card)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts.
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_rope.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+# ft_float_convert is READ, not modified: the reference needs the same bf16 rounding the card
+# applies, and compiling it in rather than reimplementing it keeps the reference honest about
+# rounding while staying independent about the OP.
+CONVERT_SRC := $(CONVERT)/ft_float_convert.c
+
+SUPPORT := ft_tt_test_report.c ft_tt_rope_reference.c
+CARD_SUPPORT := $(HARDWARE_SESSION_SOURCES) ft_tt_program_directory.c
+
+TARGET      := $(BUILD)/test_rope_ops
+CARD_TARGET := $(CARD_BUILD)/test_phase6_rope
+
+.PHONY: all card red clean
+
+all: $(TARGET)
+
+card: $(CARD_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
+
+# Whole-program links, not incremental objects. `red` deletes the tree first, because Apple's
+# GNU make 3.81 compares mtimes at one-second granularity and will silently skip a rebuild of
+# a source edited in the same second as its object — which has already produced three "runs"
+# of the same stale binary here (best-practices §9, dev notes §3).
+$(TARGET): test_rope_ops.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(LDLIBS)
+
+$(CARD_TARGET): test_phase6_rope.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+                | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+	    $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD) $(CARD_BUILD)
+
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)

@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the RESIDENT TRIAD gate.
+#
+#   make -f Makefile.phase6 PHASE1B=1 all
+#
+# PHASE1B=1 is mandatory. Without it every device call returns FT_TT_EPERM before touching
+# the NoC, which is the whole point of the fence (spec §7.3 — a wrong NoC coordinate hangs
+# the chip and costs a physical power cycle).
+#
+# ---------------------------------------------------------------------------
+# THE FOUR PROGRAM DIRECTORIES, AND WHY THERE ARE FOUR
+# ---------------------------------------------------------------------------
+# Three of them are the SAME SOURCE built with a different wait mode in the last
+# compile-time arg. An A/B whose arms are two source files measures two implementations;
+# an A/B whose arms differ by one build flag measures the flag. That is the same rule the
+# Phase 5 dispatch measurement was built on (resident/one-shot from one source).
+#
+#   K=kernels; RELOCATE_KERNEL_TEXT=1 CB_TABLE=$K/cb_tables/matmul_float16b.cbtable
+#
+#   ../programs/rtriad            wait mode 1 — stoppable (ask + bound). WHAT SHIPS.
+#     READER_CTARGS=0,1,2048,2048,1  COMPUTE_CTARGS=0,1,16,1  WRITER_CTARGS=16,2048,1
+#   ../programs/rtriad_upstream   wait mode 0 — upstream's blocking waits. THE COST ARM.
+#     READER_CTARGS=0,1,2048,2048,0  COMPUTE_CTARGS=0,1,16,0  WRITER_CTARGS=16,2048,0
+#     *** NEVER DEADLOCK THIS BUILD. *** It has no escape and no bound, which is exactly
+#     the unstoppable wait that wedged Tensix 0 (dev notes §1). It exists to be timed.
+#   ../programs/rtriad_boundonly  wait mode 2 — the bound, with the ask REMOVED. THE RED
+#     READER_CTARGS=0,1,2048,2048,2  COMPUTE_CTARGS=0,1,16,2  WRITER_CTARGS=16,2048,2
+#     PROOF. Deadlocking it is safe precisely because rule 4 bounds every wait independently
+#     of the ask, so a broken ask degrades to kErrCbWaitTimeout and not to a lost core.
+#   ../programs/matmul            the Phase 4 arm, unchanged, from Makefile.ops
+#
+# All four must be built against ONE firmware build: a kernel is linked against its own
+# firmware's exported symbols, so mixing directories is a wedged core, not a configuration.
+#
+# ---------------------------------------------------------------------------
+# ../programs/rtriad_bfp8 — THE SHIPPING PRODUCTION BUILD (2026-08-14)
+# ---------------------------------------------------------------------------
+# The four above are bf16 (`IN1_TILE_BYTES=2048`) and serve the GATE, not a model: every
+# matmul weight in a production artifact is block float. This is the same three kernels at
+# the artifact's weight tile size, and it is what `pn_tt_matvec()` in Pantheon enqueues on.
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1088,1 COMPUTE_CTARGS=0,1,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=$K/cb_tables/matmul_bfp8_b.cbtable \
+#     build_tensix_program.sh $K/resident_matmul_reader.c $K/resident_matmul_compute.c \
+#         $K/resident_matmul_writer.c ../programs/rtriad_bfp8
+#   (ABSOLUTE paths for every argument — build_tensix_program.sh fails on relative ones with
+#    a misleading `chlkc_unpack.cpp: No such file or directory`; see Makefile.ops)
+#
+# EVERY ctarg is READ OFF THE KERNEL rather than carried over from a neighbouring recipe —
+# guessing them is what produced the Makefile.memory bug. The indices are declared in the
+# three sources' own `ft_tensix_compile_time_arg(N)` lines:
+#   reader   0 CB_IN0 · 1 CB_IN1 · 2 IN0_TILE_BYTES · 3 IN1_TILE_BYTES · 4 WAIT_MODE
+#   compute  0 cb_in0 · 1 cb_in1 · 2 cb_out · 3 wait_mode
+#   writer   0 CB_OUT · 1 OUT_TILE_BYTES · 2 WAIT_MODE
+# So 1088 is the WEIGHT (in1) ALONE: the activation and the output stay Float16_b/2048, and
+# the CB table has to agree — it emits `0:Float16_b/2048B,1:Bfp8_b/1088B,16:Float16_b/2048B`
+# and a reader built for 2048 against it reads a page and three quarters of the next one
+# with nothing anywhere complaining.
+#
+# CHECK `size` ON EVERY IMAGE. The per-processor text slab is FT_TT_OP_TEXT_SLAB_BYTES_<proc>
+# (12288 B when this was written; 11-16 KiB since 2026-11-19), and an over-slab image fails to load SILENTLY — no instruction diff sees
+# it. Measured for this build: brisc 3532 · ncrisc 2160 · trisc0 2500 · trisc1 1580 ·
+# trisc2 2380, so the widest is 29% of the slab. Then run
+# `tools/check_tensix_program_sources.sh ../programs/rtriad_bfp8` before believing any
+# result from it — it refuses a directory whose `.src` sidecars name sources that have moved.
+#
+# ONE build, not two. `rtriad_bfp4` is deliberately NOT built: the production ledger now
+# puts `ffn_gate`/`ffn_up` at Bfp8_b (they measured +9.50% perplexity at Bfp4_b for no
+# throughput), so a converted artifact holds a SINGLE matmul tile size — established by
+# reading the written artifact back with `convert/tools/ft_tt_fttw_list`, not assumed. A
+# core can hold one resident binary anyway (ft_tt_op_l1_layout.h divergence 2), so an
+# artifact with two tile sizes would have needed two cores or two residencies.
+#
+# ---------------------------------------------------------------------------
+# ../programs/rtriad_mixw — MIXED Bfp8_b / Bfp4_b WEIGHTS IN ONE RESIDENCY (2026-11-12)
+# ---------------------------------------------------------------------------
+# The answer to the paragraph above for the Qwen3.8 low-memory tier:
+# ONE binary, the weight format chosen PER DESCRIPTOR by word 13
+# bit 30, Bfp4_b tiles at a 576 B stride inside CB_IN1's 1,088 B pages, SrcA switched lazily.
+# rtriad_bfp8's ctargs and its RECORDED defines (the blob's recipe carries
+# -DFT_TT_MATMUL_DST_SYNC=1, which the rtriad_bfp8 line above predates), plus the mixw pair
+# and its own CB table (cb 2 = the Bfp4_b format, never placed):
+#
+#   RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,1088,1 COMPUTE_CTARGS=0,1,16,1 \
+#     WRITER_CTARGS=16,2048,1 CB_TABLE=$K/cb_tables/matmul_mixw.cbtable \
+#     KERNEL_DEFINES="-DFT_TT_MATMUL_DST_SYNC=1 -DFT_RTRIAD_MIXW=1 -DFT_RTRIAD_MIXW_ALT_TILE_BYTES=576" \
+#     build_tensix_program.sh $K/resident_matmul_reader.c $K/resident_matmul_compute.c \
+#         $K/resident_matmul_writer.c ../programs/rtriad_mixw
+#
+# Every new line is under FT_RTRIAD_MIXW, so every other program is unchanged.
+# tools/check_mixw_program_gates.sh (SFPI 7.68.0, any host) rebuilds every program
+# from this tree, requires all 300 images LOAD-IDENTICAL to the blob, builds this, checks each
+# image against the 12,288 B slab and regenerates the blob (REGEN=1). The card test is
+# test_mixw_triad.c (Makefile.mixw), run at plan 3.4.
+#
+# Run (detached, and never with these cores in use by another worker):
+#   FT_TT_FIRMWARE_DIR=../programs/rtriad FT_TT_TENSIX_INDICES=60,61 \
+#     ./build-phase6/test_phase6_triad ../programs/rtriad ../programs/rtriad_upstream \
+#         ../programs/rtriad_boundonly ../programs/matmul
+#
+# FT_TT_TENSIX_INDICES moves the whole run to a second, DISJOINT core pair without a
+# rebuild — a result believed on one set of cores does not generalise (dev notes §3).
+# FT_TT_TRIAD_AB_ITERATIONS sets how many matmuls each arm of the A/B runs.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+BUILD   := build-phase6
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+
+DEPFLAGS := -MMD -MP
+
+ifndef PHASE1B
+$(error the triad gate drives the card: build with PHASE1B=1 or every device call is refused)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+
+SOURCES := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_matmul.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c \
+           $(HARDWARE_SESSION_SOURCES) \
+           ft_tt_program_directory.c \
+           ft_tt_test_report.c \
+           test_phase6_triad.c
+
+OBJECTS := $(sort $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o))))
+TARGET  := $(BUILD)/test_phase6_triad
+
+.PHONY: all red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(CFLAGS) $(OBJECTS) -o $@ -lm
+
+# `red` deletes the tree first. GNU make 3.81 compares mtimes at one-second granularity, so
+# a source edited in the same second as its object is silently not rebuilt and a red/green
+# proof runs the PREVIOUS binary (coding-best-practices §9).
+red: clean all
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(wildcard $(BUILD)/*.d)

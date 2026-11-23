@@ -1,0 +1,199 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — Phase 6 item 6: FLASH-DECODE ATTENTION.
+#
+# THREE BINARIES, TWO CONFIGURATIONS, AND THE FENCE BETWEEN THEM IS THE POINT.
+#
+#   make -f Makefile.attention all              -> build-attn/test_attention_ops
+#                                               -> build-attn/test_attention_splitk
+#   make -f Makefile.attention red-splitk       -> the split-K suite with one partial never
+#                                                  merged; passes only if the suite FAILS
+#     The OFF-HARDWARE gate. Built WITHOUT -DFT_TT_PHASE1B_NOC_ENABLED, so every device
+#     call in the objects it links returns FT_TT_EPERM before touching the NoC. That is not
+#     a formality: it means this binary cannot reach the card even if it is wrong, which is
+#     what makes it safe to run while somebody else owns the silicon.
+#
+#   make -f Makefile.attention PHASE1B=1 card   -> build-attn-card/test_phase6_attention
+#                                               -> build-attn-card/test_attention_transpose_probe
+#     The ON-CARD acceptance, and the transpose probe that has to answer first.
+#     PHASE1B=1 is mandatory and deliberate (spec §7.3 — a wrong NoC coordinate hangs the
+#     chip and costs a physical power cycle).
+#
+# Program directories (RELOCATE_KERNEL_TEXT=1 builds; pass kernel sources by ABSOLUTE path,
+# because the generated chlkc_*.cpp #includes the path it was given and resolves it
+# relative to the OUTPUT directory):
+#
+#   probe — the transpose question, on the UNMODIFIED matmul reader and writer:
+#     RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2048,2048,1 COMPUTE_CTARGS=0,1,16,1 \
+#       WRITER_CTARGS=16,2048,1 \
+#       CB_TABLE=$PWD/kernels/cb_tables/matmul_float16b_fp32acc.cbtable \
+#       build_tensix_program.sh $PWD/kernels/resident_matmul_reader.c \
+#           $PWD/kernels/resident_attention_transpose_probe.c \
+#           $PWD/kernels/resident_matmul_writer.c programs/probe
+#
+#   attention — the real triad:
+#     RELOCATE_KERNEL_TEXT=1 READER_CTARGS=0,1,2,3,13,2048,1 \
+#       COMPUTE_CTARGS=0,1,2,3,4,5,6,7,8,9,10,11,12,16,14,1 WRITER_CTARGS=16,2048,1 \
+#       CB_TABLE=$PWD/kernels/cb_tables/attention_float16b.cbtable \
+#       build_tensix_program.sh $PWD/kernels/resident_attention_reader.c \
+#           $PWD/kernels/resident_attention_compute.c \
+#           $PWD/kernels/resident_attention_writer.c programs/attention
+#
+#   attention_k8v4_split — split-K (resident_attention_protocol.h §7): attention_k8v4's recipe
+#     plus -DATTN_SPLITK=1; built, slab-checked and embedded by tools/check_splitk_program_gates.sh.
+#
+# Both must be built against ONE firmware build: a kernel is linked against its own
+# firmware's exported symbols, so mixing directories is a wedged core, not a configuration.
+
+CC      ?= cc
+SRC_DIR := ..
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+CONVERT := ../convert
+BUILD   := build-attn
+CARD_BUILD := build-attn-card
+
+WARNINGS := -Wall -Wextra -Werror -pedantic \
+            -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+            -fstack-protector-strong
+
+CFLAGS  := -std=c99 -O1 -g $(WARNINGS) -I$(SRC_DIR)
+LDLIBS  := -lm
+
+# `card` and `all` are separate invocations on purpose: the PHASE1B flag changes what the
+# backend objects DO, so one command line cannot honestly produce both.
+ifneq ($(filter card ornith q38,$(MAKECMDGOALS)),)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — not a build error,
+# a wrong offset.
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_attention.c \
+           $(SRC_DIR)/ft_tt_op_memory.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+# ft_float_convert is READ, not modified: the reference needs the same bf16 rounding the
+# card will apply, and compiling it in rather than reimplementing it is what keeps the
+# reference honest about rounding while staying independent about the OP.
+CONVERT_SRC := $(CONVERT)/ft_float_convert.c
+
+SUPPORT := ft_tt_test_report.c ft_tt_attention_reference.c
+SPLITK_SUPPORT := ft_tt_test_report.c ft_tt_attention_splitk_model.c
+# BACKEND already links ft_tt_udrv_claim.c; listing it twice is a duplicate-symbol link.
+CARD_SUPPORT := $(filter-out $(SRC_DIR)/ft_tt_udrv_claim.c,$(HARDWARE_SESSION_SOURCES)) \
+                ft_tt_program_directory.c
+
+TARGET        := $(BUILD)/test_attention_ops
+# SPLIT-K (resident_attention_protocol.h §7): the PARTIAL / MERGE words and the arithmetic,
+# off-hardware. RED_TARGET is the same suite with one partial never merged: it must fail.
+SPLITK_TARGET := $(BUILD)/test_attention_splitk
+SPLITK_RED_TARGET := $(BUILD)/test_attention_splitk_red
+CARD_TARGET   := $(CARD_BUILD)/test_phase6_attention
+PROBE_TARGET  := $(CARD_BUILD)/test_attention_transpose_probe
+ORNITH_TARGET := $(CARD_BUILD)/test_phase6_attention_ornith
+Q38_TARGET    := $(CARD_BUILD)/test_phase6_attention_q38
+
+# ORNITH'S SHAPE, OUT OF THE SAME SOURCE. 16 Q heads / 4 KV groups / head_dim 256 over 8
+# attention layers is q_rows 4 and dim_tiles 8 — a different RESIDENCY, not a different
+# descriptor, so it is a second BINARY rather than an environment variable. MAX_KV=32768 is
+# what makes the SLOPE measurable where this phase's value actually is; it costs 32 MiB of
+# static K and V on the host and 16 MiB of card DRAM a region.
+#
+#   make -f Makefile.attention PHASE1B=1 ornith
+#   FT_TT_FIRMWARE_DIR=../programs/attention FT_TT_TENSIX_INDEX=84 \
+#     FT_TT_ATTN_BLOCK_TILES=16 FT_TT_ATTN_CONTEXTS=1024,2048,4096,8192,16384,32768 \
+#     ./build-attn-card/test_phase6_attention_ornith ../programs/attention
+ORNITH_SHAPE := -DMODEL_Q_HEADS=16u -DMODEL_KV_HEADS=4u -DMODEL_HEAD_DIM=256u \
+                -DMODEL_LAYERS=8u -DMAX_KV=32768u
+
+# QWEN3.8-27B'S SHAPE (the P0 per-tile probe): 24 Q heads /
+# 4 KV groups / head_dim 256 over 16 attention layers, q_rows 6 and dim_tiles 8.
+#   make -f Makefile.attention PHASE1B=1 q38
+Q38_SHAPE := -DMODEL_Q_HEADS=24u -DMODEL_KV_HEADS=4u -DMODEL_HEAD_DIM=256u \
+             -DMODEL_LAYERS=16u -DMAX_KV=32768u
+
+.PHONY: all card ornith q38 red red-splitk clean
+
+all: $(TARGET) $(SPLITK_TARGET)
+
+card: $(CARD_TARGET) $(PROBE_TARGET)
+
+ornith: $(ORNITH_TARGET)
+
+q38: $(Q38_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
+
+# Whole-program links, not incremental objects. `red` deletes the tree first, because
+# Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently skip a
+# rebuild of a source edited in the same second as its object (best-practices §9).
+$(TARGET): test_attention_ops.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(LDLIBS)
+
+$(SPLITK_TARGET): test_attention_splitk.c attention_golden_requests.inc $(BACKEND) \
+                  $(CONVERT_SRC) $(SPLITK_SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SPLITK_SUPPORT) $(LDLIBS)
+
+# Deleted first (macOS make 3.81, one-second mtimes) and expected to FAIL.
+red-splitk: | $(BUILD)
+	rm -f $(SPLITK_RED_TARGET)
+	$(CC) $(CFLAGS) -DFT_TT_SPLITK_RED_DROP -o $(SPLITK_RED_TARGET) test_attention_splitk.c \
+	    $(BACKEND) $(CONVERT_SRC) $(SPLITK_SUPPORT) $(LDLIBS)
+	! ./$(SPLITK_RED_TARGET)
+
+$(CARD_TARGET): test_phase6_attention.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+                | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+	    $(LDLIBS)
+
+$(ORNITH_TARGET): test_phase6_attention.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+                  | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(ORNITH_SHAPE) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) \
+	    $(SUPPORT) $(CARD_SUPPORT) $(LDLIBS)
+
+$(Q38_TARGET): test_phase6_attention.c $(BACKEND) $(CONVERT_SRC) $(SUPPORT) $(CARD_SUPPORT) \
+               | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(Q38_SHAPE) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) \
+	    $(SUPPORT) $(CARD_SUPPORT) $(LDLIBS)
+
+$(PROBE_TARGET): test_attention_transpose_probe.c $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c \
+                 $(CARD_SUPPORT) | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ $< $(BACKEND) $(CONVERT_SRC) ft_tt_test_report.c \
+	    $(CARD_SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD) $(CARD_BUILD)
+
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)

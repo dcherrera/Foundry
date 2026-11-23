@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the CHUNKWISE GATED-DELTA-NET op family's acceptance.
+#
+#   make -f Makefile.gdnc all                   -> build-gdnc/test_gdnc_ops   (off hardware)
+#   make -f Makefile.gdnc PHASE1B=1 card         -> build-gdnc-card/test_phase6_gdnc
+#
+# `card` and `all` are separate invocations on purpose: PHASE1B changes what the backend
+# objects DO, so one command line cannot honestly produce both.
+#
+#   FT_TT_DRIVER=udrv FT_TT_FIRMWARE_DIR=../programs/gdnc FT_TT_TENSIX_INDEX=<n> \
+#     ./build-gdnc-card/test_phase6_gdnc ../programs/gdnc
+#
+# NO PHASE1B, AND NO CARD. This suite is off-hardware by construction: it pins the wire
+# contract between ft_tt_op_gdnc.h and kernels/resident_gdnc_protocol.h by PARSING the device
+# header, and exercises the host driver's encoding, refusals and CB placement. It opens no
+# device, so it runs anywhere — including on the Mac, which is where the code is written.
+#
+# It reads kernels/resident_gdnc_protocol.h through FT_TT_KERNEL_DIR (default ../kernels).
+# Running it from another directory without setting that is a FAILURE and not a skip: a
+# suite that silently stops checking the wire contract is worse than no suite, because the
+# contract it checks is one nothing else enforces.
+#
+# WHAT IS HERE THAT THE DECODE FAMILY'S SUITE DOES NOT HAVE: stage 5 is a SOFTWARE MODEL of
+# the kernel -- the shipping band matrices, the kernel's own `SiLU(sum_i band_i . prod_i)`
+# expression, and the WRITER's window roll -- run for 103 positions in chunks of 32+32+32+7
+# against a scalar transcription of pn_qwen35moe_conv1d_silu(). It is fp64 end to end, so the
+# only difference it can show is a STRUCTURAL one; the Tf32 residue the card adds is a
+# separate question and is measured on silicon. Four red arms are run every time, and one of
+# them (`roll_first`) is asserted to be INVISIBLE in chunk 0 and to appear at chunk 1 -- which
+# is the quantitative form of "a single-chunk test cannot see a boundary bug".
+
+CC      ?= cc
+SRC_DIR := ..
+CONVERT := ../convert
+BUILD   := build-gdnc
+CARD_BUILD := build-gdnc-card
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
+
+CFLAGS  := -std=c99 -O1 -g \
+           -Wall -Wextra -Werror -pedantic \
+           -Wshadow -Wconversion -Wstrict-prototypes -Wformat=2 \
+           -fstack-protector-strong \
+           -I$(SRC_DIR)
+LDLIBS  := -lm
+
+ifeq ($(filter card,$(MAKECMDGOALS)),card)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1, or every device call \
+is refused before it reaches the NoC)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
+
+# Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
+# silently mixes objects compiled against two different struct layouts — which is not a
+# build error, it is a wrong offset (best-practices §9).
+DEPFLAGS := -MMD -MP
+
+BACKEND := $(SRC_DIR)/ft_tt_op_dispatch.c \
+           $(SRC_DIR)/ft_tt_op_gdnc.c \
+           $(SRC_DIR)/ft_tt_tilize.c \
+           $(SRC_DIR)/ft_tt_launch.c \
+           $(SRC_DIR)/ft_tt_queue.c \
+           $(SRC_DIR)/ft_tt_kmd.c \
+           $(SRC_DIR)/ft_tt_arch.c \
+           $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c \
+           $(SRC_DIR)/ft_tt_tlb.c \
+           $(SRC_DIR)/ft_tt_arc_telemetry.c \
+           $(SRC_DIR)/ft_tt_coord.c \
+           $(SRC_DIR)/ft_tt_noc.c \
+           $(SRC_DIR)/ft_tt_buffer.c \
+           $(SRC_DIR)/ft_tt_elf.c \
+           $(SRC_DIR)/ft_tt_kernel_blob.c \
+           $(SRC_DIR)/ft_tt_udrv_claim.c \
+           $(SRC_DIR)/ft_tt_tensix_claim.c \
+           $(SRC_DIR)/ft_tt_group.c \
+           $(SRC_DIR)/ft_tt_watchdog.c
+
+SUPPORT := ft_tt_test_report.c
+
+TARGET := $(BUILD)/test_gdnc_ops
+CARD_TARGET := $(CARD_BUILD)/test_phase6_gdnc
+# The session list also names ft_tt_udrv_claim.c, which BACKEND already links: filtered out
+# here, or the card link fails on duplicate symbols.
+CARD_SUPPORT := $(filter-out $(BACKEND),$(HARDWARE_SESSION_SOURCES)) ft_tt_program_directory.c
+
+.PHONY: all card red clean table
+
+TABLE_TARGET := $(BUILD)/test_gdnc_table
+
+all: $(TARGET) $(TABLE_TARGET)
+
+table: $(TABLE_TARGET)
+
+# The exact-gate front end (kernels/ftgc_table.h) over an emulated DRAM; links only the encoder.
+$(TABLE_TARGET): test_gdnc_table.c $(BACKEND) $(SUPPORT) ../kernels/ftgc_table.h | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdnc_table.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+card: $(CARD_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
+
+# A whole-program link rather than incremental objects, and `red` deletes the tree first,
+# because Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently
+# skip a rebuild of a source edited in the same second as its object (best-practices §9).
+$(TARGET): test_gdnc_ops.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdnc_ops.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+$(CARD_TARGET): test_phase6_gdnc.c $(BACKEND) $(SUPPORT) $(CARD_SUPPORT) | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_phase6_gdnc.c $(BACKEND) $(SUPPORT) \
+	    $(CARD_SUPPORT) $(LDLIBS)
+
+red: clean all
+
+clean:
+	rm -rf $(BUILD) $(CARD_BUILD)
+
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)

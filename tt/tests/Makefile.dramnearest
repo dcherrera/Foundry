@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Off-hardware checks of ft_tt_dram_nearest (tt-place lane). `make -f Makefile.dramnearest check`
+CC      ?= cc
+SRC_DIR := ..
+BUILD   := build-dramnearest
+CFLAGS  := -std=c99 -O1 -g -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion \
+           -Wstrict-prototypes -Wformat=2 -I$(SRC_DIR)
+SOURCES := test_dram_nearest.c ft_tt_test_report.c $(SRC_DIR)/ft_tt_dram_nearest.c \
+           $(SRC_DIR)/ft_tt_coord.c $(SRC_DIR)/ft_tt_arch.c $(SRC_DIR)/ft_tt_arch_blackhole.c \
+           $(SRC_DIR)/ft_tt_device.c $(SRC_DIR)/ft_tt_kmd.c $(SRC_DIR)/ft_tt_tlb.c
+
+.PHONY: all check clean
+all: $(BUILD)/test_dram_nearest
+$(BUILD)/test_dram_nearest: $(SOURCES) $(SRC_DIR)/ft_tt_dram_nearest.h
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(SOURCES)
+check: all
+	./$(BUILD)/test_dram_nearest
+clean:
+	rm -rf $(BUILD)
