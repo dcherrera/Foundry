@@ -17,8 +17,8 @@
  * and the "case" digests must be identical. A build with NVCCFLAGS_EXTRA=-DFC_SSM_W8_RED
  * (state update rounded twice in the 8-lane kernels) must differ: that proves the digests
  * can see a one-rounding change. Inputs mix signs and magnitudes, zeros, and decays near 0
- * and 1; the per-element special values are the superoptimizer's proof (TeamIDE-Foundry
- * superopt/targets/gdn).
+ * and 1; special values per element (signed zeros, subnormals, Inf, NaN) were proved for the
+ * layout by the superoptimizer that found it.
  *
  * Build: gcc -O2 -I. -o cuda/tests/test_ssm_warp8 cuda/tests/test_ssm_warp8.c cuda/fc_cuda.c -lm -ldl
  */
