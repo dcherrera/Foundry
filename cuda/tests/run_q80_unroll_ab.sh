@@ -14,13 +14,13 @@
 #
 #   [VARIANTS="u2: tile2:-DFC_Q80_TILE_UNROLL=2"]   name:flags, ',' separates flags
 #   [BASE_REF=origin/main] [ROUNDS=25]
-#   setsid nohup bash cuda/tests/run_q80_unroll_ab.sh <out dir> <die 8-11 | build> > log 2>&1 < /dev/null &
+#   setsid nohup bash cuda/tests/run_q80_unroll_ab.sh <out dir> <die 4-11 | build> > log 2>&1 < /dev/null &
 # Writes <out>/DONE (or BUILT for "build", which touches no GPU) or <out>/FAILED with the step.
 #
 # @status complete  @issues none  @todo none
 set -uo pipefail
 OUT=${1:?out dir}
-DIE=${2:?die 8-11 or build}
+DIE=${2:?die 4-11 or build}
 FOUNDRY=$(cd "$(dirname "$0")/../.." && pwd)
 CUDA=/usr/local/cuda-11.4
 BASE_REF=${BASE_REF:-origin/main}
@@ -30,7 +30,7 @@ NVFLAGS=(-ptx -arch=sm_37 -ccbin gcc-11 -Wno-deprecated-gpu-targets
          -isystem "$FOUNDRY/cuda_kernels/nvcc_shim" -I "$FOUNDRY/cuda_kernels")
 mkdir -p "$OUT"
 fail() { echo "FAILED: $1" > "$OUT/FAILED"; exit 1; }
-case "$DIE" in 8|9|10|11|build) ;; *) fail "die must be 8-11 or build (got $DIE)" ;; esac
+case "$DIE" in 4|5|6|7|8|9|10|11|build) ;; *) fail "die must be 4-11 or build (got $DIE)" ;; esac
 
 names=base
 git -C "$FOUNDRY" show "$BASE_REF:cuda_kernels/matvec_kquants.cu" > "$OUT/base.cu" || fail base-source
