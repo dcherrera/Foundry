@@ -80,9 +80,9 @@ typedef struct {
                                     the unit's own R-row strip; anchor partners decodable strip
                                     by strip alongside the target (see match_anchor_every) */
     long match_anchor_every;     /* anchor spacing A (0: none): layers L % A == 0 are not match
-                                    targets; other layers take partners only from their anchor
-                                    (layer L - L % A), restricted to the same row strip; needs
-                                    match_strip */
+                                    targets; every other target's pool also holds its anchor
+                                    (layer L - L % A), whose partners must lie in the target's
+                                    row strip (decoded alongside it); needs match_strip */
     int match_max_k;             /* partners per unit, 1..8 (0: 8) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;

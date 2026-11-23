@@ -64,6 +64,13 @@ static unsigned index_bits(uint64_t n) {
     return b;
 }
 
+/* Strips: at most the row count, and a strip of at most 2^30 weights. */
+static int strip_check(const ingot_match_params *p) {
+    uint64_t rows = p->axis == INGOT_PREDICT_ROWS ? p->units : p->unit_len;
+    uint64_t cols = p->axis == INGOT_PREDICT_ROWS ? p->unit_len : p->units;
+    return p->strip_rows > rows || (p->strip_rows && p->strip_rows > ((uint64_t)1 << 30) / cols);
+}
+
 static int geometry_check(const ingot_match_params *p) {
     if (!p->units || !p->unit_len || p->units > INGOT_PREDICT_LIMIT ||
         p->unit_len > INGOT_PREDICT_LIMIT || p->source_count < 1 ||
@@ -72,7 +79,7 @@ static int geometry_check(const ingot_match_params *p) {
         p->classes > INGOT_PREDICT_MAX_CLASSES || p->class_width < 1 ||
         p->class_width > INGOT_PREDICT_MAX_CLASS_WIDTH ||
         p->scale_c < -INGOT_PREDICT_EXP_LIMIT || p->scale_c > INGOT_PREDICT_EXP_LIMIT ||
-        p->class_ref < -256 || p->class_ref > 256)
+        p->class_ref < -256 || p->class_ref > 256 || strip_check(p))
         return -INGOT_EINVAL;
     for (uint32_t s = 0; s < p->source_count; s++) {
         const ingot_match_source *src = &p->source[s];
@@ -97,6 +104,7 @@ int ingot_match_params_check(const ingot_match_params *p) {
             const ingot_match_source *src =
                 p->link[at] < p->source_count ? &p->source[p->link[at]] : NULL;
             if (!src || p->index[at] >= src->units || (src->self && p->index[at] >= u) ||
+                (src->self && p->strip_rows && p->index[at] < u - u % p->strip_rows) ||
                 p->coef[at] < -INGOT_MATCH_COEF_MAX)
                 return -INGOT_EINVAL;
         }
@@ -352,6 +360,7 @@ void ingot_match_prefix_write(const ingot_match_params *p, uint64_t block_count,
     uint32_t flags = 0;
     for (uint32_t s = 0; s < p->source_count; s++)
         flags |= p->source[s].self ? INGOT_MATCH_FLAG_SELF : 0;
+    flags |= p->strip_rows ? INGOT_MATCH_FLAG_STRIPS : 0;
     ingot_store_u32(out, p->source_count);
     ingot_store_u32(out + 4, (uint32_t)p->axis);
     ingot_store_u64(out + 8, p->units);
@@ -365,6 +374,7 @@ void ingot_match_prefix_write(const ingot_match_params *p, uint64_t block_count,
     ingot_store_u32(out + 52, contexts);
     ingot_store_u64(out + 56, ingot_match_param_hash(p));
     ingot_store_u32(out + 64, flags);
+    ingot_store_u32(out + 68, (uint32_t)p->strip_rows);
     ingot_store_u64(out + 72, ingot_fc_tables_size(side_tables));
     ingot_store_u64(out + 80, side_block->size);
     for (uint32_t s = 0; s < p->source_count; s++) {
@@ -398,9 +408,11 @@ static int parse_header(const uint8_t *in, uint64_t avail, ingot_match_params *p
     *contexts = ingot_load_u32(in + 52);
     *side_tables = ingot_load_u64(in + 72);
     *side_block = ingot_load_u64(in + 80);
+    p->strip_rows = ingot_load_u32(in + 68);
     if (p->source_count < 1 || p->source_count > INGOT_MATCH_MAX_SOURCES || axis > 1 ||
-        ingot_load_u32(in + 28) != INGOT_BLOCK_LOG2 || ingot_load_u32(in + 68) ||
-        (flags & ~(uint32_t)INGOT_MATCH_FLAG_SELF) ||
+        ingot_load_u32(in + 28) != INGOT_BLOCK_LOG2 ||
+        (flags & ~(uint32_t)(INGOT_MATCH_FLAG_SELF | INGOT_MATCH_FLAG_STRIPS)) ||
+        !(flags & INGOT_MATCH_FLAG_STRIPS) != !p->strip_rows ||
         avail < ingot_match_header_bytes(p->source_count))
         return -INGOT_EFORMAT;
     p->axis = (ingot_predict_axis)axis;
@@ -476,7 +488,8 @@ struct ingot_match_decoder {
     uint16_t *owned[INGOT_MATCH_MAX_SOURCES];         /* transposed column sources */
     uint64_t count;
     size_t block_count;
-    int serial;
+    int serial;  /* blocks in order: a self source without strips */
+    int rowwise; /* contexts row by row inside a block: any self source */
 };
 
 int ingot_match_decoder_open(uint64_t rows, uint64_t cols, const uint8_t *prefix, uint64_t avail,
@@ -495,7 +508,7 @@ int ingot_match_decoder_open(uint64_t rows, uint64_t cols, const uint8_t *prefix
                                               : (rows != p->unit_len || cols != p->units)))
         rc = -INGOT_EFORMAT;
     d->count = p->units * p->unit_len;
-    d->block_count = (size_t)((d->count + BLOCK - 1) / BLOCK);
+    d->block_count = rc ? 0 : ingot_match_block_count(p, NULL);
     if (!rc && block_count != d->block_count)
         rc = -INGOT_EFORMAT;
     at = ingot_match_header_bytes(p->source_count);
@@ -518,7 +531,8 @@ int ingot_match_decoder_open(uint64_t rows, uint64_t cols, const uint8_t *prefix
     if (!rc && at > avail)
         rc = -INGOT_EFORMAT;
     for (uint32_t s = 0; s < p->source_count; s++)
-        d->serial |= p->source[s].self;
+        d->rowwise |= p->source[s].self;
+    d->serial = d->rowwise && !p->strip_rows;
     if (rc) {
         ingot_match_decoder_close(d);
         return rc;
@@ -560,11 +574,27 @@ size_t ingot_match_decoder_blocks(const ingot_match_decoder *d) { return d->bloc
 
 void ingot_match_decoder_range(const ingot_match_decoder *d, size_t b, uint64_t *lo,
                                uint64_t *hi) {
-    *lo = (uint64_t)b * BLOCK;
-    *hi = *lo + BLOCK < d->count ? *lo + BLOCK : d->count;
+    ingot_match_block_range(&d->params, b, lo, hi);
 }
 
-/* Serial block: each row's contexts after the rows before it are decoded. */
+size_t ingot_match_block_count(const ingot_match_params *p, uint64_t *max_weights) {
+    uint64_t count = p->units * p->unit_len;
+    uint64_t cols = p->axis == INGOT_PREDICT_ROWS ? p->unit_len : p->units;
+    uint64_t block = p->strip_rows ? p->strip_rows * cols : (uint64_t)BLOCK;
+    if (max_weights)
+        *max_weights = block < count ? block : count;
+    return (size_t)((count + block - 1) / block);
+}
+
+void ingot_match_block_range(const ingot_match_params *p, size_t b, uint64_t *lo, uint64_t *hi) {
+    uint64_t count = p->units * p->unit_len;
+    uint64_t cols = p->axis == INGOT_PREDICT_ROWS ? p->unit_len : p->units;
+    uint64_t block = p->strip_rows ? p->strip_rows * cols : (uint64_t)BLOCK;
+    *lo = (uint64_t)b * block;
+    *hi = *lo + block < count ? *lo + block : count;
+}
+
+/* Row-wise block (a self source): each row's contexts after the rows before it are decoded. */
 static void decode_rows(const ingot_match_decoder *d, ingot_fcoder *c, const uint16_t **sources,
                         uint64_t lo, uint64_t hi, uint16_t *out, uint8_t *ctx) {
     uint64_t len = d->params.unit_len;
@@ -593,7 +623,7 @@ int ingot_match_decoder_block(const ingot_match_decoder *d, size_t b, const ingo
         return -INGOT_ENOMEM;
     ingot_fcoder c;
     ingot_fc_begin_decode(&c, d->tables, v);
-    if (d->serial) {
+    if (d->rowwise) {
         decode_rows(d, &c, sources, lo, hi, out, ctx);
     } else {
         ingot_match_contexts(d->model, sources, lo, hi, ctx);

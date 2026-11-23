@@ -478,7 +478,7 @@ static void usage(void) {
             "                            (farther ones: same-index and twin candidates only)\n"
             "       --strip R            encode: self partners only within R-row strips\n"
             "       --anchor-every A     encode: layers L %% A == 0 are anchors (not match coded);\n"
-            "                            others take partners only from their anchor, strip-aligned\n"
+            "                            others also take strip-aligned partners from their anchor\n"
             "                            (needs --strip)\n"
             "       --max-partners K     encode: at most K partners per unit (1..8, default 8)\n"
             "       --no-self-partners   encode: no partners from the tensor's own rows (every\n"
