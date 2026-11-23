@@ -603,19 +603,25 @@ __device__ __forceinline__ fc_q80_sbl fc_q80_sb_load(const unsigned char *blk,
  * lowers to one I2F.F32.S8 with a byte selector for all four bytes; the C cast
  * costs BFE + PRMT + I2F.S16 (byte 1) or PRMT + I2F (bytes 2-3).
  * FC_MOE_Q80_RED is a gate-only red build: byte 2 converted unsigned, so the
- * parity tests and the A/B memcmp must fail. */
-template <int K>
-__device__ __forceinline__ float fc_q80_s8_to_f32(unsigned int w) {
-    float f;
+ * parity tests and the A/B memcmp must fail. k is a literal at every call, so
+ * the branches fold away (no template: this file is extern "C"). */
+#define FC_Q80_BFE_CVT(TY, POS) \
+    "{ .reg .b32 t; bfe." TY "32 t, %1, " #POS ", 8; cvt.rn.f32." TY "32 %0, t; }"
 #ifdef FC_MOE_Q80_RED
-    if (K == 2) {
-        asm("{ .reg .b32 t; bfe.u32 t, %1, %2, 8; cvt.rn.f32.u32 %0, t; }"
-            : "=f"(f) : "r"(w), "n"(8 * K));
-        return f;
-    }
+#define FC_Q80_BYTE2_TY "u"
+#else
+#define FC_Q80_BYTE2_TY "s"
 #endif
-    asm("{ .reg .b32 t; bfe.s32 t, %1, %2, 8; cvt.rn.f32.s32 %0, t; }"
-        : "=f"(f) : "r"(w), "n"(8 * K));
+__device__ __forceinline__ float fc_q80_s8_to_f32(unsigned int w, int k) {
+    float f;
+    if (k == 0)
+        asm(FC_Q80_BFE_CVT("s", 0) : "=f"(f) : "r"(w));
+    else if (k == 1)
+        asm(FC_Q80_BFE_CVT("s", 8) : "=f"(f) : "r"(w));
+    else if (k == 2)
+        asm(FC_Q80_BFE_CVT(FC_Q80_BYTE2_TY, 16) : "=f"(f) : "r"(w));
+    else
+        asm(FC_Q80_BFE_CVT("s", 24) : "=f"(f) : "r"(w));
     return f;
 }
 
@@ -625,10 +631,10 @@ __device__ __forceinline__ float fc_q80_s8_to_f32(unsigned int w) {
  * conversions up front (down kernel 66 vs 76). */
 __device__ __forceinline__ float fc_q80_sb_run(unsigned int w, float4 x, float s,
                                                float r) {
-    float a = __fmaf_rn(fc_q80_s8_to_f32<0>(w), x.x, 0.0f);
-    a = __fmaf_rn(fc_q80_s8_to_f32<1>(w), x.y, a);
-    a = __fmaf_rn(fc_q80_s8_to_f32<2>(w), x.z, a);
-    a = __fmaf_rn(fc_q80_s8_to_f32<3>(w), x.w, a);
+    float a = __fmaf_rn(fc_q80_s8_to_f32(w, 0), x.x, 0.0f);
+    a = __fmaf_rn(fc_q80_s8_to_f32(w, 1), x.y, a);
+    a = __fmaf_rn(fc_q80_s8_to_f32(w, 2), x.z, a);
+    a = __fmaf_rn(fc_q80_s8_to_f32(w, 3), x.w, a);
     return __fmaf_rn(s, a, r);
 }
 
