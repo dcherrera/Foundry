@@ -17,6 +17,7 @@
 #include "ingot_match.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,6 +39,8 @@ enum {
 
 /* Fit result of one unit: up to 8 partners with real coefficients. */
 typedef struct {
+    double top_c2;              /* best candidate cos^2 (diagnostics) */
+    double same_c2[INGOT_MATCH_MAX_SOURCES]; /* same-index cos^2 per same-size source */
     double rss;                 /* residual with the real coefficients */
     double gkk[K_MAX];          /* partner squared norms */
     double a[K_MAX];
@@ -196,6 +199,14 @@ static void select_unit(select_job *job, uint64_t u) {
     }
     unit_fit *f = &job->fits[u];
     f->rss = best_rss > 0 ? best_rss : yy * 1e-12;
+    f->top_c2 = have ? cos2[0] : 0;
+    for (uint32_t s = 0; yy > 0 && getenv("INGOT_MATCH_STATS") && s < p->source_count; s++) {
+        if (job->src[s].units != p->units || job->src[s].self)
+            continue;
+        const uint16_t *x = job->src[s].unit_major + u * len;
+        double g = dot_bf16(x, x, len), b = dot_bf16(x, y, len);
+        f->same_c2[s] = g > 0 ? b * b / (g * yy) : 0;
+    }
     for (uint32_t k = 0; k < best_k; k++) {
         size_t at = (size_t)u * K_MAX + k;
         p->link[at] = cs[k];
@@ -482,6 +493,37 @@ static void prune_sources(ingot_match_plan *p) {
             q->link[(size_t)u * K_MAX + k] = map[q->link[(size_t)u * K_MAX + k]];
 }
 
+/* INGOT_MATCH_STATS: per tensor, partners per unit before and after quantization, the share of
+ * units with a partner, mean modelled RSS ratio and source usage (stderr; diagnostics only). */
+static void report_stats(const ingot_match_plan *p, const unit_fit *fits, uint64_t k_fit) {
+    const ingot_match_params *q = &p->params;
+    uint64_t k_kept = 0, with = 0, use[INGOT_MATCH_MAX_SOURCES] = {0};
+    double ratio = 0;
+    for (uint64_t u = 0; u < q->units; u++) {
+        k_kept += q->k[u];
+        with += q->k[u] > 0;
+        for (uint32_t k = 0; k < q->k[u]; k++)
+            use[q->link[(size_t)u * K_MAX + k]]++;
+        ratio += fits[u].top_c2;
+    }
+    fprintf(stderr, "match-stats units %llu k_fit %.3f k_kept %.3f with %.3f top_cos2 %.4f |",
+            (unsigned long long)q->units, (double)k_fit / (double)q->units,
+            (double)k_kept / (double)q->units, (double)with / (double)q->units,
+            ratio / (double)q->units);
+    for (uint32_t s = 0; s < q->source_count; s++)
+        fprintf(stderr, " %u:%s%u:E%d:%llu", s, q->source[s].self ? "self" : "",
+                q->source[s].ref, q->source[s].coef_exp, (unsigned long long)use[s]);
+    fprintf(stderr, " | same-index cos2:");
+    for (uint32_t s = 0; s < INGOT_MATCH_MAX_SOURCES; s++) {
+        double m = 0;
+        for (uint64_t u = 0; u < q->units; u++)
+            m += fits[u].same_c2[s];
+        if (m > 0)
+            fprintf(stderr, " in%u:%.4f", s, m / (double)q->units);
+    }
+    fprintf(stderr, "\n");
+}
+
 static int plan_fit(ingot_match_plan *p, const uint16_t *unit_major, const ingot_match_input *src,
                     const ingot_match_candidates *cand, int threads) {
     unit_fit *fits = calloc((size_t)p->params.units, sizeof(*fits));
@@ -490,10 +532,15 @@ static int plan_fit(ingot_match_plan *p, const uint16_t *unit_major, const ingot
     select_job job = {p, unit_major, src, cand, fits};
     int rc = ingot_parallel_for((size_t)((p->params.units + TILE_UNITS - 1) / TILE_UNITS),
                                 threads, select_tile, &job);
+    uint64_t k_fit = 0;
+    for (uint64_t u = 0; !rc && u < p->params.units; u++)
+        k_fit += p->params.k[u];
     if (!rc) {
         quantize(&p->params, fits);
         prune_sources(p);
     }
+    if (!rc && getenv("INGOT_MATCH_STATS"))
+        report_stats(p, fits, k_fit);
     free(fits);
     return rc;
 }

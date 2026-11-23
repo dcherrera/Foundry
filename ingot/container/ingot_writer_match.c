@@ -304,7 +304,7 @@ static void add_rule_candidates(ingot_match_writer *w, size_t target, ingot_writ
     entry_info *ti = &w->info[target];
     uint32_t per = out->cand.per_unit;
     for (uint64_t u = 0; u < out->units; u++)
-        for (uint32_t j = searched; j < per; j++)
+        for (uint32_t j = searched; j < searched + INGOT_PREDICT_MAX_PARTNERS; j++)
             out->cand.source[u * per + j] = 0xFF;
     if (ingot_predict_rule(w->layout, ti->layout_index, &g, partner) != 1 ||
         g.units != out->units)
@@ -324,12 +324,55 @@ static void add_rule_candidates(ingot_match_writer *w, size_t target, ingot_writ
     }
 }
 
+/* Exactly scored aligned candidates (slots after the searched and rule ones): unit u of every
+ * same-size source (sibling layers keep neuron order), u -+ the twin offset (grown models copy
+ * neurons), and the tensor's own rows u - 1, 2, 32, 64, 128, 256 (neighbours, RoPE pairs, the
+ * previous heads). The sketch alone misses these: its cosine noise at 128 dimensions is larger
+ * than their typical |cos| among ~10^5 pool units. */
+static const uint64_t SELF_OFFSETS[] = {1, 2, 32, 64, 128, 256};
+
+static uint32_t aligned_count(const ingot_writer_match *out, uint64_t twin) {
+    uint32_t n = sizeof(SELF_OFFSETS) / sizeof(SELF_OFFSETS[0]);
+    for (uint32_t s = 0; s < out->source_count; s++)
+        if (out->src[s].units == out->units)
+            n += out->src[s].self ? (twin ? 1 : 0) : (twin ? 3 : 1);
+    return n;
+}
+
+static void add_aligned_candidates(ingot_writer_match *out, uint32_t first, uint64_t twin) {
+    uint32_t per = out->cand.per_unit;
+    for (uint64_t u = 0; u < out->units; u++) {
+        uint32_t j = first;
+        uint8_t *cs = out->cand.source + u * per;
+        uint64_t *ci = out->cand.index + u * per;
+        for (uint32_t s = 0; s < out->source_count; s++) {
+            if (out->src[s].units != out->units)
+                continue;
+            int self = out->src[s].self;
+            if (!self) {
+                cs[j] = (uint8_t)s, ci[j++] = u;
+                if (twin)
+                    cs[j] = u + twin < out->units ? (uint8_t)s : 0xFF, ci[j++] = u + twin;
+            }
+            if (twin)
+                cs[j] = u >= twin ? (uint8_t)s : 0xFF, ci[j++] = u - twin;
+            if (!self)
+                continue;
+            for (size_t k = 0; k < sizeof(SELF_OFFSETS) / sizeof(SELF_OFFSETS[0]); k++)
+                cs[j] = u >= SELF_OFFSETS[k] ? (uint8_t)s : 0xFF, ci[j++] = u - SELF_OFFSETS[k];
+        }
+        for (; j < per; j++)
+            cs[j] = 0xFF;
+    }
+}
+
 static int search(ingot_match_writer *w, size_t target, const ingot_match_pool *pool,
                   ingot_writer_match *out) {
     entry_info *ti = &w->info[target];
     uint32_t m = w->opt->match_candidates > 0 ? (uint32_t)w->opt->match_candidates
                                               : DEFAULT_CANDIDATES;
-    uint32_t per = m + INGOT_PREDICT_MAX_PARTNERS;
+    uint64_t twin = w->opt->match_twin_offset > 0 ? (uint64_t)w->opt->match_twin_offset : 0;
+    uint32_t per = m + INGOT_PREDICT_MAX_PARTNERS + aligned_count(out, twin);
     ingot_match_candidates found = {m, malloc((size_t)out->units * m),
                                     malloc((size_t)out->units * m * sizeof(uint64_t))};
     out->cand = (ingot_match_candidates){per, malloc((size_t)out->units * per),
@@ -342,8 +385,10 @@ static int search(ingot_match_writer *w, size_t target, const ingot_match_pool *
         memcpy(out->cand.source + u * per, found.source + u * m, m);
         memcpy(out->cand.index + u * per, found.index + u * m, m * sizeof(uint64_t));
     }
-    if (!rc)
+    if (!rc) {
         add_rule_candidates(w, target, out, m);
+        add_aligned_candidates(out, m + INGOT_PREDICT_MAX_PARTNERS, twin);
+    }
     free(found.source);
     free(found.index);
     return rc;

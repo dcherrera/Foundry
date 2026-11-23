@@ -41,6 +41,7 @@ typedef struct {
     int pool_layer_count; /* -1: none given (defaults) */
     int max_version;
     int candidates;
+    long twin_offset;
     uint8_t base_sha256[32];
     int has_base_sha256;
     int check_base;
@@ -107,6 +108,10 @@ static int parse_options(int argc, char **argv, cli_options *o) {
         } else if (!strcmp(a, "--max-version") && has_value) {
             o->max_version = atoi(argv[++i]);
             if (o->max_version != 3 && o->max_version != 4)
+                return -1;
+        } else if (!strcmp(a, "--twin-offset") && has_value) {
+            o->twin_offset = atol(argv[++i]);
+            if (o->twin_offset < 0)
                 return -1;
         } else if (!strcmp(a, "--candidates") && has_value) {
             o->candidates = atoi(argv[++i]);
@@ -249,6 +254,7 @@ static int cmd_encode(const cli_options *o) {
                                 .pool_layers = o->pool_layer_count >= 0 ? o->pool_layers : NULL,
                                 .pool_layer_count = o->pool_layer_count,
                                 .match_candidates = o->candidates,
+                                .match_twin_offset = o->twin_offset,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)"encode"};
@@ -440,6 +446,8 @@ static void usage(void) {
             "                            file; encode and decode; repeat)\n"
             "       --pool-layers LIST   encode: match pool layer offsets (default 1,16)\n"
             "       --candidates N       encode: searched partner candidates per unit (16)\n"
+            "       --twin-offset N      encode: also try units u -+ N (grown models; Qwen3.5-27B\n"
+            "                            lineage: 12288)\n"
             "       --tensor-log FILE    encode: one line per entry (mode, payload, v2 bytes)\n"
             "       -q                   no progress line\n"
             "Encode writes SRC.ingot and decode strips .ingot unless DST is given; an existing\n"

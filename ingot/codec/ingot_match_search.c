@@ -32,15 +32,14 @@ enum {
 
 typedef float v4f __attribute__((vector_size(16)));
 
-/* Sign bit (dimension d, channel h) of the fixed projection: one xorshift64 word per (h, d/64). */
+/* Sign bits (dimensions 64 word .. 64 word + 63, channel h) of the fixed projection: the
+ * splitmix64 finalizer of (h, word), so every bit is a well-mixed function of the channel (a
+ * linear xorshift of h K left low bits periodic in h and the sketch blind to structured rows). */
 static uint64_t sign_word(uint64_t h, uint32_t word) {
-    uint64_t x = 0x9E3779B97F4A7C15ull ^ (h * 0xD1B54A32D192ED03ull) ^ ((uint64_t)word << 56);
-    for (int i = 0; i < 3; i++) {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-    }
-    return x;
+    uint64_t x = h * 0x9E3779B97F4A7C15ull + ((uint64_t)word + 1) * 0xD1B54A32D192ED03ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    return x ^ (x >> 31);
 }
 
 typedef struct {

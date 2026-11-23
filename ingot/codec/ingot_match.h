@@ -339,7 +339,10 @@ void ingot_match_plan_free(ingot_match_plan *plan);
 
 /* ---- Candidate search (ingot_match_search.c; encoder only, not part of the format) ---- */
 
-enum { INGOT_MATCH_SKETCH_DIM = 128 };
+#ifndef INGOT_MATCH_SKETCH_DIMS
+#define INGOT_MATCH_SKETCH_DIMS 128 /* a multiple of 64; build-time knob for search experiments */
+#endif
+enum { INGOT_MATCH_SKETCH_DIM = INGOT_MATCH_SKETCH_DIMS };
 
 /**
  * Sketch n unit vectors ([n][H] BF16): a fixed +-1 random projection of each unit-normalized
