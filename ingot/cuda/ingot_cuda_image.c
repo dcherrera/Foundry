@@ -33,6 +33,8 @@ enum {
     MATCH_SIDE_BLOCK_AT = 80,
     SYMBOL_ALPHABET = 1024,
     STEP_ALPHABET = 119,
+    Q8_HEADER = 48,
+    DTYPE_Q8_0 = INGOT_DTYPE_GGML + 8,
 };
 
 static uint64_t align_up(uint64_t n, uint64_t a) { return (n + a - 1) / a * a; }
@@ -212,6 +214,33 @@ static int build_delta(ingot_cuda_image *img, const uint8_t *payload, uint64_t s
     memcpy(img->image + at[3], p + DELTA_HEADER, (size_t)rows);
     img->params.kind = INGOT_CUDA_KIND_DELTA;
     img->params.row_scale = at[3];
+    img->params.group_weights = img->params.rows * img->params.cols;
+    img->params.blocks_per_group = img->params.block_count;
+    return 0;
+}
+
+/* ---- Q8_0 (mode 3) -------------------------------------------------------------------------- */
+
+static int build_q8(ingot_cuda_image *img, const uint8_t *payload, uint64_t size) {
+    const uint8_t *p = payload + FRAME;
+    static const uint32_t alpha[INGOT_CUDA_Q8_CONTEXTS] = {
+        STEP_ALPHABET + 1, STEP_ALPHABET + 1, STEP_ALPHABET, INGOT_CUDA_Q8_BLOCK + 1,
+        256, 256, 256, 256, 256, 256, 256, 256};
+    if (ingot_load_u32(p + 4) || ingot_load_u32(p + 40) != INGOT_CUDA_Q8_CONTEXTS)
+        return -INGOT_EUNSUPPORTED; /* a base (mode 3 with flags) is not decoded on the device */
+    table_list tl = {0};
+    int rc = tables_read(&tl, INGOT_CUDA_Q8_CONTEXTS, alpha, p + Q8_HEADER,
+                         size - FRAME - Q8_HEADER);
+    section_sizes s = {size - ingot_load_u64(payload), 4u * INGOT_CUDA_Q8_CONTEXTS,
+                       tables_image_bytes(&tl), 0, 0, 0};
+    uint64_t at[6];
+    if (!rc)
+        rc = image_common(img, payload, size, &tl, &s, at);
+    tables_free(&tl);
+    if (rc)
+        return rc;
+    img->params.kind = INGOT_CUDA_KIND_Q8;
+    img->params.block_weights = ingot_load_u64(p + 24) * img->params.cols;
     img->params.group_weights = img->params.rows * img->params.cols;
     img->params.blocks_per_group = img->params.block_count;
     return 0;
@@ -414,9 +443,11 @@ int ingot_cuda_image_build(const ingot_entry *e, const uint8_t *payload, uint64_
     memset(out, 0, sizeof(*out));
     uint64_t rows = 0, cols = 0;
     ingot_entry_rows_cols(e, &rows, &cols);
-    if (e->dtype != INGOT_DTYPE_BF16 || rows * cols >= ((uint64_t)1 << 32) ||
-        (e->mode != INGOT_MODE_PLAIN && e->mode != INGOT_MODE_DELTA &&
-         e->mode != INGOT_MODE_PREDICT && e->mode != INGOT_MODE_MATCH))
+    const int bf16 = e->dtype == INGOT_DTYPE_BF16 &&
+                     (e->mode == INGOT_MODE_PLAIN || e->mode == INGOT_MODE_DELTA ||
+                      e->mode == INGOT_MODE_PREDICT || e->mode == INGOT_MODE_MATCH);
+    const int q8 = e->dtype == DTYPE_Q8_0 && e->mode == INGOT_MODE_QUANT;
+    if ((!bf16 && !q8) || rows * cols >= ((uint64_t)1 << 32))
         return -INGOT_EUNSUPPORTED;
     int rc = validate_with_codec(e, payload, size);
     if (rc)
@@ -432,6 +463,9 @@ int ingot_cuda_image_build(const ingot_entry *e, const uint8_t *payload, uint64_
         break;
     case INGOT_MODE_PREDICT:
         rc = build_predict(out, payload, size);
+        break;
+    case INGOT_MODE_QUANT:
+        rc = build_q8(out, payload, size);
         break;
     default:
         rc = build_match(out, payload, size);

@@ -11,6 +11,7 @@
 #include "ingot_cuda_reference.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum { ROW_IDENTICAL = -128, DELTA_FALLBACK = 29, LOW = 1 << 16 };
@@ -176,15 +177,111 @@ static uint32_t decode_match(const ingot_cuda_params *p, uint64_t b, const uint8
     return block_end(&s, 5 * n);
 }
 
+/* Median of the row's scales: the element of rank n / 2 (the codec's sorted[n / 2]). */
+static uint32_t scales_median(const uint16_t *d, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t less = 0, same = 0;
+        for (uint32_t j = 0; j < n; j++) {
+            less += d[j] < d[i];
+            same += d[j] == d[i];
+        }
+        if (less <= n / 2 && n / 2 < less + same)
+            return d[i];
+    }
+    return 0;
+}
+
+/* Q8_0: per row, every block's scale (a step of its BF16 amax, or after the escape symbol a step
+ * of the fp16 pattern), then per block pos, its sign bit and the other codes; symbol n on lane
+ * n % 32, renormalized in stream order. Matvec: lane k sums d q_k x[32 b + k] with fmaf. */
+static uint32_t decode_q8(const ingot_cuda_params *p, uint64_t b, uint16_t *d16) {
+    row_sums rs = {{0}, INGOT_CUDA_LANES, b, 0, 0};
+    ingot_cuda_block_range(p, b, &rs.lo, &rs.hi);
+    const uint32_t blocks = (uint32_t)(p->cols / INGOT_CUDA_Q8_BLOCK);
+    const float *x = (const float *)(uintptr_t)p->x;
+    block_state s;
+    block_begin(&s, p, b);
+    uint64_t n = 0, bit = 0;
+    int32_t ref_amax = 0, ref_fp16 = 0;
+    for (uint64_t r = rs.lo / p->cols; r < rs.hi / p->cols; r++) {
+        for (uint32_t k = 0; k < blocks; k++, n++) {
+            uint32_t lane = (uint32_t)(n % INGOT_CUDA_LANES);
+            uint32_t sym = lane_symbol(&s, lane, ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_SCALE + !!k));
+            lane_renorm(&s, lane);
+            int32_t v;
+            if (sym == INGOT_CUDA_Q8_ESCAPE) {
+                lane = (uint32_t)(++n % INGOT_CUDA_LANES);
+                sym = lane_symbol(&s, lane, ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_FP16));
+                lane_renorm(&s, lane);
+                uint32_t nb = ingot_cuda_step_raw_bits(sym);
+                v = ref_fp16 + ingot_cuda_step_join(sym, ingot_cuda_raw_bits(s.v.raw, bit, nb));
+                bit += nb;
+                s.status |= v < -32768 || v > 32767 ? INGOT_CUDA_BAD_DELTA : 0;
+                ref_fp16 = v < -32768 || v > 32767 ? 0 : v;
+                d16[k] = (uint16_t)ingot_cuda_bf16_from_ordered(ref_fp16);
+                continue;
+            }
+            uint32_t nb = ingot_cuda_step_raw_bits(sym);
+            v = ref_amax + ingot_cuda_step_join(sym, ingot_cuda_raw_bits(s.v.raw, bit, nb));
+            bit += nb;
+            s.status |= v < 0 || v >= 0x7F80 ? INGOT_CUDA_BAD_DELTA : 0;
+            ref_amax = v < 0 || v >= 0x7F80 ? 0 : v;
+            d16[k] = (uint16_t)ingot_cuda_q8_scale((uint32_t)ref_amax);
+            ref_fp16 = ingot_cuda_bf16_ordered(d16[k]);
+        }
+        const uint32_t median = scales_median(d16, blocks);
+        for (uint32_t k = 0; k < blocks; k++) {
+            uint32_t lane = (uint32_t)(n++ % INGOT_CUDA_LANES);
+            uint32_t pos = lane_symbol(&s, lane, ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_POS));
+            lane_renorm(&s, lane);
+            uint32_t neg = pos < 32 ? ingot_cuda_raw_bits(s.v.raw, bit, 1) : 0;
+            bit += pos < 32;
+            const uint8_t *table = ingot_cuda_table(
+                p, INGOT_CUDA_Q8_CTX_CODE + ingot_cuda_q8_code_context(d16[k], median));
+            int8_t q[INGOT_CUDA_Q8_BLOCK];
+            for (uint32_t c = 0; c < INGOT_CUDA_Q8_BLOCK; c++) {
+                if (c == pos) {
+                    q[c] = (int8_t)(neg ? -127 : 127);
+                    continue;
+                }
+                lane = (uint32_t)(n++ % INGOT_CUDA_LANES);
+                q[c] = (int8_t)((int32_t)lane_symbol(&s, lane, table) - 128);
+                lane_renorm(&s, lane);
+            }
+            const uint64_t row_block = r * blocks + k;
+            if (p->flags & INGOT_CUDA_STORE) {
+                uint8_t *o = (uint8_t *)(uintptr_t)p->out + row_block * INGOT_CUDA_Q8_BLOCK_BYTES;
+                o[0] = (uint8_t)d16[k];
+                o[1] = (uint8_t)(d16[k] >> 8);
+                memcpy(o + 2, q, sizeof(q));
+            }
+            if (p->flags & INGOT_CUDA_MATVEC) {
+                const float d = ingot_cuda_f16_f32(d16[k]);
+                for (uint32_t c = 0; c < INGOT_CUDA_Q8_BLOCK; c++)
+                    rs.acc[c] = fmaf(d * (float)q[c], x[k * INGOT_CUDA_Q8_BLOCK + c], rs.acc[c]);
+            }
+        }
+        if (p->flags & INGOT_CUDA_MATVEC)
+            ingot_cuda_row_store(p, b, rs.lo, rs.hi, r, row_reduce(&rs));
+    }
+    return block_end(&s, bit);
+}
+
 void ingot_cuda_reference_run(const ingot_cuda_params *p) {
     uint8_t cells[INGOT_CUDA_BUCKET_SETS * INGOT_CUDA_BUCKET_CELLS];
     uint32_t bases[INGOT_CUDA_BUCKET_SETS * 12];
     ingot_cuda_bucket_tables(cells, bases, 0, 1);
     uint32_t *status = (uint32_t *)(uintptr_t)p->status;
+    uint16_t *d16 = p->kind == INGOT_CUDA_KIND_Q8
+                        ? malloc((size_t)(p->cols / INGOT_CUDA_Q8_BLOCK + 1) * sizeof(uint16_t))
+                        : NULL;
     for (uint64_t b = p->block_first; b < p->block_first + p->launch_blocks; b++) {
         uint32_t st = p->kind == INGOT_CUDA_KIND_PLAIN   ? decode_plain(p, b)
                       : p->kind == INGOT_CUDA_KIND_DELTA ? decode_delta(p, b)
+                      : p->kind == INGOT_CUDA_KIND_Q8    ? (d16 ? decode_q8(p, b, d16)
+                                                                : INGOT_CUDA_BAD_TABLE)
                                                          : decode_match(p, b, cells, bases);
         status[b] = st;
     }
+    free(d16);
 }

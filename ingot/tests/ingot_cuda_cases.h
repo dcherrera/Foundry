@@ -21,6 +21,7 @@
 #include "ingot/codec/ingot_match.h"
 #include "ingot/codec/ingot_plain.h"
 #include "ingot/codec/ingot_predict.h"
+#include "ingot/codec/ingot_qtensor.h"
 #include "ingot/codec/ingot_tensor_codec.h"
 #include "ingot/core/ingot_bf16.h"
 #include "ingot/cuda/ingot_cuda_image.h"
@@ -226,6 +227,40 @@ static inline void case_match(cuda_case *k, ingot_predict_axis axis, uint64_t st
     k->e = case_entry(INGOT_MODE_MATCH, axis == INGOT_PREDICT_ROWS ? U : H,
                       axis == INGOT_PREDICT_ROWS ? H : U);
     case_match_encode(k, axis, U, H, N0, N1, strip);
+}
+
+/* Q8_0 rows x cols (mode 3): ggml quantization of BF16 weights; every 37th block's scale moved
+ * off the BF16 lattice (coded through the escape) and every 53rd block without a |code| = 127
+ * (pos = 32). data holds the expected Q8_0 bytes. */
+static inline void case_q8(cuda_case *k, const char *name, uint64_t rows, uint64_t cols) {
+    memset(k, 0, sizeof(*k));
+    k->name = name;
+    uint8_t *q = test_q8_tensor(rows, cols, 0.02);
+    uint64_t blocks = rows * cols / 32;
+    for (uint64_t b = 0; b < blocks; b++) {
+        uint8_t *blk = q + b * 34;
+        if (b % 37 == 5)
+            blk[0] ^= 1;
+        for (int c = 0; b % 53 == 7 && c < 32; c++)
+            blk[2 + c] = (uint8_t)((int8_t)blk[2 + c] / 2);
+    }
+    k->data = (uint16_t *)q;
+    k->e = (ingot_entry){.dtype = INGOT_DTYPE_GGML + 8, .mode = INGOT_MODE_QUANT, .ndim = 2,
+                         .shape = {rows, cols}, .source_size = blocks * 34};
+    ingot_qtensor_plan *pp = NULL;
+    ingot_qtensor_plan_create(INGOT_MODE_QUANT, k->e.dtype, q, NULL, rows, cols, 2, &pp);
+    ingot_sink s = {.fd = INGOT_SINK_MEMORY};
+    case_frame(&s, ingot_qtensor_plan_prefix_bytes(pp), ingot_qtensor_plan_blocks(pp));
+    ingot_qtensor_encode(pp, 2, &s);
+    ingot_qtensor_plan_free(pp);
+    case_finish(k, &s);
+}
+
+/* Weight r, c of a Q8_0 case, dequantized (d q in fp32). */
+static inline double case_q8_val(const cuda_case *k, uint64_t r, uint64_t c) {
+    const uint8_t *blk = (const uint8_t *)k->data + (r * k->e.shape[1] + c) / 32 * 34;
+    return (double)ingot_cuda_f16_f32((uint32_t)(blk[0] | blk[1] << 8)) *
+           (int8_t)blk[2 + c % 32];
 }
 
 enum { CASE_COUNT = 10 };

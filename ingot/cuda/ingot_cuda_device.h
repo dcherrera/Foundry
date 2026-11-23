@@ -85,7 +85,20 @@ enum {
 enum {
     INGOT_CUDA_KIND_PLAIN = 1,
     INGOT_CUDA_KIND_DELTA = 2,
+    INGOT_CUDA_KIND_Q8 = 3,    /* mode 3 on Q8_0: STORE writes the Q8_0 blocks */
     INGOT_CUDA_KIND_MATCH = 7, /* modes 6 and 7: mode 6 is converted to per-unit partner lists */
+};
+
+/** Q8_0 (mode 3) contexts and alphabets, as ingot_q8.c declares them (no base). */
+enum {
+    INGOT_CUDA_Q8_CTX_SCALE = 0,  /* + (block != 0 in its row) */
+    INGOT_CUDA_Q8_CTX_FP16 = 2,
+    INGOT_CUDA_Q8_CTX_POS = 3,
+    INGOT_CUDA_Q8_CTX_CODE = 4,   /* + the scale's context (0..7) */
+    INGOT_CUDA_Q8_CONTEXTS = 12,
+    INGOT_CUDA_Q8_ESCAPE = 119,   /* scale symbol: an fp16-pattern step follows */
+    INGOT_CUDA_Q8_BLOCK = 32,
+    INGOT_CUDA_Q8_BLOCK_BYTES = 34,
 };
 
 /**
@@ -244,6 +257,65 @@ INGOT_CUDA_FN int32_t ingot_cuda_step_join(uint32_t symbol, uint32_t raw) {
         mag = ((4u | (v & 3u)) << (v / 8)) | raw;
     }
     return sign ? -(int32_t)mag : (int32_t)mag;
+}
+
+/* ---- Q8_0 ----------------------------------------------------------------------------------- */
+
+/**
+ * fp16 bits of fp16(f32(amax / 127)) for a non-negative finite BF16 amax: an IEEE division,
+ * then round to nearest even (as ingot_q8_scale_of_amax).
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+INGOT_CUDA_FN uint32_t ingot_cuda_q8_scale(uint32_t amax) {
+    union {
+        float f;
+        uint32_t u;
+    } v;
+    v.f = ingot_cuda_bf16_f32(amax) / 127.0f;
+    const uint32_t mag = v.u & 0x7FFFFFFFu, e = mag >> 23;
+    if (mag >= 0x477FF000u)
+        return 0x7C00u; /* rounds past 65504 */
+    if (mag >= 0x38800000u) {
+        uint32_t r = mag - 0x38000000u;
+        r += 0x0FFFu + ((r >> 13) & 1u);
+        return r >> 13;
+    }
+    if (e == 0)
+        return 0;
+    /* subnormal fp16: round m 2^(e - 126) to an integer, m with its leading bit */
+    const uint32_t m = (mag & 0x7FFFFFu) | 0x800000u, s = 126 - e;
+    if (s >= 32)
+        return 0;
+    const uint32_t q = m >> s, rem = m & ((1u << s) - 1u), half = 1u << (s - 1);
+    return q + (rem > half || (rem == half && (q & 1u)));
+}
+
+/** fp16 bits as fp32 (exact). */
+INGOT_CUDA_FN float ingot_cuda_f16_f32(uint32_t h) {
+    union {
+        uint32_t u;
+        float f;
+    } v;
+    const uint32_t sign = (h & 0x8000u) << 16, e = (h >> 10) & 0x1Fu, m = h & 0x3FFu;
+    if (e == 0x1Fu) {
+        v.u = sign | 0x7F800000u | m << 13;
+        return v.f;
+    }
+    if (e) {
+        v.u = sign | (e + 112) << 23 | m << 13;
+        return v.f;
+    }
+    v.f = (float)m * 5.9604644775390625e-8f; /* m 2^-24, exact */
+    return sign ? -v.f : v.f;
+}
+
+/** Code context (0..7) of a scale: its distance from the row's median in half binades. */
+INGOT_CUDA_FN uint32_t ingot_cuda_q8_code_context(uint32_t d16, uint32_t median) {
+    const int32_t diff = (int32_t)d16 - (int32_t)median;
+    int32_t k = diff >= 0 ? diff / 512 : -((-diff + 511) / 512);
+    k += 4;
+    return (uint32_t)(k < 0 ? 0 : k > 7 ? 7 : k);
 }
 
 /* ---- Predictor ------------------------------------------------------------------------------ */

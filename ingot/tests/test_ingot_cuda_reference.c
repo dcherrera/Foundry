@@ -18,6 +18,7 @@
 
 #include "lib/test.h"
 #include "ingot/codec/ingot_predict.h"
+#include "ingot/codec/ingot_q8.h"
 #include "ingot/core/ingot_rans.h"
 #include "ingot/cuda/ingot_cuda_image.h"
 #include "ingot/cuda/ingot_cuda_reference.h"
@@ -196,6 +197,62 @@ static void test_corrupt_block_is_flagged(void) {
     case_free(&k);
 }
 
+/* ---- Q8_0 ----------------------------------------------------------------------------------- */
+
+/* Every BF16 amax: the device scale = the codec's; every finite fp16 survives f16 -> f32 -> f16. */
+static void test_q8_scale_matches_codec(void) {
+    int bad = 0;
+    for (uint32_t a = 0; a < 0x7F80u; a++)
+        bad += ingot_cuda_q8_scale(a) != ingot_q8_scale_of_amax((uint16_t)a);
+    for (uint32_t h = 0; h < 0x10000u; h++)
+        if ((h & 0x7C00u) != 0x7C00u && (h & 0x7FFFu))
+            bad += test_f32_to_f16(ingot_cuda_f16_f32(h)) != (uint16_t)h;
+    printf("    32640 amax + finite fp16: %d mismatches\n", bad);
+    ASSERT_INT_EQ(0, bad);
+}
+
+/* A Q8_0 tensor (escapes, blocks without 127) decodes to its bytes; matvec close, repeatable. */
+static void test_q8_reference_decodes_and_matvec(void) {
+    cuda_case k;
+    test_rng = 0x5EED0100ull;
+    case_q8(&k, "q8", 300, 2048);
+    uint8_t *codec = malloc(k.e.source_size);
+    ASSERT_INT_EQ(0, case_codec_decode(&k, codec));
+    ASSERT_INT_EQ(0, memcmp(codec, k.data, k.e.source_size));
+    ref_result r = case_reference_run(&k, INGOT_CUDA_STORE, NULL);
+    int same = !r.rc && !memcmp(r.out, codec, k.e.source_size);
+    float *x = malloc(2048 * sizeof(float));
+    for (int c = 0; c < 2048; c++)
+        x[c] = (float)test_gauss();
+    ref_result a = case_reference_run(&k, INGOT_CUDA_MATVEC, x);
+    ref_result b = case_reference_run(&k, INGOT_CUDA_MATVEC, x);
+    double worst = 0;
+    for (uint64_t row = 0; row < 300; row++) {
+        double want = 0, mag = 0;
+        for (uint64_t c = 0; c < 2048; c++) {
+            want += case_q8_val(&k, row, c) * x[c];
+            mag += fabs(case_q8_val(&k, row, c) * x[c]);
+        }
+        double err = fabs(a.y[row] - want) / (mag + 1e-30);
+        worst = err > worst ? err : worst;
+    }
+    printf("    q8 %llu -> %llu bytes  bad blocks %u  %s  matvec worst rel err %.2e\n",
+           (unsigned long long)k.e.source_size, (unsigned long long)k.size, r.bad_blocks,
+           same ? "identical" : "DIFFERENT", worst);
+    ASSERT_INT_EQ(0, r.rc);
+    ASSERT_INT_EQ(0, (int)r.bad_blocks);
+    ASSERT_TRUE(same);
+    ASSERT_INT_EQ(0, (int)a.bad_blocks);
+    ASSERT_TRUE(worst < 1e-5);
+    ASSERT_INT_EQ(0, memcmp(a.y, b.y, 300 * sizeof(float)));
+    ref_free(&r);
+    ref_free(&a);
+    ref_free(&b);
+    free(x);
+    free(codec);
+    case_free(&k);
+}
+
 int main(void) {
     RUN_TEST(partner_term_matches_codec);
     RUN_TEST(bucket_matches_thresholds);
@@ -203,6 +260,8 @@ int main(void) {
     RUN_TEST(reference_decodes_every_case);
     RUN_TEST(reference_matvec_close_and_repeatable);
     RUN_TEST(corrupt_block_is_flagged);
+    RUN_TEST(q8_scale_matches_codec);
+    RUN_TEST(q8_reference_decodes_and_matvec);
     TEST_REPORT();
     return __ft_failed > 0 ? 1 : 0;
 }
