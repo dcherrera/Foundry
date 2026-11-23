@@ -14,7 +14,9 @@
  * Units. The target D holds U unit vectors of length H: unit u is row u (axis ROWS, D [U, H]) or
  * column u (axis COLS, D [H, U]). Source s is a BF16 tensor whose n_s units have length H: rows
  * of [n_s, H] or columns of [H, n_s]. A source may be D itself (rows only): unit u then uses rows
- * i < u, and the blocks decode in order (ingot_match_decoder_serial).
+ * i < u, and the blocks decode in order (ingot_match_decoder_serial) unless they are R-row
+ * strips whose self partners stay in their own strip (flag bit 1: strips; then blocks are
+ * independent and each decodes its rows in order).
  *
  * Per unit u (side stream, one rANS block in the prefix): scale s_u (unit RMS ~ 2^(s_u / 4)), K_u
  * (0..8) and K_u partners (source, unit index, int16 coefficient q). Predictor, in integers:
@@ -25,7 +27,8 @@
  * Payload prefix (after the frame, little-endian):
  *   u32 source_count NS, u32 axis, u64 U, u64 H, i32 C, u32 block_log2 (18), u64 block_count,
  *   u32 classes S, u32 class_width, i32 class_ref, u32 context_count (36 S), u64 param_hash,
- *   u32 flags (bit 0: self source), u32 0, u64 side_table_bytes, u64 side_block_bytes,
+ *   u32 flags (bit 0: self source, bit 1: strips), u32 strip rows R (0 without bit 1),
+ *   u64 side_table_bytes, u64 side_block_bytes,
  *   NS x { u32 ref (0xFFFFFFFF: self), u32 axis, u64 units, i32 E, u32 0 },
  *   side tables, pad to 8, side block, pad to 8, weight tables, pad to 8.
  * Side stream, units in order: scale + 128 (ctx 0, alphabet 256); K (ctx 1, alphabet 9); per
@@ -53,6 +56,7 @@ enum {
     INGOT_MATCH_INDEX_BITS_MAX = 25, /* a source holds at most 2^25 units */
     INGOT_MATCH_COEF_MAX = 32767,
     INGOT_MATCH_FLAG_SELF = 1,
+    INGOT_MATCH_FLAG_STRIPS = 2, /* blocks are R-row strips; self partners stay in their strip */
 };
 
 /* Source ref of the self source (D itself). */
@@ -78,6 +82,8 @@ typedef struct {
     uint32_t classes;
     uint32_t class_width;
     int32_t class_ref;
+    uint64_t strip_rows;       /* R: blocks of R rows of D, self partners in the unit's strip
+                                  (rows i >= u - u % R); 0: blocks of 2^18 weights */
     int8_t *scale;             /* [U] */
     uint8_t *k;                /* [U] */
     uint8_t *link;             /* [U * 8]: source index of partner k */
@@ -244,6 +250,15 @@ int ingot_match_decoder_bind(ingot_match_decoder *d, uint32_t s, uint64_t rows, 
 int ingot_match_decoder_serial(const ingot_match_decoder *d);
 
 /**
+ * Block count of a payload with these params, its largest block (weights), and the weight
+ * range [lo, hi) of block b: 2^18-weight blocks, or R-row strips (strip_rows R).
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+size_t ingot_match_block_count(const ingot_match_params *p, uint64_t *max_weights);
+void ingot_match_block_range(const ingot_match_params *p, size_t b, uint64_t *lo, uint64_t *hi);
+
+/**
  * Block count and the weight range [lo, hi) of block b.
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
@@ -287,6 +302,8 @@ typedef struct {
     uint32_t per_unit;
     uint8_t *source;
     uint64_t *index;
+    uint32_t max_k;     /* partners kept per unit, 1..8 (0: 8; encoder policy, not format) */
+    uint64_t strip_rows;  /* R-row strip blocks for the payload (0: 2^18-weight blocks) */
 } ingot_match_candidates;
 
 /** Histograms, tables and parameters of one target tensor. Opaque. */

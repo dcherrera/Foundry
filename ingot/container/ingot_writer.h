@@ -76,6 +76,14 @@ typedef struct {
                                     0: all */
     int match_no_self;           /* no self sources: every match tensor decodes its blocks in
                                     parallel (a self source makes them decode in order) */
+    long match_strip;            /* row strip R (0: none): self partners only from earlier rows of
+                                    the unit's own R-row strip; anchor partners decodable strip
+                                    by strip alongside the target (see match_anchor_every) */
+    long match_anchor_every;     /* anchor spacing A (0: none): layers L % A == 0 are not match
+                                    targets; every other target's pool also holds its anchor
+                                    (layer L - L % A), whose partners must lie in the target's
+                                    row strip (decoded alongside it); needs match_strip */
+    int match_max_k;             /* partners per unit, 1..8 (0: 8) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;
     ingot_progress_fn progress;  /* optional */

@@ -157,7 +157,7 @@ static void select_unit(select_job *job, uint64_t u) {
         uint8_t s = job->cand->source[u * m + j];
         uint64_t i = job->cand->index[u * m + j];
         if (s == NO_SOURCE || s >= p->source_count || i >= job->src[s].units ||
-            (job->src[s].self && i >= u))
+            (job->src[s].self && (i >= u || (p->strip_rows && i < u - u % p->strip_rows))))
             continue;
         int dup = 0;
         for (uint32_t t = 0; t < have; t++)
@@ -186,7 +186,8 @@ static void select_unit(select_job *job, uint64_t u) {
     }
     double best_cost = 0, a[K_MAX], best_a[K_MAX], side = K_BITS, best_rss = yy;
     uint32_t best_k = 0;
-    for (uint32_t k = 1; k <= have; k++) {
+    uint32_t cap = job->cand->max_k && job->cand->max_k < have ? job->cand->max_k : have;
+    for (uint32_t k = 1; k <= cap; k++) {
         int same = !job->src[cs[k - 1]].self && ci[k - 1] == u;
         side += LINK_BITS + COEF_BITS + (same ? 0 : bits_for(job->src[cs[k - 1]].units));
         double rss = solve_ls(gram, cb, k, yy, a);
@@ -318,15 +319,16 @@ typedef struct {
 } count_job;
 
 static void block_range(const ingot_match_plan *p, size_t b, uint64_t *lo, uint64_t *hi) {
-    *lo = (uint64_t)b * BLOCK;
-    *hi = *lo + BLOCK < p->count ? *lo + BLOCK : p->count;
+    ingot_match_block_range(&p->params, b, lo, hi);
 }
 
 static int count_chunk(void *ctx, size_t k) {
     count_job *job = ctx;
     const ingot_match_plan *p = job->plan;
     uint64_t *counts = job->counts + k * (size_t)FINE_COUNTS, *symbols = counts + FINE_CELLS;
-    uint8_t *cb = malloc(BLOCK);
+    uint64_t max_block = 0;
+    ingot_match_block_count(&p->params, &max_block);
+    uint8_t *cb = malloc((size_t)max_block);
     if (!cb)
         return -INGOT_ENOMEM;
     for (size_t b = k * p->block_count / job->chunks;
@@ -567,7 +569,8 @@ int ingot_match_plan_create(ingot_predict_axis axis, uint64_t units, uint64_t un
     }
     p->data = data;
     p->count = units * unit_len;
-    p->block_count = (size_t)((p->count + BLOCK - 1) / BLOCK);
+    q->strip_rows = cand->strip_rows;
+    p->block_count = ingot_match_block_count(q, NULL);
     int rc = ingot_match_params_alloc(q);
     clock_t c0 = clock();
     if (!rc)

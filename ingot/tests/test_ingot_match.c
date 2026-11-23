@@ -202,6 +202,9 @@ static uint16_t *transpose(const uint16_t *x, uint64_t rows, uint64_t cols) {
     return t;
 }
 
+/* Device options for encode_planted (0: off): partner cap and R-row strips. */
+static uint32_t planted_max_k, planted_strip;
+
 /* Search, plan and encode a planted tensor; *found = units whose candidates hold perm u. */
 static int encode_planted(planted *pl, ingot_predict_axis axis, ingot_sink *out, int *found,
                           const ingot_match_params **params, ingot_match_plan **plan) {
@@ -220,7 +223,8 @@ static int encode_planted(planted *pl, ingot_predict_axis axis, ingot_sink *out,
     ingot_match_sketch(s1t, N1, H, 2, sk[1]);
     ingot_match_sketch(d_units, U, H, 2, sk[2]);
     ingot_match_pool pool[3] = {{sk[0], N0, 0}, {sk[1], N1, 0}, {sk[2], U, 1}};
-    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t))};
+    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t)),
+                                   planted_max_k, planted_strip};
     int rc = ingot_match_search(sk[2], U, pool, ns, 2, &cand);
     *found = 0;
     for (uint64_t u = 0; u < U; u++)
@@ -314,6 +318,52 @@ static int decode_flipped(const planted *pl, const ingot_match_params *p, const 
         rc = -INGOT_ECORRUPT; /* decoded something else: the caller's hash check catches it */
     free(copy);
     return rc;
+}
+
+/* Device options: 32-row strips (self partners inside the strip) and at most 2 partners. The
+ * blocks are strips, independent (not serial); the round trip is exact; a changed strip field
+ * or a cleared strip flag is refused. */
+static void test_strips_and_partner_cap(void) {
+    planted pl;
+    make_planted(&pl, INGOT_PREDICT_ROWS);
+    planted_strip = 32;
+    planted_max_k = 3;
+    ingot_sink s = {.fd = INGOT_SINK_MEMORY};
+    int found = 0;
+    const ingot_match_params *p = NULL;
+    ingot_match_plan *plan = NULL;
+    ASSERT_INT_EQ(0, encode_planted(&pl, INGOT_PREDICT_ROWS, &s, &found, &p, &plan));
+    planted_strip = planted_max_k = 0;
+    int self_in_strip = 1, capped = 1, self_used = 0;
+    for (uint64_t u = 0; u < U; u++) {
+        capped &= p->k[u] <= 3;
+        for (uint32_t k = 0; k < p->k[u]; k++) {
+            size_t at = (size_t)u * INGOT_MATCH_MAX_K + k;
+            if (!p->source[p->link[at]].self)
+                continue;
+            self_used++;
+            self_in_strip &= p->index[at] >= u - u % 32 && p->index[at] < u;
+        }
+    }
+    printf("    strips 32, K <= 3: %llu bytes, self partners %d\n", (unsigned long long)s.pos,
+           self_used);
+    ASSERT_TRUE(capped);
+    ASSERT_TRUE(self_used > 0 && self_in_strip);
+    ASSERT_INT_EQ((U + 31) / 32, (int)ingot_load_u64(s.mem + 8));
+    ingot_match_decoder *d = NULL;
+    uint64_t used = 0;
+    ASSERT_INT_EQ(0, ingot_match_decoder_open(U, H, s.mem + 16, s.pos - 16, &d, &used));
+    ASSERT_INT_EQ(0, ingot_match_decoder_serial(d));
+    ingot_match_decoder_close(d);
+    uint8_t *out = malloc((size_t)U * H * 2);
+    ASSERT_INT_EQ(0, decode_planted(&pl, p, s.mem, s.pos, out));
+    ASSERT_INT_EQ(0, memcmp(out, pl.d, (size_t)U * H * 2));
+    ASSERT_TRUE(decode_flipped(&pl, p, &s, 16 + 68, 0x10, out) != 0); /* R 32 -> 48 */
+    ASSERT_TRUE(decode_flipped(&pl, p, &s, 16 + 64, 0x02, out) != 0); /* strip flag cleared */
+    free(out);
+    ingot_match_plan_free(plan);
+    free(s.mem);
+    free_planted(&pl);
 }
 
 static void test_corrupt_side_hash_or_block_fails(void) {
@@ -507,6 +557,7 @@ int main(int argc, char **argv) {
     }
     RUN_TEST(planted_rows_with_self_round_trip);
     RUN_TEST(planted_cols_round_trip);
+    RUN_TEST(strips_and_partner_cap);
     RUN_TEST(corrupt_side_hash_or_block_fails);
     RUN_TEST(external_refs_round_trip);
     RUN_TEST(version3_writer_still_decodes);
