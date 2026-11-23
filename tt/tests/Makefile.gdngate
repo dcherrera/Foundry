@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 David (Corey) Herrera
+# Foundry Blackhole backend — the GDN GATE block layouts (kernels/resident_gdngate_protocol.h)
+# at 1..64 heads, off hardware.
+#
+#   make -f Makefile.gdngate run    build + check
+#   make -f Makefile.gdngate red    clean rebuild with GDNGATE_LAYOUT_RED: MUST fail
+#
+# `red` deletes the tree first: Apple's make 3.81 skips a rebuild of a source edited in the
+# same second.
+
+CC      ?= cc
+BUILD   := build-gdngate
+CFLAGS  := -std=c99 -O2 -g -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion \
+           -Wstrict-prototypes
+HEADERS := ../kernels/resident_gdngate_protocol.h ../kernels/ft_det_math.h
+TARGET  := $(BUILD)/test_gdngate_layout
+
+.PHONY: all run red clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $@
+
+$(TARGET): test_gdngate_layout.c $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_gdngate_layout.c
+
+run: $(TARGET)
+	./$(TARGET)
+
+red: clean | $(BUILD)
+	$(CC) $(CFLAGS) -DGDNGATE_LAYOUT_RED -o $(TARGET) test_gdngate_layout.c
+	@if ./$(TARGET); then echo "RED ARM PASSED: the test is vacuous"; exit 1; \
+	 else echo "red OK: the swapped-tile reference fails as it must"; fi
+	rm -rf $(BUILD)
+
+clean:
+	rm -rf $(BUILD)
