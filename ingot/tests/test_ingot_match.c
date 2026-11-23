@@ -220,7 +220,7 @@ static int encode_planted(planted *pl, ingot_predict_axis axis, ingot_sink *out,
     ingot_match_sketch(s1t, N1, H, 2, sk[1]);
     ingot_match_sketch(d_units, U, H, 2, sk[2]);
     ingot_match_pool pool[3] = {{sk[0], N0, 0}, {sk[1], N1, 0}, {sk[2], U, 1}};
-    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t))};
+    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t)), 0};
     int rc = ingot_match_search(sk[2], U, pool, ns, 2, &cand);
     *found = 0;
     for (uint64_t u = 0; u < U; u++)

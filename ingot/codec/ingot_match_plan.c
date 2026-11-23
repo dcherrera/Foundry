@@ -186,7 +186,8 @@ static void select_unit(select_job *job, uint64_t u) {
     }
     double best_cost = 0, a[K_MAX], best_a[K_MAX], side = K_BITS, best_rss = yy;
     uint32_t best_k = 0;
-    for (uint32_t k = 1; k <= have; k++) {
+    uint32_t cap = job->cand->max_k && job->cand->max_k < have ? job->cand->max_k : have;
+    for (uint32_t k = 1; k <= cap; k++) {
         int same = !job->src[cs[k - 1]].self && ci[k - 1] == u;
         side += LINK_BITS + COEF_BITS + (same ? 0 : bits_for(job->src[cs[k - 1]].units));
         double rss = solve_ls(gram, cb, k, yy, a);

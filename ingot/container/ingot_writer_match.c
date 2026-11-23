@@ -139,6 +139,12 @@ static int build_pool(ingot_match_writer *w, size_t e) {
     const ingot_layout_tensor *lt = ingot_layout_tensor_at(w->layout, ti->layout_index);
     const int *offs = w->opt->pool_layers ? w->opt->pool_layers : DEFAULT_POOL_LAYERS;
     size_t noff = w->opt->pool_layers ? (size_t)w->opt->pool_layer_count : 2;
+    long anchor = w->opt->match_anchor_every;
+    int anchor_off = anchor > 0 ? (int)(ti->role.layer % anchor) : 0;
+    if (anchor > 0) { /* only the layer's anchor; no same-layer roles */
+        offs = &anchor_off;
+        noff = 1;
+    }
     char name[MAX_NAME];
     size_t total = ingot_match_pool_names(lt->name, &ti->role, offs, noff, 0, name, sizeof(name));
     ti->pool = calloc(total + 1, sizeof(*ti->pool));
@@ -149,6 +155,8 @@ static int build_pool(ingot_match_writer *w, size_t e) {
     for (size_t k = 0; !rc && k < total && ti->pool_count < INGOT_MATCH_MAX_SOURCES - 1; k++) {
         ingot_match_pool_names(lt->name, &ti->role, offs, noff, k, name, sizeof(name));
         size_t group = k / INGOT_MATCH_ROLE_SUFFIXES;
+        if (anchor > 0 && group >= noff)
+            break;
         int far = group < noff && w->opt->match_search_layers > 0 &&
                   offs[group] > w->opt->match_search_layers;
         rc = add_member(w, ti, name, far);
@@ -167,12 +175,16 @@ int ingot_match_writer_create(const ingot_encode_options *opt, const ingot_layou
     *w = (ingot_match_writer){opt, layout, tensor_entry, entry_count, NULL, NULL, 0, 0};
     w->info = calloc(entry_count ? entry_count : 1, sizeof(*w->info));
     int rc = w->info ? 0 : -INGOT_ENOMEM;
+    if (!rc && opt->match_anchor_every > 0 && opt->match_strip <= 0)
+        rc = -INGOT_EINVAL; /* anchor partners are strip-aligned */
     size_t tensors = ingot_layout_count(layout);
     for (size_t t = 0; !rc && t < tensors; t++) {
         const ingot_layout_tensor *lt = ingot_layout_tensor_at(layout, t);
         entry_info *ti = &w->info[tensor_entry[t]];
         ti->layout_index = t;
         ti->is_target = ingot_match_role_of(lt->name, lt->dtype, lt->ndim, lt->shape, &ti->role);
+        if (opt->match_anchor_every > 0 && ti->role.layer % opt->match_anchor_every == 0)
+            ti->is_target = 0; /* an anchor: plain or same-unit predict */
     }
     for (size_t t = 0; !rc && t < tensors; t++)
         if (w->info[tensor_entry[t]].is_target)
@@ -379,17 +391,81 @@ static void add_aligned_candidates(ingot_writer_match *out, uint32_t first, uint
     }
 }
 
+/* Device-decode limits on candidates (strip R, anchors): a self partner must sit in the unit's
+ * own R-row strip, before it; with anchors, an anchor partner's values must lie in the anchor's
+ * rows of the target's current strip, so both decode strip by strip together: row units take
+ * anchor rows of the same strip, column units take anchor columns (any index). */
+static int candidate_allowed(const ingot_writer_match *out, uint32_t s, uint64_t u, uint64_t i,
+                             uint64_t strip, int anchors) {
+    const ingot_match_input *src = &out->src[s];
+    if (src->self)
+        return !strip || i >= u / strip * strip;
+    if (!anchors)
+        return 1;
+    if (out->axis == INGOT_PREDICT_ROWS)
+        return src->axis == INGOT_PREDICT_ROWS && i / strip == u / strip;
+    return src->axis == INGOT_PREDICT_COLS;
+}
+
+/* Strip candidates (strip R): every earlier row of the unit's strip from the self source, and
+ * with anchors every row of the same strip of each row-unit anchor source (row targets). */
+static uint32_t strip_count(const ingot_match_writer *w, const ingot_writer_match *out) {
+    uint64_t strip = w->opt->match_strip > 0 ? (uint64_t)w->opt->match_strip : 0;
+    uint32_t n = 0;
+    for (uint32_t s = 0; strip && out->axis == INGOT_PREDICT_ROWS && s < out->source_count; s++)
+        if (out->src[s].self ||
+            (w->opt->match_anchor_every > 0 && out->src[s].axis == INGOT_PREDICT_ROWS))
+            n += (uint32_t)strip;
+    return n;
+}
+
+static void add_strip_candidates(const ingot_match_writer *w, ingot_writer_match *out,
+                                 uint32_t first) {
+    uint64_t strip = (uint64_t)w->opt->match_strip;
+    uint32_t per = out->cand.per_unit;
+    for (uint64_t u = 0; u < out->units; u++) {
+        uint32_t j = first;
+        uint64_t lo = u / strip * strip;
+        for (uint32_t s = 0; s < out->source_count && j < per; s++) {
+            const ingot_match_input *src = &out->src[s];
+            if (!src->self && !(w->opt->match_anchor_every > 0 && src->axis == INGOT_PREDICT_ROWS))
+                continue;
+            for (uint64_t i = lo; i < lo + strip && j < per; i++, j++) {
+                int ok = src->self ? i < u : i < src->units;
+                out->cand.source[u * per + j] = ok ? (uint8_t)s : 0xFF;
+                out->cand.index[u * per + j] = i;
+            }
+        }
+    }
+}
+
+static void filter_candidates(const ingot_match_writer *w, ingot_writer_match *out) {
+    uint64_t strip = w->opt->match_strip > 0 ? (uint64_t)w->opt->match_strip : 0;
+    int anchors = w->opt->match_anchor_every > 0;
+    uint32_t per = out->cand.per_unit;
+    if (!strip && !anchors)
+        return;
+    for (uint64_t u = 0; u < out->units; u++)
+        for (uint32_t j = 0; j < per; j++) {
+            uint8_t *s = &out->cand.source[u * per + j];
+            if (*s < out->source_count &&
+                !candidate_allowed(out, *s, u, out->cand.index[u * per + j], strip, anchors))
+                *s = 0xFF;
+        }
+}
+
 static int search(ingot_match_writer *w, size_t target, const ingot_match_pool *pool,
                   ingot_writer_match *out) {
     entry_info *ti = &w->info[target];
     uint32_t m = w->opt->match_candidates > 0 ? (uint32_t)w->opt->match_candidates
                                               : DEFAULT_CANDIDATES;
     uint64_t twin = w->opt->match_twin_offset > 0 ? (uint64_t)w->opt->match_twin_offset : 0;
-    uint32_t per = m + INGOT_PREDICT_MAX_PARTNERS + aligned_count(out, twin);
+    uint32_t aligned = aligned_count(out, twin);
+    uint32_t per = m + INGOT_PREDICT_MAX_PARTNERS + aligned + strip_count(w, out);
     ingot_match_candidates found = {m, malloc((size_t)out->units * m),
-                                    malloc((size_t)out->units * m * sizeof(uint64_t))};
+                                    malloc((size_t)out->units * m * sizeof(uint64_t)), 0};
     out->cand = (ingot_match_candidates){per, malloc((size_t)out->units * per),
-                                         malloc((size_t)out->units * per * sizeof(uint64_t))};
+                                         malloc((size_t)out->units * per * sizeof(uint64_t)), 0};
     int rc = found.source && found.index && out->cand.source && out->cand.index
                  ? ingot_match_search(ti->sketch, out->units, pool, out->source_count,
                                       w->opt->threads, &found)
@@ -401,6 +477,10 @@ static int search(ingot_match_writer *w, size_t target, const ingot_match_pool *
     if (!rc) {
         add_rule_candidates(w, target, out, m);
         add_aligned_candidates(out, m + INGOT_PREDICT_MAX_PARTNERS, twin);
+        if (strip_count(w, out))
+            add_strip_candidates(w, out, m + INGOT_PREDICT_MAX_PARTNERS + aligned);
+        filter_candidates(w, out);
+        out->cand.max_k = (uint32_t)w->opt->match_max_k;
     }
     free(found.source);
     free(found.index);

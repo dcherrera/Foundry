@@ -44,6 +44,9 @@ typedef struct {
     long twin_offset;
     int no_self;
     long search_layers;
+    long strip;
+    long anchor_every;
+    int max_k;
     uint8_t base_sha256[32];
     int has_base_sha256;
     int check_base;
@@ -115,6 +118,18 @@ static int parse_options(int argc, char **argv, cli_options *o) {
             o->search_layers = atol(argv[++i]);
         } else if (!strcmp(a, "--no-self-partners")) {
             o->no_self = 1;
+        } else if (!strcmp(a, "--strip") && has_value) {
+            o->strip = atol(argv[++i]);
+            if (o->strip < 1)
+                return -1;
+        } else if (!strcmp(a, "--anchor-every") && has_value) {
+            o->anchor_every = atol(argv[++i]);
+            if (o->anchor_every < 2)
+                return -1;
+        } else if (!strcmp(a, "--max-partners") && has_value) {
+            o->max_k = atoi(argv[++i]);
+            if (o->max_k < 1 || o->max_k > 8)
+                return -1;
         } else if (!strcmp(a, "--twin-offset") && has_value) {
             o->twin_offset = atol(argv[++i]);
             if (o->twin_offset < 0)
@@ -263,6 +278,9 @@ static int cmd_encode(const cli_options *o) {
                                 .match_twin_offset = o->twin_offset,
                                 .match_no_self = o->no_self,
                                 .match_search_layers = o->search_layers,
+                                .match_strip = o->strip,
+                                .match_anchor_every = o->anchor_every,
+                                .match_max_k = o->max_k,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)"encode"};
@@ -458,6 +476,11 @@ static void usage(void) {
             "                            lineage: 12288)\n"
             "       --search-layers N    encode: sketch-search only pool layers up to offset N\n"
             "                            (farther ones: same-index and twin candidates only)\n"
+            "       --strip R            encode: self partners only within R-row strips\n"
+            "       --anchor-every A     encode: layers L %% A == 0 are anchors (not match coded);\n"
+            "                            others take partners only from their anchor, strip-aligned\n"
+            "                            (needs --strip)\n"
+            "       --max-partners K     encode: at most K partners per unit (1..8, default 8)\n"
             "       --no-self-partners   encode: no partners from the tensor's own rows (every\n"
             "                            tensor decodes in parallel; slightly larger)\n"
             "       --tensor-log FILE    encode: one line per entry (mode, payload, v2 bytes)\n"

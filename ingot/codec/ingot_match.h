@@ -287,6 +287,7 @@ typedef struct {
     uint32_t per_unit;
     uint8_t *source;
     uint64_t *index;
+    uint32_t max_k;     /* partners kept per unit, 1..8 (0: 8; encoder policy, not format) */
 } ingot_match_candidates;
 
 /** Histograms, tables and parameters of one target tensor. Opaque. */
