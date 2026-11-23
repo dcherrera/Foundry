@@ -42,6 +42,8 @@ typedef struct {
     int max_version;
     int candidates;
     long twin_offset;
+    int no_self;
+    long search_layers;
     uint8_t base_sha256[32];
     int has_base_sha256;
     int check_base;
@@ -109,6 +111,10 @@ static int parse_options(int argc, char **argv, cli_options *o) {
             o->max_version = atoi(argv[++i]);
             if (o->max_version != 3 && o->max_version != 4)
                 return -1;
+        } else if (!strcmp(a, "--search-layers") && has_value) {
+            o->search_layers = atol(argv[++i]);
+        } else if (!strcmp(a, "--no-self-partners")) {
+            o->no_self = 1;
         } else if (!strcmp(a, "--twin-offset") && has_value) {
             o->twin_offset = atol(argv[++i]);
             if (o->twin_offset < 0)
@@ -255,6 +261,8 @@ static int cmd_encode(const cli_options *o) {
                                 .pool_layer_count = o->pool_layer_count,
                                 .match_candidates = o->candidates,
                                 .match_twin_offset = o->twin_offset,
+                                .match_no_self = o->no_self,
+                                .match_search_layers = o->search_layers,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)"encode"};
@@ -448,6 +456,10 @@ static void usage(void) {
             "       --candidates N       encode: searched partner candidates per unit (32)\n"
             "       --twin-offset N      encode: also try units u -+ N (grown models; Qwen3.5-27B\n"
             "                            lineage: 12288)\n"
+            "       --search-layers N    encode: sketch-search only pool layers up to offset N\n"
+            "                            (farther ones: same-index and twin candidates only)\n"
+            "       --no-self-partners   encode: no partners from the tensor's own rows (every\n"
+            "                            tensor decodes in parallel; slightly larger)\n"
             "       --tensor-log FILE    encode: one line per entry (mode, payload, v2 bytes)\n"
             "       -q                   no progress line\n"
             "Encode writes SRC.ingot and decode strips .ingot unless DST is given; an existing\n"

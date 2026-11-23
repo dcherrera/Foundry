@@ -11,8 +11,10 @@
  */
 #include "ingot_writer_match.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "ingot/container/ingot_base.h"
 #include "ingot/container/ingot_dirtail.h"
@@ -33,7 +35,8 @@ static const int DEFAULT_POOL_LAYERS[] = {1, 16};
 
 typedef struct {
     int kind;
-    size_t id; /* entry index or ref index */
+    size_t id;        /* entry index or ref index */
+    int aligned_only; /* not in the sketch search: exact aligned candidates only */
 } pool_member;
 
 /* Per entry: role, pool (targets only), caches. */
@@ -108,7 +111,8 @@ static int find_ref(ingot_match_writer *w, const char *name, const ingot_match_r
 }
 
 /* Pool member k's name: an entry of this file (same unit length), else a ref, else none. */
-static int add_member(ingot_match_writer *w, entry_info *ti, const char *name) {
+static int add_member(ingot_match_writer *w, entry_info *ti, const char *name,
+                      int aligned_only) {
     size_t at = 0, id = 0;
     if (!name[0])
         return 0;
@@ -117,13 +121,13 @@ static int add_member(ingot_match_writer *w, entry_info *ti, const char *name) {
         entry_info *m = &w->info[e];
         if (!m->role.is_role || m->role.unit_len != ti->role.unit_len)
             return 0;
-        ti->pool[ti->pool_count++] = (pool_member){MEMBER_ENTRY, e};
+        ti->pool[ti->pool_count++] = (pool_member){MEMBER_ENTRY, e, aligned_only};
         ti->deps[ti->dep_count++] = e;
         return 0;
     }
     int rc = find_ref(w, name, &ti->role, &id);
     if (rc == 1) {
-        ti->pool[ti->pool_count++] = (pool_member){MEMBER_REF, id};
+        ti->pool[ti->pool_count++] = (pool_member){MEMBER_REF, id, aligned_only};
         w->refs[id].pending++;
         rc = 0;
     }
@@ -144,10 +148,13 @@ static int build_pool(ingot_match_writer *w, size_t e) {
     int rc = 0;
     for (size_t k = 0; !rc && k < total && ti->pool_count < INGOT_MATCH_MAX_SOURCES - 1; k++) {
         ingot_match_pool_names(lt->name, &ti->role, offs, noff, k, name, sizeof(name));
-        rc = add_member(w, ti, name);
+        size_t group = k / INGOT_MATCH_ROLE_SUFFIXES;
+        int far = group < noff && w->opt->match_search_layers > 0 &&
+                  offs[group] > w->opt->match_search_layers;
+        rc = add_member(w, ti, name, far);
     }
-    if (ti->role.axis == INGOT_PREDICT_ROWS)
-        ti->pool[ti->pool_count++] = (pool_member){MEMBER_SELF, e};
+    if (ti->role.axis == INGOT_PREDICT_ROWS && !w->opt->match_no_self)
+        ti->pool[ti->pool_count++] = (pool_member){MEMBER_SELF, e, 0};
     return rc;
 }
 
@@ -252,6 +259,12 @@ void ingot_match_writer_release_entry(ingot_match_writer *w, size_t i) {
     w->info[i].sketch = NULL;
 }
 
+static double now_seconds(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
 /* ---- Prepare ---- */
 
 /* Source s of the prepared candidate from pool member m. */
@@ -268,13 +281,13 @@ static int prepare_member(ingot_match_writer *w, const pool_member *m, size_t ta
         rc = load_ref(w, r);
         if (!rc)
             rc = unit_major(r->data, &r->role, &r->unit_major, &in->unit_major);
-        if (!rc)
+        if (!rc && !m->aligned_only)
             rc = sketch_of(in->unit_major, &r->role, threads, &r->sketch);
         *in = (ingot_match_input){(uint32_t)(w->entry_count + m->id), r->role.axis,
                                   r->role.units, (const uint16_t *)(const void *)r->data,
                                   in->unit_major, 0};
         out->src_entry[s] = &r->e;
-        pool[s] = (ingot_match_pool){r->sketch, r->role.units, 0};
+        pool[s] = (ingot_match_pool){r->sketch, m->aligned_only ? 0 : r->role.units, 0};
     } else {
         size_t j = m->kind == MEMBER_SELF ? target : m->id;
         entry_info *ei = &w->info[j];
@@ -282,14 +295,14 @@ static int prepare_member(ingot_match_writer *w, const pool_member *m, size_t ta
         if (!bytes)
             return -INGOT_EINVAL;
         rc = unit_major(bytes, &ei->role, &ei->unit_major, &in->unit_major);
-        if (!rc)
+        if (!rc && !m->aligned_only)
             rc = sketch_of(in->unit_major, &ei->role, threads, &ei->sketch);
         int self = m->kind == MEMBER_SELF;
         *in = (ingot_match_input){self ? INGOT_MATCH_SELF_REF : position[j], ei->role.axis,
                                   ei->role.units, (const uint16_t *)(const void *)bytes,
                                   in->unit_major, self};
         out->src_entry[s] = &entries[j];
-        pool[s] = (ingot_match_pool){ei->sketch, ei->role.units, self};
+        pool[s] = (ingot_match_pool){ei->sketch, m->aligned_only ? 0 : ei->role.units, self};
     }
     if (!rc)
         out->source_count++;
@@ -400,14 +413,24 @@ int ingot_match_writer_prepare(ingot_match_writer *w, size_t i, const uint8_t *d
     entry_info *ti = &w->info[i];
     *out = (ingot_writer_match){.axis = ti->role.axis, .units = ti->role.units,
                                 .unit_len = ti->role.unit_len};
+    double t0 = now_seconds();
     ingot_match_pool pool[INGOT_MATCH_MAX_SOURCES];
     int rc = unit_major(data, &ti->role, &ti->unit_major, &out->unit_major);
     if (!rc)
         rc = sketch_of(out->unit_major, &ti->role, w->opt->threads, &ti->sketch);
     for (uint32_t k = 0; !rc && k < ti->pool_count; k++)
         rc = prepare_member(w, &ti->pool[k], i, data, entries, entry_data, position, out, pool);
+    double t1 = now_seconds();
     if (!rc)
         rc = search(w, i, pool, out);
+    if (getenv("INGOT_MATCH_STATS")) {
+        uint64_t searched = 0;
+        for (uint32_t s = 0; s < out->source_count; s++)
+            searched += pool[s].units;
+        fprintf(stderr, "match-time %s prepare %.1f s search %.1f s (%llu x %llu)\n",
+                entries[i].name, t1 - t0, now_seconds() - t1,
+                (unsigned long long)out->units, (unsigned long long)searched);
+    }
     return rc;
 }
 

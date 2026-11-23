@@ -50,53 +50,89 @@ static uint64_t sign_word(uint64_t h, uint32_t word) {
     return x ^ (x >> 31);
 }
 
+/* Sign patterns of 4 dimensions (bit k set: dimension k is +1). */
+static v4f sign_pattern(unsigned bits) {
+    v4f p;
+    for (int k = 0; k < VEC; k++)
+        p[k] = (bits >> k) & 1 ? 1.0f : -1.0f;
+    return p;
+}
+
 typedef struct {
     const uint16_t *units;
     uint64_t len;
     int16_t *out;
-    const v4f *signs; /* [len][DIM / VEC]: +-1 */
+    const uint8_t *signs; /* [len][DIM / 8]: bit d of row h = sign of dimension d */
     uint64_t n;
 } sketch_job;
+
+enum { SKETCH_BLOCK = 8 }; /* units sharing one pass over the sign rows (accumulators in L1) */
+
+/* Accumulate units [u0, u0 + nb) of one block. */
+static void sketch_block(const sketch_job *job, uint64_t u0, uint32_t nb, v4f *acc,
+                         double *norm) {
+    v4f pat[16];
+    for (unsigned b = 0; b < 16; b++)
+        pat[b] = sign_pattern(b);
+    memset(acc, 0, (size_t)SKETCH_BLOCK * (DIM / VEC) * sizeof(*acc));
+    for (uint32_t k = 0; k < SKETCH_BLOCK; k++)
+        norm[k] = 0;
+    for (uint64_t h = 0; h < job->len; h++) {
+        float v[SKETCH_BLOCK] = {0};
+        int any = 0;
+        for (uint32_t k = 0; k < nb; k++) {
+            uint16_t w = job->units[(u0 + k) * job->len + h];
+            v[k] = (w & 0x7F80u) == 0x7F80u ? 0.0f : ingot_bf16_to_f32(w);
+            norm[k] += (double)v[k] * v[k];
+            any |= v[k] != 0.0f;
+        }
+        if (!any)
+            continue;
+        const uint8_t *row = job->signs + h * (DIM / 8);
+        for (int i = 0; i < DIM / VEC; i++) {
+            v4f p = pat[(row[i / 2] >> (4 * (i % 2))) & 15];
+            for (uint32_t k = 0; k < nb; k++) {
+                v4f vv = {v[k], v[k], v[k], v[k]};
+                acc[k * (DIM / VEC) + i] += vv * p;
+            }
+        }
+    }
+}
 
 static int sketch_chunk(void *ctx, size_t chunk) {
     sketch_job *job = ctx;
     uint64_t u0 = (uint64_t)chunk * TARGET_TILE;
     uint64_t u1 = u0 + TARGET_TILE < job->n ? u0 + TARGET_TILE : job->n;
-    for (uint64_t u = u0; u < u1; u++) {
-        const uint16_t *x = job->units + u * job->len;
-        v4f acc[DIM / VEC] = {0};
-        double norm = 0;
-        for (uint64_t h = 0; h < job->len; h++) {
-            uint16_t w = x[h];
-            float v = (w & 0x7F80u) == 0x7F80u ? 0.0f : ingot_bf16_to_f32(w);
-            if (v == 0.0f)
-                continue;
-            norm += (double)v * v;
-            const v4f *s = job->signs + h * (DIM / VEC);
-            v4f vv = {v, v, v, v};
-            for (int i = 0; i < DIM / VEC; i++)
-                acc[i] += vv * s[i];
-        }
+    v4f *acc = malloc((size_t)SKETCH_BLOCK * (DIM / VEC) * sizeof(*acc));
+    if (!acc)
+        return -INGOT_ENOMEM;
+    double norm[SKETCH_BLOCK];
+    for (uint64_t b = u0; b < u1; b += SKETCH_BLOCK) {
+        uint32_t nb = (uint32_t)(u1 - b < SKETCH_BLOCK ? u1 - b : SKETCH_BLOCK);
+        sketch_block(job, b, nb, acc, norm);
         /* coordinate d ~ N(0, 1) for a unit vector; dot / (256^2 DIM) estimates the cosine */
-        float scale = norm > 0 ? (float)(QUANT_ONE / sqrt(norm)) : 0.0f;
-        for (int d = 0; d < DIM; d++) {
-            float q = nearbyintf(acc[d / VEC][d % VEC] * scale);
-            q = q > QUANT_MAX ? QUANT_MAX : q < -QUANT_MAX ? -QUANT_MAX : q;
-            job->out[u * DIM + d] = (int16_t)q;
+        for (uint32_t k = 0; k < nb; k++) {
+            float scale = norm[k] > 0 ? (float)(QUANT_ONE / sqrt(norm[k])) : 0.0f;
+            for (int d = 0; d < DIM; d++) {
+                float q = nearbyintf(acc[k * (DIM / VEC) + d / VEC][d % VEC] * scale);
+                q = q > QUANT_MAX ? QUANT_MAX : q < -QUANT_MAX ? -QUANT_MAX : q;
+                job->out[(b + k) * DIM + d] = (int16_t)q;
+            }
         }
     }
+    free(acc);
     return 0;
 }
 
 int ingot_match_sketch(const uint16_t *unit_major, uint64_t n, uint64_t unit_len, int threads,
                        int16_t *out) {
-    v4f *signs = malloc((size_t)unit_len * (DIM / VEC) * sizeof(*signs));
+    uint8_t *signs = calloc((size_t)unit_len * (DIM / 8), 1);
     if (!signs)
         return -INGOT_ENOMEM;
     for (uint64_t h = 0; h < unit_len; h++)
         for (int d = 0; d < DIM; d++)
-            signs[h * (DIM / VEC) + d / VEC][d % VEC] =
-                ((sign_word(h, (uint32_t)(d / 64)) >> (d % 64)) & 1) ? 1.0f : -1.0f;
+            if ((sign_word(h, (uint32_t)(d / 64)) >> (d % 64)) & 1)
+                signs[h * (DIM / 8) + d / 8] |= (uint8_t)(1u << (d % 8));
     sketch_job job = {unit_major, unit_len, out, signs, n};
     int rc = ingot_parallel_for((size_t)((n + TARGET_TILE - 1) / TARGET_TILE), threads,
                                 sketch_chunk, &job);

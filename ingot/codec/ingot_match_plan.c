@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "ingot/core/ingot_bf16.h"
 #include "ingot/core/ingot_error.h"
@@ -568,14 +569,19 @@ int ingot_match_plan_create(ingot_predict_axis axis, uint64_t units, uint64_t un
     p->count = units * unit_len;
     p->block_count = (size_t)((p->count + BLOCK - 1) / BLOCK);
     int rc = ingot_match_params_alloc(q);
+    clock_t c0 = clock();
     if (!rc)
         rc = plan_fit(p, unit_major, src, cand, threads);
     if (!rc && ingot_match_params_check(q))
         rc = -INGOT_EINVAL;
+    clock_t c1 = clock();
     if (!rc)
         rc = plan_count(p, threads);
     if (!rc)
         rc = plan_side(p);
+    if (getenv("INGOT_MATCH_STATS")) /* CPU seconds, all threads */
+        fprintf(stderr, "match-plan fit %.1f cpu-s count+side %.1f cpu-s\n",
+                (double)(c1 - c0) / CLOCKS_PER_SEC, (double)(clock() - c1) / CLOCKS_PER_SEC);
     if (!rc)
         rc = ingot_match_model_create(q, &p->model);
     if (rc) {

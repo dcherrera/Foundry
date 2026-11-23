@@ -4,8 +4,10 @@
 #
 # ingot_measure_chain.sh — measure a whole multi-shard safetensors model end to end in format
 # version 4 (match mode with refs across shards). Shards go in name order:
-#   1. encode shard k with --self-check, --refs = shards 1..k-1 of the source;
-#   2. decode the written .ingot with --refs = the shards 1..k-1 *rebuilt* by this run;
+#   1. encode shard k with --refs = shards 1..k-1 of the source (--self-check: also decode every
+#      tensor back in the encoder);
+#   2. decode the written .ingot with --refs = the shards 1..k-1 *rebuilt* by this run (every
+#      tensor hash and the file sha256 checked by the decoder);
 #   3. check the rebuilt sha256 against the expected one (Hugging Face LFS) and keep the rebuilt
 #      shard (later shards may refer to it) until the whole model is done.
 #
@@ -15,7 +17,8 @@
 # the logs and the rebuilt shards (deleted at the end); <ingot-dir> (default <work-dir>/ingot)
 # keeps the .ingot files.
 # Options: -j N threads (default 8); --only REGEX shards to encode (refs still use all earlier
-# shards); --keep-rebuilt; -- ARGS... extra `ingot encode` arguments (e.g. -- --pool-layers 1).
+# shards); --keep-rebuilt; --self-check; -- ARGS... extra `ingot encode` arguments (e.g.
+# -- --twin-offset 12288 --search-layers 1).
 # Output: <work-dir>/chain.tsv (one line per shard), <shard>.tensors.tsv, <shard>.log, TOTAL.
 # Resumable: shards already in chain.tsv are skipped (their rebuilt shard must still exist).
 set -euo pipefail
@@ -24,6 +27,7 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 INGOT=${INGOT_BIN:-$HERE/build/ingot} # INGOT_BIN: another build (e.g. a search experiment)
 [ -x "$INGOT" ] || { echo "build the CLI first: make -C ingot" >&2; exit 2; }
 THREADS=8 ONLY=. KEEP=0
+SELF_CHECK=()
 EXTRA=()
 ARGS=()
 while [ $# -gt 0 ]; do
@@ -31,6 +35,7 @@ while [ $# -gt 0 ]; do
         -j) THREADS=$2; shift 2 ;;
         --only) ONLY=$2; shift 2 ;;
         --keep-rebuilt) KEEP=1; shift ;;
+        --self-check) SELF_CHECK=(--self-check); shift ;;
         --) shift; EXTRA=("$@"); break ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) ARGS+=("$1"); shift ;;
@@ -70,7 +75,7 @@ for k in "${!SHARDS[@]}"; do
     dst="$INGOTS/$name.ingot"
     rm -f "$dst" "$WORK/rebuilt/$name"
     t0=$(date +%s)
-    enc=$(nice -n 10 "$INGOT" encode -q -j "$THREADS" --self-check \
+    enc=$(nice -n 10 "$INGOT" encode -q -j "$THREADS" "${SELF_CHECK[@]+"${SELF_CHECK[@]}"}" \
               --tensor-log "$WORK/$stem.tensors.tsv" "${enc_refs[@]+"${enc_refs[@]}"}" \
               "${EXTRA[@]+"${EXTRA[@]}"}" "$SRC/$name" "$dst" | tee "$WORK/$stem.log")
     t1=$(date +%s)

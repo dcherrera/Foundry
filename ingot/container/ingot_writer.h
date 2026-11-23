@@ -71,6 +71,11 @@ typedef struct {
     int match_candidates;        /* search candidates per unit (0: 32) */
     long match_twin_offset;      /* also try units u -+ this offset (grown models copy neurons;
                                     Qwen3.5-27B lineage: 12288); 0: none */
+    long match_search_layers;    /* sketch-search pool layers up to this offset only (farther
+                                    ones, e.g. siblings L-16, get exact aligned candidates only);
+                                    0: all */
+    int match_no_self;           /* no self sources: every match tensor decodes its blocks in
+                                    parallel (a self source makes them decode in order) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;
     ingot_progress_fn progress;  /* optional */
