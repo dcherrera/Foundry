@@ -205,7 +205,8 @@ static int write_v1_copy(const char *v2_path, const char *v1_path) {
         uint64_t skip = entries[i].mode == INGOT_MODE_RAW ? 0 : INGOT_PAYLOAD_FRAME_BYTES;
         buf = realloc(buf, (size_t)entries[i].payload_size + 1);
         fseek(in, (long)(entries[i].payload_offset + skip), SEEK_SET);
-        fread(buf, 1, (size_t)(entries[i].payload_size - skip), in);
+        size_t want = (size_t)(entries[i].payload_size - skip);
+        rc = fread(buf, 1, want, in) == want ? 0 : -1;
         entries[i].payload_offset = (uint64_t)ftell(out);
         entries[i].payload_size -= skip;
         fwrite(buf, 1, (size_t)entries[i].payload_size, out);
