@@ -47,7 +47,8 @@ typedef struct {
     uint8_t *image;
     size_t image_bytes;
     ingot_cuda_source_shape shape[INGOT_CUDA_MAX_SOURCES];
-    int serial;                 /* a self source: blocks decode in order */
+    int serial;                 /* a self source without strips: blocks decode in order */
+    int self_source;            /* a self source: the output must be stored (later rows read it) */
     uint64_t table_bytes;       /* lookup images (device memory beyond the payload) */
     uint64_t side_bytes;        /* unit records and partner lists */
 } ingot_cuda_image;

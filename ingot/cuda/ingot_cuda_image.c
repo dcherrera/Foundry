@@ -141,6 +141,7 @@ static int image_common(ingot_cuda_image *img, const uint8_t *payload, uint64_t 
     img->params.tables = at[2];
     img->params.block_count = ingot_load_u64(payload + 8);
     img->params.launch_blocks = img->params.block_count;
+    img->params.block_weights = (uint64_t)1 << INGOT_BLOCK_LOG2;
     img->table_bytes = s->offsets + s->pool;
     return 0;
 }
@@ -214,6 +215,7 @@ typedef struct {
     const int8_t *scale;      /* [U] */
     uint32_t *k;              /* [U] */
     uint64_t total;           /* partners */
+    uint64_t strip_rows;      /* mode 7 strips: R-row blocks (0: 2^18-weight blocks) */
     uint64_t *partner;        /* [U * 8]: index | (u16)q << 32 | source << 48 (slot k of u) */
 } unit_table;
 
@@ -269,6 +271,8 @@ static int build_units(ingot_cuda_image *img, const uint8_t *payload, uint64_t s
     p->partners = at[5];
     p->source_count = ut->source_count;
     p->group_weights = p->rows * p->cols;
+    if (ut->strip_rows)
+        p->block_weights = ut->strip_rows * p->cols;
     p->blocks_per_group = p->block_count;
     img->side_bytes = s.kind_a + s.kind_b + s.kind_c;
     return 0;
@@ -333,7 +337,8 @@ static int build_match(ingot_cuda_image *img, const uint8_t *payload, uint64_t s
     unit_table ut = {.units = mp->units, .unit_len = mp->unit_len, .axis = mp->axis,
                      .classes = mp->classes, .class_width = mp->class_width,
                      .class_ref = mp->class_ref, .scale_c = mp->scale_c,
-                     .source_count = mp->source_count, .scale = mp->scale};
+                     .source_count = mp->source_count, .scale = mp->scale,
+                     .strip_rows = mp->strip_rows};
     ut.k = malloc(sizeof(uint32_t) * ut.units);
     ut.partner = malloc(sizeof(uint64_t) * ut.units * INGOT_CUDA_MAX_K);
     rc = ut.k && ut.partner ? 0 : -INGOT_ENOMEM;
@@ -352,7 +357,8 @@ static int build_match(ingot_cuda_image *img, const uint8_t *payload, uint64_t s
         img->params.source[s].self = (uint32_t)src->self;
         img->shape[s] = (ingot_cuda_source_shape){src->ref, (uint32_t)src->axis, src->units, 0,
                                                   src->self};
-        img->serial |= src->self;
+        img->serial |= src->self && !mp->strip_rows; /* strips: blocks independent */
+        img->self_source |= src->self;
     }
     uint64_t at = ingot_match_header_bytes(mp->source_count);
     at = align_up(at + ingot_load_u64(p + MATCH_SIDE_TABLES_AT), 8);

@@ -100,7 +100,7 @@ static int run_flags(ingot_cuda_runtime *rt, const cuda_case *k, const ingot_cud
         return printf("    %s flags %u: launch rc %d\n", k->name, flags, rc), 1;
     uint32_t bad = bad_blocks(rt, g, p.block_count);
     fail += bad != 0;
-    if ((flags & INGOT_CUDA_STORE) || img->serial) {
+    if ((flags & INGOT_CUDA_STORE) || img->self_source) {
         uint8_t *out = malloc(k->e.source_size);
         ingot_cuda_download(rt, out, g->out, k->e.source_size);
         fail += memcmp(out, codec, k->e.source_size) != 0;

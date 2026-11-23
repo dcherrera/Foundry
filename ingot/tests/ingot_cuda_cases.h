@@ -8,7 +8,7 @@
  *
  * Cases: plain (2-D, two blocks; 3-D, four groups), delta (identical, near and far rows),
  * predict (row units; column units from two partners; grouped-query map), match (row units with
- * a self source; column units with a transposed source).
+ * a self source, in order or in 32-row strips; column units with a transposed source).
  */
 #ifndef FOUNDRY_INGOT_CUDA_CASES_H
 #define FOUNDRY_INGOT_CUDA_CASES_H
@@ -168,7 +168,7 @@ static inline uint16_t *case_transpose(const uint16_t *x, uint64_t rows, uint64_
 /* Sketch, pick candidates, plan and encode a match target over sources 0 ([N0, H] rows), 1 ([H, N1]
  * columns) and, for row units, itself. */
 static inline void case_match_encode(cuda_case *k, ingot_predict_axis axis, uint64_t U,
-                                     uint64_t H, uint64_t N0, uint64_t N1) {
+                                     uint64_t H, uint64_t N0, uint64_t N1, uint64_t strip) {
     uint16_t *s1t = case_transpose(k->arrays[1], H, N1);
     uint16_t *dum = axis == INGOT_PREDICT_ROWS ? NULL : case_transpose(k->data, H, U);
     const uint16_t *d_units = dum ? dum : k->data;
@@ -183,7 +183,7 @@ static inline void case_match_encode(cuda_case *k, ingot_predict_axis axis, uint
     ingot_match_sketch(s1t, N1, H, 2, sk[1]);
     ingot_match_sketch(d_units, U, H, 2, sk[2]);
     ingot_match_pool pool[3] = {{sk[0], N0, 0}, {sk[1], N1, 0}, {sk[2], U, 1}};
-    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t))};
+    ingot_match_candidates cand = {16, malloc(U * 16), malloc(U * 16 * sizeof(uint64_t)), 0, strip};
     ingot_match_search(sk[2], U, pool, ns, 2, &cand);
     ingot_match_plan *plan = NULL;
     ingot_match_plan_create(axis, U, H, k->data, d_units, src, ns, &cand, 2, &plan);
@@ -206,10 +206,10 @@ static inline void case_match_encode(cuda_case *k, ingot_predict_axis axis, uint
 }
 
 /* Unit u = 0.8 s0[perm u] + 0.4 s1[:, u % N1] + 0.3 noise (+ 0.3 d[u - 1] for row units). */
-static inline void case_match(cuda_case *k, ingot_predict_axis axis) {
+static inline void case_match(cuda_case *k, ingot_predict_axis axis, uint64_t strip) {
     enum { H = 1024, U = 320, N0 = 300, N1 = 150 };
     memset(k, 0, sizeof(*k));
-    k->name = axis == INGOT_PREDICT_ROWS ? "match-rows-self" : "match-cols";
+    k->name = axis == INGOT_PREDICT_COLS ? "match-cols" : strip ? "match-rows-strip" : "match-rows-self";
     k->arrays[0] = case_gauss((size_t)N0 * H, 0.02);
     k->arrays[1] = case_gauss((size_t)H * N1, 0.02);
     k->array_entry[0] = case_entry(INGOT_MODE_RAW, N0, H);
@@ -225,10 +225,10 @@ static inline void case_match(cuda_case *k, ingot_predict_axis axis) {
         }
     k->e = case_entry(INGOT_MODE_MATCH, axis == INGOT_PREDICT_ROWS ? U : H,
                       axis == INGOT_PREDICT_ROWS ? H : U);
-    case_match_encode(k, axis, U, H, N0, N1);
+    case_match_encode(k, axis, U, H, N0, N1, strip);
 }
 
-enum { CASE_COUNT = 9 };
+enum { CASE_COUNT = 10 };
 
 /* Build case i (0 .. CASE_COUNT - 1) with a fixed seed. */
 static inline void case_build(cuda_case *k, int i) {
@@ -240,8 +240,9 @@ static inline void case_build(cuda_case *k, int i) {
     case 3: case_predict(k, 0); break;
     case 4: case_predict(k, 1); break;
     case 5: case_predict(k, 2); break;
-    case 6: case_match(k, INGOT_PREDICT_ROWS); break;
-    case 7: case_match(k, INGOT_PREDICT_COLS); break;
+    case 6: case_match(k, INGOT_PREDICT_ROWS, 0); break;
+    case 7: case_match(k, INGOT_PREDICT_COLS, 0); break;
+    case 9: case_match(k, INGOT_PREDICT_ROWS, 32); break;
     default: case_plain(k, "plain-small", 48, 100, 0); break;
     }
 }
@@ -320,7 +321,7 @@ static inline ref_result case_reference_run(const cuda_case *k, uint32_t flags,
     float *partials = calloc(2 * p.block_count, sizeof(float));
     uint32_t *status = calloc(p.block_count, sizeof(uint32_t));
     ingot_cuda_bind_self(&p, (uint64_t)(uintptr_t)r.out);
-    p.flags = flags | (img.serial ? INGOT_CUDA_STORE : 0);
+    p.flags = flags | (img.self_source ? INGOT_CUDA_STORE : 0);
     p.out = (uint64_t)(uintptr_t)r.out;
     p.base = (uint64_t)(uintptr_t)k->base;
     p.x = (uint64_t)(uintptr_t)x;

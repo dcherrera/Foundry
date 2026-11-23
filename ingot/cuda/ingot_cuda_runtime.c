@@ -170,7 +170,7 @@ static int upload_params(ingot_cuda_runtime *rt, const ingot_cuda_params *p, int
         if (serial) {
             all[i].block_first = p->block_first + i;
             all[i].launch_blocks = 1;
-            all[i].flags |= INGOT_CUDA_STORE;
+|= INGOT_CUDA_STORE;
         }
     }
     int rc = ingot_cuda_alloc(rt, sizeof(*all) * (size_t)*count, address);
@@ -184,7 +184,7 @@ int ingot_cuda_launch(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
                       const ingot_cuda_params *p, float *elapsed_ms) {
     uint32_t g = ingot_cuda_step_weights(p->kind);
     if (((p->flags & INGOT_CUDA_MATVEC) && p->cols % g) ||
-        (img->serial && p->unit_len < INGOT_CUDA_MATCH_GROUP))
+        (img->self_source && p->unit_len < INGOT_CUDA_MATCH_GROUP))
         return -INGOT_EUNSUPPORTED;
     CUfunction fn = p->kind == INGOT_CUDA_KIND_PLAIN   ? rt->plain
                     : p->kind == INGOT_CUDA_KIND_DELTA ? rt->delta
@@ -192,7 +192,9 @@ int ingot_cuda_launch(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
     uint32_t per = p->kind == INGOT_CUDA_KIND_MATCH ? MATCH_BLOCKS_PER_GROUP
                                                     : PLAIN_BLOCKS_PER_GROUP;
     uint64_t params = 0, count = 0;
-    int rc = upload_params(rt, p, img->serial, &params, &count);
+    ingot_cuda_params q = *p;
+    q.flags |= img->self_source ? INGOT_CUDA_STORE : 0; /* later rows read earlier ones */
+    int rc = upload_params(rt, &q, img->serial, &params, &count);
     if (!rc)
         rc = check(cuEventRecord(rt->start, NULL), "event");
     for (uint64_t i = 0; !rc && i < count; i++)

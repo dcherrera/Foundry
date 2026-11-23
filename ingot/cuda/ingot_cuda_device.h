@@ -116,6 +116,7 @@ typedef struct {
     uint64_t table_offsets;         /* u32 per context */
     uint64_t group_weights;         /* plain: weights per group; blocks run group by group */
     uint64_t blocks_per_group;
+    uint64_t block_weights;         /* 2^18, or R * cols for match strips (R-row blocks) */
     uint64_t row_scale;             /* delta: i8 per row */
     uint64_t base;                  /* delta: base tensor (BF16, same shape) */
     uint64_t units;                 /* match: U */
@@ -137,13 +138,13 @@ typedef struct {
 
 /**
  * Weight range [lo, hi) of block b: plain blocks run group by group (2^18 each, the last of a
- * group may be short); delta and match blocks are flat.
+ * group may be short); delta and match blocks are flat (2^18, or R-row strips).
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
  */
 INGOT_CUDA_FN void ingot_cuda_block_range(const ingot_cuda_params *p, uint64_t b, uint64_t *lo,
                                           uint64_t *hi) {
-    const uint64_t block = (uint64_t)1 << 18;
+    const uint64_t block = p->block_weights;
     uint64_t g = b / p->blocks_per_group, local = b % p->blocks_per_group;
     uint64_t end = (g + 1) * p->group_weights;
     *lo = g * p->group_weights + local * block;
