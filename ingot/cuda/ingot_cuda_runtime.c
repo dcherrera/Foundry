@@ -170,7 +170,6 @@ static int upload_params(ingot_cuda_runtime *rt, const ingot_cuda_params *p, int
         if (serial) {
             all[i].block_first = p->block_first + i;
             all[i].launch_blocks = 1;
-|= INGOT_CUDA_STORE;
         }
     }
     int rc = ingot_cuda_alloc(rt, sizeof(*all) * (size_t)*count, address);
