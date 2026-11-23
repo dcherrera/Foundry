@@ -150,8 +150,7 @@ int ingot_cuda_image_upload(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
 }
 
 /* One kernel launch over the params at device address `params`. */
-static int launch_one(ingot_cuda_runtime *rt, CUfunction fn, uint64_t params, uint64_t blocks,
-                      uint32_t blocks_per_group) {
+static int launch_one(CUfunction fn, uint64_t params, uint64_t blocks, uint32_t blocks_per_group) {
     CUdeviceptr arg = (CUdeviceptr)params;
     void *args[] = {&arg};
     unsigned grid = (unsigned)((blocks + blocks_per_group - 1) / blocks_per_group);
@@ -197,7 +196,7 @@ int ingot_cuda_launch(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
     if (!rc)
         rc = check(cuEventRecord(rt->start, NULL), "event");
     for (uint64_t i = 0; !rc && i < count; i++)
-        rc = launch_one(rt, fn, params + i * sizeof(ingot_cuda_params),
+        rc = launch_one(fn, params + i * sizeof(ingot_cuda_params),
                         img->serial ? 1 : p->launch_blocks, per);
     if (!rc && (p->flags & INGOT_CUDA_MATVEC) && p->block_first == 0 &&
         p->launch_blocks == p->block_count)
