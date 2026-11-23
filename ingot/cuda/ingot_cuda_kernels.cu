@@ -379,15 +379,42 @@ static __device__ __forceinline__ void half_renorm(uint32_t *x0, uint32_t *x1, b
     *wp += __popc(m0) + __popc(m1);
 }
 
+/* Sign-agree tables (binary) as the frequency f0 of symbol 0 (65536: only 0; 0: only 1; EMPTY:
+ * no table), and the symbol tables' offsets, in shared memory. */
+static __device__ void match_tables_to_shared(const ingot_cuda_params *__restrict__ p,
+                                              uint32_t *sign_f0, uint32_t *sym_off) {
+    for (uint32_t z = threadIdx.x; z < p->zcount; z += blockDim.x) {
+        const uint8_t *t = ingot_cuda_table(p, z);
+        unsigned long long e =
+            t ? __ldg((const unsigned long long *)(t + INGOT_CUDA_TABLE_HEADER)) : 0;
+        uint32_t freq = (uint32_t)((e >> 16) & 0xFFFFu) + 1u, sym = (uint32_t)(e >> 32);
+        sign_f0[z] = !t ? INGOT_CUDA_TABLE_EMPTY : freq < 65536u ? freq : sym ? 0u : 65536u;
+    }
+    for (uint32_t c = threadIdx.x; c < 2 * p->zcount; c += blockDim.x)
+        sym_off[c] = __ldg((const uint32_t *)(uintptr_t)p->table_offsets + p->zcount + c);
+}
+
+/* rANS step of a binary table given f0 (ingot_cuda_rans_step on its image). */
+static __device__ __forceinline__ uint32_t binary_rans_step(uint32_t *x, uint32_t f0) {
+    const uint32_t slot = *x & 0xFFFFu, one = slot >= f0;
+    *x = (one ? 65536u - f0 : f0) * (*x >> 16) + slot - (one ? f0 : 0u);
+    return one;
+}
+
 /* Sign-agree bit and plain symbol of one weight in context z; the decoded BF16 bits. */
 static __device__ __forceinline__ uint32_t match_symbols(const ingot_cuda_params *__restrict__ p,
-                                                         uint32_t z, uint32_t neg, uint32_t *x0,
+                                                         const uint32_t *sign_f0,
+                                                         const uint32_t *sym_off, uint32_t z,
+                                                         uint32_t neg, uint32_t *x0,
                                                          uint32_t *x1, uint32_t *status) {
-    const uint8_t *tf = ingot_cuda_table(p, z);
-    uint32_t flip = tf ? ingot_cuda_rans_step(x0, tf) : 0;
-    const uint8_t *ts = ingot_cuda_table(p, p->zcount + 2 * z + flip);
-    uint32_t sym = ts ? ingot_cuda_rans_step(x1, ts) : 0;
-    *status |= !tf || !ts ? INGOT_CUDA_BAD_TABLE : 0;
+    const uint32_t f0 = sign_f0[z];
+    const uint32_t flip = f0 != INGOT_CUDA_TABLE_EMPTY ? binary_rans_step(x0, f0) : 0;
+    const uint32_t off = sym_off[2 * z + flip];
+    const uint8_t *ts = (const uint8_t *)(uintptr_t)p->tables + off;
+    const uint32_t sym = off != INGOT_CUDA_TABLE_EMPTY ? ingot_cuda_rans_step(x1, ts) : 0;
+    *status |= f0 == INGOT_CUDA_TABLE_EMPTY || off == INGOT_CUDA_TABLE_EMPTY
+                   ? INGOT_CUDA_BAD_TABLE
+                   : 0;
     return ((flip ^ neg) & 1u) << 15 | sym << 5;
 }
 
@@ -446,6 +473,8 @@ const ingot_cuda_params *__restrict__ p) {
     __shared__ uint8_t cells[INGOT_CUDA_BUCKET_SETS * INGOT_CUDA_BUCKET_CELLS];
     __shared__ uint32_t bases[INGOT_CUDA_BUCKET_SETS * 12];
     __shared__ ingot_cuda_source sources[INGOT_CUDA_MAX_SOURCES];
+    __shared__ uint32_t sign_f0[INGOT_CUDA_MAX_Z], sym_off[2 * INGOT_CUDA_MAX_Z];
+    match_tables_to_shared(p, sign_f0, sym_off);
     load_shared(p, cells, bases, sources);
     const uint32_t j = threadIdx.x & 15;
     const uint64_t half = ((uint64_t)blockIdx.x * blockDim.x + threadIdx.x) >> 4;
@@ -463,6 +492,8 @@ const ingot_cuda_params *__restrict__ p) {
     const uint32_t steps = max(n, __shfl_xor_sync(FULL, n, 16));
     const ingot_cuda_block v = ingot_cuda_block_at(p, b);
     uint32_t x0 = v.states[2 * j], x1 = v.states[2 * j + 1], wp = 0, status = 0;
+    const uint32_t *raw = (const uint32_t *)v.raw;
+    uint32_t raw_word = (5 * j) >> 5, raw_bit = (5 * j) & 31; /* weight step + j's raw bits */
     lane_rows lr;
     lane_rows_begin(&lr, lo + j, cols);
     unit_partners cache;
@@ -477,12 +508,12 @@ const ingot_cuda_params *__restrict__ p) {
             if (u != cache.unit)
                 unit_load(p, sources, u, &cache);
             uint32_t z = unit_context(&cache, p->axis ? lr.row : lr.col, cells, bases, &neg);
-            w = match_symbols(p, z, neg, &x0, &x1, &status);
+            w = match_symbols(p, sign_f0, sym_off, z, neg, &x0, &x1, &status);
         }
         half_renorm(&x0, &x1, active && x0 < LOW, active && x1 < LOW, v.words, v.word_count,
                     &wp, &status);
         if (active) {
-            w |= ingot_cuda_raw_bits(v.raw, 5ull * i, 5);
+            w |= __funnelshift_r(__ldg(raw + raw_word), __ldg(raw + raw_word + 1), raw_bit) & 0x1Fu;
             if (store)
                 ((uint16_t *)(uintptr_t)p->out)[lo + i] = (uint16_t)w;
             if (matvec)
@@ -491,9 +522,12 @@ const ingot_cuda_params *__restrict__ p) {
         }
         if (self)
             __threadfence_block();
-        const uint64_t end = lo + step + 16 < hi ? lo + step + 16 : hi;
-        const bool flush = matvec && step < n && (end % cols == 0 || end == hi);
-        step_rows(p, &lr, flush, __any_sync(FULL, flush), 16, b, lo, hi, (lo + step) / cols);
+        raw_bit += 80;
+        raw_word += raw_bit >> 5;
+        raw_bit &= 31;
+        /* matvec: cols % 16 == 0, so the step lies in row lr.row from column lr.col - j */
+        const bool flush = matvec && step < n && (lr.col - j + 16 == cols || step + 16 >= n);
+        step_rows(p, &lr, flush, __any_sync(FULL, flush), 16, b, lo, hi, lr.row);
         lane_rows_advance(&lr, 16, cols);
     }
     status |= (__ballot_sync(FULL, x0 != LOW || x1 != LOW) >> (threadIdx.x & 16)) & 0xFFFFu

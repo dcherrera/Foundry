@@ -58,6 +58,7 @@ enum {
     INGOT_CUDA_MAX_K = 8,
     INGOT_CUDA_LANES = 32,
     INGOT_CUDA_MATCH_GROUP = 16,          /* weights per step of a match / predict block */
+    INGOT_CUDA_MAX_Z = 8 * 12,            /* match contexts: at most 8 classes x 12 buckets */
     INGOT_CUDA_SHIFT_CLAMP = 64,          /* |sh| beyond this decides nothing more */
 };
 
