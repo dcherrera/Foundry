@@ -479,13 +479,17 @@ static int write_shards(const char *a_path, const char *b_path, int wrong) {
     return rc;
 }
 
+/* Device options for encode_with_refs (0: off): R-row strips and waves. */
+static long file_strip, file_waves;
+
 static int encode_with_refs(const char *src, const char *dst, const char *ref, int max_version,
                             ingot_encode_stats *st) {
     ingot_base_set *refs = NULL;
     if (ref && ingot_base_set_open(&ref, 1, 2, &refs))
         return -1;
     ingot_encode_options opt = {.threads = 3, .self_check = 1, .refs = refs,
-                                .max_version = max_version};
+                                .max_version = max_version, .match_strip = file_strip,
+                                .match_waves = file_waves};
     int rc = ingot_encode_file(src, dst, &opt, st);
     ingot_base_set_close(refs);
     return rc;
@@ -561,6 +565,22 @@ static void test_external_refs_round_trip(void) {
     ASSERT_TRUE(random_access_matches(DIR "/mB.ingot", DIR "/mB.safetensors", NULL) != 0);
 }
 
+/* A strip taller than a tensor (R = 1024 > 768 and 512 rows) is that tensor's row count; with
+ * waves the file encodes (self-checked) and round-trips. */
+static void test_file_strip_taller_than_tensor(void) {
+    ingot_encode_stats st;
+    file_strip = 1024;
+    file_waves = 4;
+    int rc = encode_with_refs(DIR "/mB.safetensors", DIR "/mB.strip.ingot", DIR "/mA.safetensors",
+                              0, &st);
+    file_strip = file_waves = 0;
+    ASSERT_INT_EQ(0, rc);
+    ASSERT_INT_EQ(3, (int)st.tensors[INGOT_MODE_MATCH]);
+    ASSERT_INT_EQ(0, decode_with_refs(DIR "/mB.strip.ingot", DIR "/mB.strip.rebuilt",
+                                      DIR "/mA.rebuilt"));
+    ASSERT_TRUE(test_files_equal(DIR "/mB.safetensors", DIR "/mB.strip.rebuilt"));
+}
+
 static void test_version3_writer_still_decodes(void) {
     ingot_encode_stats st;
     ASSERT_INT_EQ(0, encode_with_refs(DIR "/mB.safetensors", DIR "/mB.v3.ingot", NULL, 3, &st));
@@ -602,6 +622,7 @@ int main(int argc, char **argv) {
     RUN_TEST(strip_waves);
     RUN_TEST(corrupt_side_hash_or_block_fails);
     RUN_TEST(external_refs_round_trip);
+    RUN_TEST(file_strip_taller_than_tensor);
     RUN_TEST(version3_writer_still_decodes);
     RUN_TEST(corrupt_file_side_stream_fails);
     TEST_REPORT();

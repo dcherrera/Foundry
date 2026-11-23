@@ -510,7 +510,10 @@ static int search(ingot_match_writer *w, size_t target, const ingot_match_pool *
             add_strip_candidates(w, ti, out, m + INGOT_PREDICT_MAX_PARTNERS + aligned);
         filter_candidates(w, ti, out);
         out->cand.max_k = (uint32_t)w->opt->match_max_k;
-        out->cand.strip_rows = w->opt->match_strip > 0 ? (uint64_t)w->opt->match_strip : 0;
+        /* a strip taller than the tensor is the whole tensor (one strip) */
+        uint64_t rows = out->axis == INGOT_PREDICT_ROWS ? out->units : out->unit_len;
+        uint64_t strip = w->opt->match_strip > 0 ? (uint64_t)w->opt->match_strip : 0;
+        out->cand.strip_rows = strip < rows ? strip : rows;
         out->cand.waves = out->cand.strip_rows && w->opt->match_waves > 0;
     }
     free(found.source);
