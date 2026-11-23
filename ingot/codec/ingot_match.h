@@ -150,13 +150,21 @@ const ingot_fc_model *ingot_match_fc_model(const ingot_match_model *m);
 
 /**
  * Context bytes (bit 7: p < 0, bits 0..6: z) of D's weights [lo, hi) (flat row-major).
- * sources[s] are the source tensors' BF16 values (row-major, as stored); a self source reads D's
- * values (the encoder's source, or what the decoder has written so far).
+ * sources[s] are the source tensors' BF16 units, unit-major ([n][H]: the stored tensor for row
+ * units, a transposed copy for column units); a self source is D itself (rows), as the encoder
+ * has it or as far as the decoder has written it.
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
  */
 void ingot_match_contexts(const ingot_match_model *m, const uint16_t *const *sources,
                           uint64_t lo, uint64_t hi, uint8_t *ctx);
+
+/**
+ * Transpose a rows x cols BF16 matrix into out (cols x rows): column units to unit-major.
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+void ingot_match_transpose(const uint16_t *in, uint64_t rows, uint64_t cols, uint16_t *out);
 
 /**
  * Code the side stream (count, encode or decode params' per-unit arrays). The one code path
@@ -219,9 +227,10 @@ const ingot_match_params *ingot_match_decoder_params(const ingot_match_decoder *
 /**
  * Give source s's decoded values (rows x cols as stored, BF16; must outlive the block decodes).
  * The self source is not bound: blocks read D from the output buffer.
- * @return 0 or -INGOT_EFORMAT (shape does not match the source record)
+ * Column-unit sources are copied unit-major (one transposed copy, freed at close).
+ * @return 0, -INGOT_EFORMAT (shape does not match the source record) or -INGOT_ENOMEM
  *
- * Thread-safe: no   Reentrant: yes   Signal-safe: yes
+ * Thread-safe: no   Reentrant: yes   Signal-safe: no
  */
 int ingot_match_decoder_bind(ingot_match_decoder *d, uint32_t s, uint64_t rows, uint64_t cols,
                              const uint16_t *values);

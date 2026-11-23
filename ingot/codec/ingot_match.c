@@ -214,7 +214,6 @@ const ingot_fc_model *ingot_match_fc_model(const ingot_match_model *m) { return 
 typedef struct {
     const int64_t *fixed;
     const uint16_t *x;
-    uint64_t stride;
     int64_t q;
 } partner_view;
 
@@ -224,17 +223,10 @@ static uint32_t partner_views(const ingot_match_model *m, const uint16_t *const 
     uint32_t k = p->k[u];
     for (uint32_t j = 0; j < k; j++) {
         size_t at = (size_t)u * INGOT_MATCH_MAX_K + j;
-        const ingot_match_source *src = &p->source[p->link[at]];
         uint64_t i = p->index[at];
         pv[j].fixed = m->fixed[p->link[at]];
         pv[j].q = p->coef[at];
-        if (src->axis == INGOT_PREDICT_ROWS) {
-            pv[j].x = sources[p->link[at]] + i * p->unit_len;
-            pv[j].stride = 1;
-        } else {
-            pv[j].x = sources[p->link[at]] + i;
-            pv[j].stride = src->units;
-        }
+        pv[j].x = sources[p->link[at]] + i * p->unit_len; /* unit-major, either axis */
     }
     return k;
 }
@@ -243,7 +235,7 @@ static inline uint8_t context_at(const ingot_match_model *m, uint64_t u, const p
                                  uint32_t k, uint64_t h) {
     int64_t p = 0;
     for (uint32_t j = 0; j < k; j++)
-        p += pv[j].q * pv[j].fixed[pv[j].x[h * pv[j].stride]];
+        p += pv[j].q * pv[j].fixed[pv[j].x[h]];
     int64_t mag = p < 0 ? -p : p; /* |p| < 2^58 */
     const int64_t *t = m->thresholds + u * THRESHOLDS;
     uint32_t b = 0;
@@ -465,13 +457,23 @@ static int decode_side(const uint8_t *in, uint64_t avail, uint64_t table_bytes,
     return rc;
 }
 
+void ingot_match_transpose(const uint16_t *in, uint64_t rows, uint64_t cols, uint16_t *out) {
+    enum { TILE = 64 };
+    for (uint64_t r0 = 0; r0 < rows; r0 += TILE)
+        for (uint64_t c0 = 0; c0 < cols; c0 += TILE)
+            for (uint64_t i = r0; i < rows && i < r0 + TILE; i++)
+                for (uint64_t j = c0; j < cols && j < c0 + TILE; j++)
+                    out[j * rows + i] = in[i * cols + j];
+}
+
 /* ---- Decoder ---- */
 
 struct ingot_match_decoder {
     ingot_match_params params; /* owns the per-unit arrays */
     ingot_match_model *model;
     ingot_fc_tables *tables;
-    const uint16_t *sources[INGOT_MATCH_MAX_SOURCES];
+    const uint16_t *sources[INGOT_MATCH_MAX_SOURCES]; /* unit-major */
+    uint16_t *owned[INGOT_MATCH_MAX_SOURCES];         /* transposed column sources */
     uint64_t count;
     size_t block_count;
     int serial;
@@ -539,7 +541,16 @@ int ingot_match_decoder_bind(ingot_match_decoder *d, uint32_t s, uint64_t rows, 
     uint64_t want_cols = src->axis == INGOT_PREDICT_ROWS ? d->params.unit_len : src->units;
     if (rows != want_rows || cols != want_cols)
         return -INGOT_EFORMAT;
-    d->sources[s] = values;
+    if (src->axis == INGOT_PREDICT_ROWS) {
+        d->sources[s] = values;
+        return 0;
+    }
+    free(d->owned[s]); /* column units: one transposed copy, read unit by unit */
+    d->owned[s] = malloc((size_t)(rows * cols) * sizeof(uint16_t));
+    if (!d->owned[s])
+        return -INGOT_ENOMEM;
+    ingot_match_transpose(values, rows, cols, d->owned[s]);
+    d->sources[s] = d->owned[s];
     return 0;
 }
 
@@ -599,5 +610,7 @@ void ingot_match_decoder_close(ingot_match_decoder *d) {
     ingot_fc_tables_free(d->tables);
     ingot_match_model_free(d->model);
     ingot_match_params_release(&d->params);
+    for (uint32_t s = 0; s < INGOT_MATCH_MAX_SOURCES; s++)
+        free(d->owned[s]);
     free(d);
 }

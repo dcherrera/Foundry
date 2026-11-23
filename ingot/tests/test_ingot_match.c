@@ -111,13 +111,16 @@ static void test_contexts_match_reference(void) {
     ASSERT_INT_EQ(0, ingot_match_params_check(&k.p));
     ingot_match_model *m = NULL;
     ASSERT_INT_EQ(0, ingot_match_model_create(&k.p, &m));
-    const uint16_t *src[3] = {k.s0, k.s1, k.d};
+    uint16_t *s1t = malloc(300 * 40 * sizeof(uint16_t)); /* column units, unit-major */
+    ingot_match_transpose(k.s1, 300, 40, s1t);
+    const uint16_t *src[3] = {k.s0, s1t, k.d};
     uint8_t *ctx = malloc(64 * 300);
     ingot_match_contexts(m, src, 7, 64 * 300 - 5, ctx);
     int bad = 0;
     for (uint64_t i = 7; i < 64 * 300 - 5; i++)
         bad += ctx[i - 7] != ref_context(&k, i / 300, i % 300);
     ASSERT_INT_EQ(0, bad);
+    free(s1t);
     free(ctx);
     ingot_match_model_free(m);
     free_ctx_case(&k);
@@ -132,13 +135,16 @@ static void test_contexts_golden_hash(void) {
     make_ctx_case(&k, 96, 512);
     ingot_match_model *m = NULL;
     ASSERT_INT_EQ(0, ingot_match_model_create(&k.p, &m));
-    const uint16_t *src[3] = {k.s0, k.s1, k.d};
+    uint16_t *s1t = malloc(512 * 40 * sizeof(uint16_t));
+    ingot_match_transpose(k.s1, 512, 40, s1t);
+    const uint16_t *src[3] = {k.s0, s1t, k.d};
     uint8_t *ctx = malloc(96 * 512);
     ingot_match_contexts(m, src, 0, 96 * 512, ctx);
     uint64_t h = ingot_hash64(ctx, 96 * 512) ^ ingot_match_param_hash(&k.p);
     if (h != GOLDEN_CONTEXT_HASH)
         printf("    context hash 0x%016llxull\n", (unsigned long long)h);
     ASSERT_TRUE(h == GOLDEN_CONTEXT_HASH);
+    free(s1t);
     free(ctx);
     ingot_match_model_free(m);
     free_ctx_case(&k);

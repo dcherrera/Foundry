@@ -515,7 +515,7 @@ int ingot_match_plan_create(ingot_predict_axis axis, uint64_t units, uint64_t un
     for (uint32_t s = 0; s < source_count; s++) {
         q->source[s] = (ingot_match_source){.ref = src[s].ref, .axis = src[s].axis,
                                             .units = src[s].units, .self = src[s].self};
-        p->sources[s] = src[s].self ? data : src[s].data;
+        p->sources[s] = src[s].self ? data : src[s].unit_major;
     }
     p->data = data;
     p->count = units * unit_len;

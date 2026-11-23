@@ -27,7 +27,6 @@ enum {
     MEMBER_SELF = 2,
     DEFAULT_CANDIDATES = 16,
     MAX_NAME = 2048,
-    TRANSPOSE_TILE = 64,
 };
 
 static const int DEFAULT_POOL_LAYERS[] = {1, 16};
@@ -200,16 +199,11 @@ static int unit_major(const uint8_t *data, const ingot_match_role *r, uint16_t *
         *view = src;
         return 0;
     }
-    if (!*copy) {
-        uint64_t rows = r->unit_len, cols = r->units; /* stored [H][U] */
-        *copy = malloc((size_t)(rows * cols) * sizeof(uint16_t));
+    if (!*copy) { /* stored [H][U] */
+        *copy = malloc((size_t)(r->unit_len * r->units) * sizeof(uint16_t));
         if (!*copy)
             return -INGOT_ENOMEM;
-        for (uint64_t r0 = 0; r0 < rows; r0 += TRANSPOSE_TILE)
-            for (uint64_t c0 = 0; c0 < cols; c0 += TRANSPOSE_TILE)
-                for (uint64_t i = r0; i < rows && i < r0 + TRANSPOSE_TILE; i++)
-                    for (uint64_t j = c0; j < cols && j < c0 + TRANSPOSE_TILE; j++)
-                        (*copy)[j * rows + i] = src[i * cols + j];
+        ingot_match_transpose(src, r->unit_len, r->units, *copy);
     }
     *view = *copy;
     return 0;
