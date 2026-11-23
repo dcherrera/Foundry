@@ -357,6 +357,21 @@ int main(void)
     fails += check_nx("q4k narrow n=4", 12, fc_matvec_q4k_ctx, fc_matvec_q4k_nx_ctx,
                       300, 256, 4, 20);
 
+    /* Q8_0 multi-user widths on the Qwen3.6 TP2 per-die shapes: the row-tile grid rule
+     * (fc_cuda.c) sends the small grids to _nx and keeps the tiles (r4c4 at 3 blocks/SMX)
+     * on 4096 rows, so both routes are checked against the single-column kernel. */
+    static const int q80_tp2[][2] = {
+        { 4096, 2048 }, { 2048, 2048 }, { 1024, 4096 }, { 256, 2048 }, { 1024, 512 },
+    };
+    for (int i = 0; i < (int)(sizeof q80_tp2 / sizeof q80_tp2[0]); i++) {
+        for (int n = 3; n <= 5; n++) {
+            char name[48];
+            snprintf(name, sizeof name, "q80 tp2 %dx%d n=%d", q80_tp2[i][0], q80_tp2[i][1], n);
+            fails += check_nx(name, 8, fc_matvec_q80_ctx, fc_matvec_q80_nx_ctx,
+                              q80_tp2[i][0], q80_tp2[i][1], n, 10);
+        }
+    }
+
     printf(fails ? "RESULT: FAIL\n" : "RESULT: PASS\n");
     fc_free();
     return fails ? 1 : 0;

@@ -648,6 +648,10 @@ __device__ __forceinline__ void fc_q80_tile_body(const unsigned char *w, const f
                     #pragma unroll
                     for (int m = 0; m < 4; m++)
                         t[i][m] = __fmul_rn(dj, fc_q80_byte(biased, m));
+#ifdef FC_Q80_TILE_RED
+                    /* Gate red build only: byte 0 read unsigned in the row tiles. */
+                    t[i][0] = __fmul_rn(dj, (float)(word & 0xffu));
+#endif
                 }
                 #pragma unroll
                 for (int c = 0; c < NC; c++) {
@@ -680,6 +684,17 @@ __device__ __forceinline__ void fc_q80_tile_body(const unsigned char *w, const f
                                              min((NC), n - col0));                         \
     }
 
+/* The same tile with __launch_bounds__(FC_KQ_THREADS, MINB): ptxas caps the registers so
+ * MINB blocks fit a SMX. Same code, so the same bits. */
+#define FC_Q80_TILE_MINB(NAME, R, NC, MINB)                                                \
+    extern "C" __global__ void __launch_bounds__(FC_KQ_THREADS, MINB)                      \
+    NAME(const unsigned char *w, const float *x, float *out, int rows, int cols,          \
+         int row_stride, int n) {                                                          \
+        const int col0 = (NC) * blockIdx.y;                                                \
+        fc_q80_tile_body<R, NC, FC_NX_CHUNK>(w, x, out, rows, cols, row_stride, col0,      \
+                                             min((NC), n - col0));                         \
+    }
+
 /* Shipped: r4c3 / r4c4 / r4c5 for batches of exactly 3 / 4 / 5 columns (the speculative
  * verify widths: the _nx tiles compute 4 or 8 columns there) and r4c8 for n >= 6, prefill
  * included (fc_cuda.c picks). The sweep set is for cuda/tests/bench_q80_tile.c only
@@ -700,7 +715,10 @@ FC_Q80_TILE(fc_matvec_q80_r8c2, 8, 2)
 FC_Q80_TILE(fc_matvec_q80_r8c3, 8, 3)
 #endif
 FC_Q80_TILE(fc_matvec_q80_r4c3, 4, 3)
-FC_Q80_TILE(fc_matvec_q80_r4c4, 4, 4)
+/* r4c4 at 3 blocks/SMX: 168 registers instead of 172 (16 B of spill), so 4096 rows (32
+ * blocks) fit one wave of 13 SMX instead of two. 1.27x at 4096x2048, n = 4, on sm_37; the
+ * smaller grids where it measured 0.98x run the _nx kernels (fc_cuda.c grid rule). */
+FC_Q80_TILE_MINB(fc_matvec_q80_r4c4, 4, 4, 3)
 FC_Q80_TILE(fc_matvec_q80_r4c5, 4, 5)
 FC_Q80_TILE(fc_matvec_q80_r4c8, 4, 8)
 
