@@ -626,9 +626,8 @@ __device__ __forceinline__ float fc_q80_s8_to_f32(unsigned int w, int k) {
 }
 
 /* One row's 4-weight run: a = fmaf chain of the 4 products from 0, then
- * r = fmaf(s, a, r). Each conversion sits next to its fmaf: this is the form the
- * superoptimizer emitted, and ptxas allocates it in fewer registers than four
- * conversions up front (down kernel 66 vs 76). */
+ * r = fmaf(s, a, r). Each conversion sits next to its fmaf, which ptxas allocates
+ * in fewer registers than four conversions up front (down kernel 66 vs 76). */
 __device__ __forceinline__ float fc_q80_sb_run(unsigned int w, float4 x, float s,
                                                float r) {
     float a = __fmaf_rn(fc_q80_s8_to_f32(w, 0), x.x, 0.0f);
