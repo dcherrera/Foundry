@@ -454,10 +454,12 @@ __device__ __forceinline__ float fc_q80_byte(unsigned biased_word, int m) {
 /* The same value from the raw word with one conversion: inline PTX bfe.s32 + cvt.rn.f32.s32,
  * the only spelling ptxas 11.4 lowers to a single I2F.F32.S8 with a byte selector (a C cast
  * costs an extract first). m is a literal at every call, so the branches fold away.
- * FC_Q80_DECODE_I2F picks where it replaces fc_q80_byte: 0 nowhere, 1 the row tiles and the
- * NC > 1 blocks, 2 the NC = 1 blocks too. */
+ * FC_Q80_DECODE_I2F picks where it replaces fc_q80_byte: 0 nowhere, 1 (default) the NC > 1
+ * blocks and the row tiles except r4c4, 2 the NC = 1 blocks too. Measured on sm_37 at the
+ * Qwen3.6 TP2 per-die shapes against 0: tiles n = 3 / 5 / 8 / 16 1.02-1.15x; NC = 1 no gain
+ * (0.99-1.03x); r4c4, held at 168 registers for 3 blocks/SMX, 0.98x at 4096 rows. */
 #ifndef FC_Q80_DECODE_I2F
-#define FC_Q80_DECODE_I2F 0
+#define FC_Q80_DECODE_I2F 1
 #endif
 #define FC_Q80_BFE_CVT(POS) "{ .reg .b32 r; bfe.s32 r, %1, " #POS ", 8; cvt.rn.f32.s32 %0, r; }"
 __device__ __forceinline__ float fc_q80_byte_i2f(unsigned word, int m) {
@@ -473,10 +475,10 @@ __device__ __forceinline__ float fc_q80_byte_i2f(unsigned word, int m) {
     return f;
 }
 
-/* d * byte m, by the decode FC_Q80_DECODE_I2F selects for NC columns. */
-template <int NC>
+/* d * byte m, by the decode FC_Q80_DECODE_I2F selects for NC columns (TILE: a row tile). */
+template <int NC, bool TILE>
 __device__ __forceinline__ float fc_q80_scaled_byte(unsigned word, float d, int m) {
-    if (FC_Q80_DECODE_I2F >= (NC == 1 ? 2 : 1))
+    if (FC_Q80_DECODE_I2F >= (NC == 1 ? 2 : 1) && !(TILE && NC == 4))
         return __fmul_rn(d, fc_q80_byte_i2f(word, m));
     return __fmul_rn(d, fc_q80_byte(word ^ 0x80808080u, m));
 }
@@ -490,7 +492,7 @@ __device__ __forceinline__ void fc_q80_block(unsigned word, float d, const float
 
     #pragma unroll
     for (int m = 0; m < 4; m++)
-        t[m] = fc_q80_scaled_byte<NC>(word, d, m);
+        t[m] = fc_q80_scaled_byte<NC, false>(word, d, m);
     #pragma unroll
     for (int c = 0; c < NC; c++) {
         const float4 xv = *(const float4 *)(xp + c * CHUNK);
@@ -675,7 +677,7 @@ __device__ __forceinline__ void fc_q80_tile_body(const unsigned char *w, const f
                                    : j == 2 ? d[i].z : d[i].w;
                     #pragma unroll
                     for (int m = 0; m < 4; m++)
-                        t[i][m] = fc_q80_scaled_byte<NC>(word, dj, m);
+                        t[i][m] = fc_q80_scaled_byte<NC, true>(word, dj, m);
 #ifdef FC_Q80_TILE_RED
                     /* Gate red build only: byte 0 read unsigned in the row tiles. */
                     t[i][0] = __fmul_rn(dj, (float)(word & 0xffu));
