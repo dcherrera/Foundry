@@ -574,7 +574,6 @@ FC_DEF_VEC16_GRP2(fc_bf16_sb_lane_grp2vs, FC_BF16_LO, FC_BF16_HI,
  * and the s8 -> f32 conversion is one I2F with a byte selector.
  */
 #define FC_Q80_SB_BYTES 288
-#define FC_SB8(w, k) ((float)(signed char)((w) >> (8 * (k))))
 
 /* One lane's share of one 288-B super-block: its two quant words (runs
  * {4l..4l+3} and {128+4l..128+4l+3}) and their two scales. Weights load via
@@ -599,7 +598,43 @@ __device__ __forceinline__ fc_q80_sbl fc_q80_sb_load(const unsigned char *blk,
     return r;
 }
 
-/* The row-pair dot of two loaded super-blocks against x halves x0 / x1. */
+/* Signed byte K of w to f32: the value of (float)(signed char)(w >> 8K).
+ * Spelled as inline PTX bfe.s32 + cvt.rn.f32.s32, the only spelling ptxas 11.4
+ * lowers to one I2F.F32.S8 with a byte selector for all four bytes; the C cast
+ * costs BFE + PRMT + I2F.S16 (byte 1) or PRMT + I2F (bytes 2-3).
+ * FC_MOE_Q80_RED is a gate-only red build: byte 2 converted unsigned, so the
+ * parity tests and the A/B memcmp must fail. */
+template <int K>
+__device__ __forceinline__ float fc_q80_s8_to_f32(unsigned int w) {
+    float f;
+#ifdef FC_MOE_Q80_RED
+    if (K == 2) {
+        asm("{ .reg .b32 t; bfe.u32 t, %1, %2, 8; cvt.rn.f32.u32 %0, t; }"
+            : "=f"(f) : "r"(w), "n"(8 * K));
+        return f;
+    }
+#endif
+    asm("{ .reg .b32 t; bfe.s32 t, %1, %2, 8; cvt.rn.f32.s32 %0, t; }"
+        : "=f"(f) : "r"(w), "n"(8 * K));
+    return f;
+}
+
+/* One row's 4-weight run: a = fmaf chain of the 4 products from 0, then
+ * r = fmaf(s, a, r). Each conversion sits next to its fmaf: this is the form the
+ * superoptimizer emitted, and ptxas allocates it in fewer registers than four
+ * conversions up front (down kernel 66 vs 76). */
+__device__ __forceinline__ float fc_q80_sb_run(unsigned int w, float4 x, float s,
+                                               float r) {
+    float a = __fmaf_rn(fc_q80_s8_to_f32<0>(w), x.x, 0.0f);
+    a = __fmaf_rn(fc_q80_s8_to_f32<1>(w), x.y, a);
+    a = __fmaf_rn(fc_q80_s8_to_f32<2>(w), x.z, a);
+    a = __fmaf_rn(fc_q80_s8_to_f32<3>(w), x.w, a);
+    return __fmaf_rn(s, a, r);
+}
+
+/* The row-pair dot of two loaded super-blocks against x halves x0 / x1. The two
+ * rows are independent chains, so running them one after the other gives the
+ * same bits as interleaving them. */
 __device__ __forceinline__ void fc_q80_sb_dot2(const fc_q80_sbl &b0,
                                                const fc_q80_sbl &b1,
                                                const float4 (&xv)[2],
@@ -607,18 +642,8 @@ __device__ __forceinline__ void fc_q80_sb_dot2(const fc_q80_sbl &b0,
     float r0 = *p0, r1 = *p1;
 #pragma unroll
     for (int h = 0; h < 2; h++) {
-        unsigned int w0 = b0.w[h], w1 = b1.w[h];
-        float a0 = 0.0f, a1 = 0.0f;
-        a0 = __fmaf_rn(FC_SB8(w0, 0), xv[h].x, a0);
-        a1 = __fmaf_rn(FC_SB8(w1, 0), xv[h].x, a1);
-        a0 = __fmaf_rn(FC_SB8(w0, 1), xv[h].y, a0);
-        a1 = __fmaf_rn(FC_SB8(w1, 1), xv[h].y, a1);
-        a0 = __fmaf_rn(FC_SB8(w0, 2), xv[h].z, a0);
-        a1 = __fmaf_rn(FC_SB8(w1, 2), xv[h].z, a1);
-        a0 = __fmaf_rn(FC_SB8(w0, 3), xv[h].w, a0);
-        a1 = __fmaf_rn(FC_SB8(w1, 3), xv[h].w, a1);
-        r0 = __fmaf_rn(b0.s[h], a0, r0);
-        r1 = __fmaf_rn(b1.s[h], a1, r1);
+        r0 = fc_q80_sb_run(b0.w[h], xv[h], b0.s[h], r0);
+        r1 = fc_q80_sb_run(b1.w[h], xv[h], b1.s[h], r1);
     }
     *p0 = r0;
     *p1 = r1;
