@@ -6,11 +6,12 @@
  *         every BF16 entry of mode 1, 6 or 7 is decoded on the GPU in payload order (match
  *         sources = entries decoded before it, or external refs read from the model) and
  *         compared byte for byte with the source tensor and its directory hash; its matvec is
- *         compared with a double-precision dot of the source. Prints per-tensor decode time.
+ *         compared with a double-precision dot of the source. Prints per-tensor decode time; with
+ *         `baseline`, also foundry's BF16 and Q8_0 matvec time on the same tensor and die.
  *
  * Usage (bank, one die):
  *   CUDA_VISIBLE_DEVICES=<die> ingot/build/test_ingot_cuda_file ingot/build/ingot_cuda.ptx \
- *       FILE.ingot MODEL_DIR [matvec]
+ *       FILE.ingot MODEL_DIR [matvec | baseline]
  * MODEL_DIR holds the source safetensors (the file's own shard and the earlier shards its
  * external refs name). Device memory: every BF16 2-D tensor of the shard decoded, plus images.
  */
@@ -32,6 +33,7 @@
 #include "ingot/core/ingot_hash.h"
 #include "ingot/cuda/ingot_cuda_reference.h"
 #include "ingot/cuda/ingot_cuda_runtime.h"
+#include "ingot/tests/ingot_cuda_baseline.h"
 
 /** The mapped file, its directory and tail. */
 typedef struct {
@@ -69,7 +71,7 @@ static int file_open(const char *path, ingot_file *f) {
 /** Running totals. */
 typedef struct {
     uint64_t weights[8];
-    double store_ms[8], matvec_ms[8];
+    double store_ms[8], matvec_ms[8], bf16_ms[8], q80_ms[8];
     uint64_t table_bytes, side_bytes, payload_bytes;
     int mismatches, tensors;
 } totals;
@@ -101,7 +103,8 @@ static int upload_named(ingot_cuda_runtime *rt, ingot_base_set *model, const cha
 
 /* Bind every non-self source: an earlier entry's device copy or an external ref. */
 static int bind_file_sources(ingot_cuda_runtime *rt, const ingot_file *f, ingot_base_set *model,
-                             device_tensors *dt, const ingot_cuda_image *img, ingot_cuda_params *p) {
+                             device_tensors *dt, const ingot_cuda_image *img,
+                             ingot_cuda_params *p) {
     for (uint32_t s = 0; s < p->source_count; s++) {
         if (img->shape[s].self)
             continue;
@@ -175,7 +178,8 @@ static int entry_matvec(ingot_cuda_runtime *rt, const ingot_cuda_image *img, ing
 
 /* Decode one coded entry on the GPU into *dev and check it against the source. */
 static int entry_decode(ingot_cuda_runtime *rt, const ingot_file *f, ingot_base_set *model,
-                        device_tensors *dt, size_t i, int matvec, totals *tot) {
+                        device_tensors *dt, size_t i, int matvec, ingot_cuda_baseline *base,
+                        totals *tot) {
     const ingot_entry *e = &f->e[i];
     ingot_cuda_image img;
     int rc = ingot_cuda_image_build(e, f->map + e->payload_offset, e->payload_size, &img);
@@ -215,18 +219,24 @@ static int entry_decode(ingot_cuda_runtime *rt, const ingot_file *f, ingot_base_
     double err = -1;
     if (!rc && matvec && same && p.cols % ingot_cuda_step_weights(p.kind) == 0)
         rc = entry_matvec(rt, &img, &p, (const uint16_t *)got, &mv_ms, &err);
+    double bf16_ms = -1, q80_ms = -1;
+    if (!rc && base && same && mv_ms > 0)
+        rc = ingot_cuda_baseline_time(base, (const uint16_t *)got, e->shape[0], e->shape[1],
+                                      &bf16_ms, &q80_ms);
     tot->mismatches += !same;
     tot->tensors++;
     tot->weights[e->mode] += e->source_size / 2;
     tot->store_ms[e->mode] += store_ms;
     tot->matvec_ms[e->mode] += mv_ms;
+    tot->bf16_ms[e->mode] += bf16_ms > 0 ? bf16_ms : 0;
+    tot->q80_ms[e->mode] += q80_ms > 0 ? q80_ms : 0;
     tot->table_bytes += img.table_bytes;
     tot->side_bytes += img.side_bytes;
     tot->payload_bytes += e->payload_size;
     printf("%-60s m%d %7.0f Mw %s blocks-bad %d  store %8.2f ms (%5.2f Gw/s)  matvec %8.2f ms  "
-           "err %.1e  tables %llu KB\n",
+           "err %.1e  bf16 %.3f ms  q80 %.3f ms  tables %llu KB\n",
            e->name, e->mode, e->source_size / 2e6, same ? "ok  " : "BAD ", bad, store_ms,
-           e->source_size / 2e6 / (store_ms + 1e-9), mv_ms, err,
+           e->source_size / 2e6 / (store_ms + 1e-9), mv_ms, err, bf16_ms, q80_ms,
            (unsigned long long)(img.table_bytes >> 10));
     free(got);
     free(st);
@@ -246,20 +256,28 @@ static void print_totals(const totals *t) {
            t->side_bytes / 1e6);
     for (int m = 1; m < 8; m++)
         if (t->weights[m])
-            printf("  mode %d: %.3f G weights, store %.1f ms (%.2f Gw/s), matvec %.1f ms\n", m,
-                   t->weights[m] / 1e9, t->store_ms[m], t->weights[m] / 1e6 / t->store_ms[m],
-                   t->matvec_ms[m]);
+            printf("  mode %d: %.3f G weights, store %.1f ms (%.2f Gw/s), matvec %.1f ms, "
+                   "bf16 matvec %.1f ms, q80 matvec %.1f ms\n",
+                   m, t->weights[m] / 1e9, t->store_ms[m], t->weights[m] / 1e6 / t->store_ms[m],
+                   t->matvec_ms[m], t->bf16_ms[m], t->q80_ms[m]);
 }
 
 int main(int argc, char **argv) {
     if (argc < 4) {
-        fprintf(stderr, "usage: %s KERNELS.ptx FILE.ingot MODEL_DIR [matvec]\n", argv[0]);
+        fprintf(stderr, "usage: %s KERNELS.ptx FILE.ingot MODEL_DIR [matvec | baseline]\n",
+                argv[0]);
         return 2;
     }
     ingot_file f;
     ingot_base_set *model = NULL;
     ingot_cuda_runtime *rt = NULL;
     const char *dirs[1] = {argv[3]};
+    ingot_cuda_baseline *base = NULL;
+    int with_base = argc > 4 && !strcmp(argv[4], "baseline");
+    if (with_base && ingot_cuda_baseline_open(0, &base)) {
+        fprintf(stderr, "baseline kernels unavailable\n");
+        return 2;
+    }
     if (file_open(argv[2], &f) || ingot_base_set_open(dirs, 1, 1, &model) ||
         ingot_cuda_runtime_open(0, argv[1], &rt)) {
         fprintf(stderr, "open failed\n");
@@ -274,7 +292,7 @@ int main(int argc, char **argv) {
                     e->mode == INGOT_MODE_PREDICT || e->mode == INGOT_MODE_MATCH);
         int rc = 0;
         if (coded)
-            rc = entry_decode(rt, &f, model, &dt, i, argc > 4, &tot);
+            rc = entry_decode(rt, &f, model, &dt, i, argc > 4, base, &tot);
         else if (is_bf16_2d(e) && e->name[0])
             rc = upload_named(rt, model, e->name, e->source_size, &dt.entry[i]);
         if (rc)
@@ -286,5 +304,6 @@ int main(int argc, char **argv) {
     printf("%s: %d failure(s)\n", failures ? "FAILED" : "PASSED", failures);
     ingot_cuda_runtime_close(rt);
     ingot_base_set_close(model);
+    ingot_cuda_baseline_close(base);
     return failures ? 1 : 0;
 }

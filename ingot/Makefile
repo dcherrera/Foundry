@@ -108,7 +108,12 @@ $(B)/test_ingot_cuda_gpu: tests/test_ingot_cuda_gpu.c tests/ingot_cuda_cases.h \
 	$(CC) $(CFLAGS) -isystem $(CUDA_INC) -o $@ $< cuda/ingot_cuda_runtime.c $(LIB_SRC) \
 	    $(LDLIBS) -lcuda
 
-$(B)/test_ingot_cuda_file: tests/test_ingot_cuda_file.c cuda/ingot_cuda_runtime.c $(LIB_SRC) \
-                           $(HEADERS) | $(B)
-	$(CC) $(CFLAGS) -isystem $(CUDA_INC) -o $@ $< cuda/ingot_cuda_runtime.c $(LIB_SRC) \
-	    $(LDLIBS) -lcuda
+# foundry's dense matvecs (the baseline), built with foundry's own flags
+$(B)/fc_cuda.o: $(ROOT)/cuda/fc_cuda.c $(ROOT)/cuda/fc_cuda.h $(ROOT)/cuda/fc_cuda_ptx.h | $(B)
+	$(CC) -std=c11 -O2 -Wall -Wextra -I$(ROOT) -c -o $@ $<
+
+$(B)/test_ingot_cuda_file: tests/test_ingot_cuda_file.c tests/ingot_cuda_baseline.c \
+                           tests/ingot_cuda_baseline.h cuda/ingot_cuda_runtime.c $(B)/fc_cuda.o \
+                           $(LIB_SRC) $(HEADERS) | $(B)
+	$(CC) $(CFLAGS) -isystem $(CUDA_INC) -o $@ $< tests/ingot_cuda_baseline.c \
+	    cuda/ingot_cuda_runtime.c $(B)/fc_cuda.o $(LIB_SRC) $(LDLIBS) -lcuda -ldl
