@@ -498,18 +498,18 @@ static void prune_sources(ingot_match_plan *p) {
 static void report_stats(const ingot_match_plan *p, const unit_fit *fits, uint64_t k_fit) {
     const ingot_match_params *q = &p->params;
     uint64_t k_kept = 0, with = 0, use[INGOT_MATCH_MAX_SOURCES] = {0};
-    double ratio = 0;
+    double top = 0;
     for (uint64_t u = 0; u < q->units; u++) {
         k_kept += q->k[u];
         with += q->k[u] > 0;
         for (uint32_t k = 0; k < q->k[u]; k++)
             use[q->link[(size_t)u * K_MAX + k]]++;
-        ratio += fits[u].top_c2;
+        top += fits[u].top_c2;
     }
     fprintf(stderr, "match-stats units %llu k_fit %.3f k_kept %.3f with %.3f top_cos2 %.4f |",
             (unsigned long long)q->units, (double)k_fit / (double)q->units,
             (double)k_kept / (double)q->units, (double)with / (double)q->units,
-            ratio / (double)q->units);
+            top / (double)q->units);
     for (uint32_t s = 0; s < q->source_count; s++)
         fprintf(stderr, " %u:%s%u:E%d:%llu", s, q->source[s].self ? "self" : "",
                 q->source[s].ref, q->source[s].coef_exp, (unsigned long long)use[s]);

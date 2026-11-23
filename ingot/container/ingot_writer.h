@@ -68,7 +68,7 @@ typedef struct {
                                     file); must not hold this file's own tensors; NULL: none */
     const int *pool_layers;      /* match pool layer offsets (NULL: 1 and 16) */
     int pool_layer_count;
-    int match_candidates;        /* search candidates per unit (0: 16) */
+    int match_candidates;        /* search candidates per unit (0: 32) */
     long match_twin_offset;      /* also try units u -+ this offset (grown models copy neurons;
                                     Qwen3.5-27B lineage: 12288); 0: none */
     ingot_entry_fn entry_done;   /* optional */

@@ -25,7 +25,7 @@ enum {
     MEMBER_ENTRY = 0,
     MEMBER_REF = 1,
     MEMBER_SELF = 2,
-    DEFAULT_CANDIDATES = 16,
+    DEFAULT_CANDIDATES = 32,
     MAX_NAME = 2048,
 };
 
@@ -49,7 +49,7 @@ typedef struct {
     uint32_t used_count;
     int written;
     uint16_t *unit_major; /* transposed copy (column units), else NULL */
-    float *sketch;
+    int16_t *sketch;
 } entry_info;
 
 /* An external tensor some target's pool names. */
@@ -59,7 +59,7 @@ typedef struct {
     ingot_match_role role;
     uint8_t *data;
     uint16_t *unit_major;
-    float *sketch;
+    int16_t *sketch;
     uint32_t pending;     /* targets not yet written that pool it */
 } ref_info;
 
@@ -210,10 +210,10 @@ static int unit_major(const uint8_t *data, const ingot_match_role *r, uint16_t *
 }
 
 static int sketch_of(const uint16_t *view, const ingot_match_role *r, int threads,
-                     float **sketch) {
+                     int16_t **sketch) {
     if (*sketch)
         return 0;
-    *sketch = malloc((size_t)r->units * INGOT_MATCH_SKETCH_DIM * sizeof(float));
+    *sketch = malloc((size_t)r->units * INGOT_MATCH_SKETCH_DIM * sizeof(int16_t));
     if (!*sketch)
         return -INGOT_ENOMEM;
     return ingot_match_sketch(view, r->units, r->unit_len, threads, *sketch);

@@ -445,7 +445,7 @@ static void usage(void) {
             "       --refs PATH          earlier files of the model (match sources outside this\n"
             "                            file; encode and decode; repeat)\n"
             "       --pool-layers LIST   encode: match pool layer offsets (default 1,16)\n"
-            "       --candidates N       encode: searched partner candidates per unit (16)\n"
+            "       --candidates N       encode: searched partner candidates per unit (32)\n"
             "       --twin-offset N      encode: also try units u -+ N (grown models; Qwen3.5-27B\n"
             "                            lineage: 12288)\n"
             "       --tensor-log FILE    encode: one line per entry (mode, payload, v2 bytes)\n"

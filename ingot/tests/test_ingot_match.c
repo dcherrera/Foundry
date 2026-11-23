@@ -213,9 +213,9 @@ static int encode_planted(planted *pl, ingot_predict_axis axis, ingot_sink *out,
         {0, INGOT_PREDICT_ROWS, N0, pl->s0, pl->s0, 0},
         {1, INGOT_PREDICT_COLS, N1, pl->s1, s1t, 0},
         {INGOT_MATCH_SELF_REF, INGOT_PREDICT_ROWS, U, pl->d, d_units, 1}};
-    float *sk[3] = {malloc((size_t)N0 * INGOT_MATCH_SKETCH_DIM * 4),
-                    malloc((size_t)N1 * INGOT_MATCH_SKETCH_DIM * 4),
-                    malloc((size_t)U * INGOT_MATCH_SKETCH_DIM * 4)};
+    int16_t *sk[3] = {malloc((size_t)N0 * INGOT_MATCH_SKETCH_DIM * 2),
+                      malloc((size_t)N1 * INGOT_MATCH_SKETCH_DIM * 2),
+                      malloc((size_t)U * INGOT_MATCH_SKETCH_DIM * 2)};
     ingot_match_sketch(pl->s0, N0, H, 2, sk[0]);
     ingot_match_sketch(s1t, N1, H, 2, sk[1]);
     ingot_match_sketch(d_units, U, H, 2, sk[2]);

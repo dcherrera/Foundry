@@ -340,23 +340,24 @@ void ingot_match_plan_free(ingot_match_plan *plan);
 /* ---- Candidate search (ingot_match_search.c; encoder only, not part of the format) ---- */
 
 #ifndef INGOT_MATCH_SKETCH_DIMS
-#define INGOT_MATCH_SKETCH_DIMS 128 /* a multiple of 64; build-time knob for search experiments */
+#define INGOT_MATCH_SKETCH_DIMS 512 /* a multiple of 64; build-time knob for search experiments */
 #endif
 enum { INGOT_MATCH_SKETCH_DIM = INGOT_MATCH_SKETCH_DIMS };
 
 /**
  * Sketch n unit vectors ([n][H] BF16): a fixed +-1 random projection of each unit-normalized
- * vector to INGOT_MATCH_SKETCH_DIM floats (zero vectors sketch to zero).
+ * vector to INGOT_MATCH_SKETCH_DIM int16 values (cosine x 2^16 / DIM per product; |value| <= 2047;
+ * zero vectors sketch to zero).
  * @return 0 or -INGOT_ENOMEM
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: no
  */
 int ingot_match_sketch(const uint16_t *unit_major, uint64_t n, uint64_t unit_len, int threads,
-                       float *out);
+                       int16_t *out);
 
 /** A search pool member: one source's sketches. */
 typedef struct {
-    const float *sketch;   /* [units][SKETCH_DIM] */
+    const int16_t *sketch; /* [units][SKETCH_DIM] */
     uint64_t units;
     int self;              /* only units below the target unit qualify */
 } ingot_match_pool;
@@ -368,8 +369,9 @@ typedef struct {
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: no
  */
-int ingot_match_search(const float *target_sketch, uint64_t units, const ingot_match_pool *pool,
-                       uint32_t pool_count, int threads, ingot_match_candidates *cand);
+int ingot_match_search(const int16_t *target_sketch, uint64_t units,
+                       const ingot_match_pool *pool, uint32_t pool_count, int threads,
+                       ingot_match_candidates *cand);
 
 #ifdef __cplusplus
 }

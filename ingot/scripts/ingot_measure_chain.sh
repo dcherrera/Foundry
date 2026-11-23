@@ -21,7 +21,7 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-INGOT="$HERE/build/ingot"
+INGOT=${INGOT_BIN:-$HERE/build/ingot} # INGOT_BIN: another build (e.g. a search experiment)
 [ -x "$INGOT" ] || { echo "build the CLI first: make -C ingot" >&2; exit 2; }
 THREADS=8 ONLY=. KEEP=0
 EXTRA=()
@@ -49,7 +49,7 @@ file_size() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
 
 mapfile -t SHARDS < <(cd "$SRC" && ls -1 *.safetensors | sort)
 [ ${#SHARDS[@]} -gt 0 ] || { echo "no shards in $SRC" >&2; exit 3; }
-[ -s "$LOG" ] || printf '#shard\tsource_bytes\telements\toutput_bytes\tv3style_v2_bytes\tencode_s\tdecode_s\tsha256\tmatch_tensors\tmatch_elements\tmatch_bytes\n' > "$LOG"
+[ -s "$LOG" ] || printf '#shard\tsource_bytes\telements\toutput_bytes\tnopredict_bytes\tencode_s\tdecode_s\tsha256\tmatch_tensors\tmatch_elements\tmatch_bytes\n' > "$LOG"
 
 for k in "${!SHARDS[@]}"; do
     name=${SHARDS[$k]}
@@ -78,7 +78,7 @@ for k in "${!SHARDS[@]}"; do
     out_bytes=$(echo "$line" | field output_bytes)
     v2=$(echo "$line" | field v2_output_bytes)
     elements=$(echo "$enc" | grep '^mode' | tr '\t' '\n' | awk '$1 == "elements" {s += $2} END {print s}')
-    mline=$(echo "$enc" | grep -P '^mode\tmatch\t' || true)
+    mline=$(echo "$enc" | grep "^mode	match	" || true)
     m_t=$(echo "$mline" | field tensors) m_e=$(echo "$mline" | field elements)
     m_b=$(echo "$mline" | field payload_bytes)
     nice -n 10 "$INGOT" decode -q -j "$THREADS" "${dec_refs[@]+"${dec_refs[@]}"}" \

@@ -10,7 +10,8 @@
  * @todo   None
  *
  * Nothing here is part of the format: the search only proposes candidates, and the plan keeps
- * what codes smallest. Floating point is fine; results may differ across machines.
+ * what codes smallest. Sketches are int16 so the dot products run as 16-bit multiply-adds
+ * (SSE2 pmaddwd, NEON vmlal; scalar elsewhere); every path gives the same integer sums.
  */
 #include "ingot_match.h"
 
@@ -18,16 +19,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+
 #include "ingot/core/ingot_bf16.h"
 #include "ingot/core/ingot_error.h"
 #include "ingot/core/ingot_parallel.h"
 
 enum {
     DIM = INGOT_MATCH_SKETCH_DIM,
-    VEC = 4,             /* floats per vector register */
+    VEC = 4,             /* floats per vector register (projection) */
     TARGET_TILE = 64,    /* target units per work item */
-    POOL_TILE = 256,     /* pool units scored per pass over a target tile */
     NO_SOURCE = 0xFF,
+    QUANT_ONE = 256,     /* a unit-variance sketch coordinate -> 256 */
+    QUANT_MAX = 2047,    /* clip at 8 sigma: |sum| < DIM * 2047^2 < 2^31 */
 };
 
 typedef float v4f __attribute__((vector_size(16)));
@@ -45,8 +53,8 @@ static uint64_t sign_word(uint64_t h, uint32_t word) {
 typedef struct {
     const uint16_t *units;
     uint64_t len;
-    float *out;
-    const v4f *signs;      /* [len][DIM / VEC]: +-1 */
+    int16_t *out;
+    const v4f *signs; /* [len][DIM / VEC]: +-1 */
     uint64_t n;
 } sketch_job;
 
@@ -69,15 +77,19 @@ static int sketch_chunk(void *ctx, size_t chunk) {
             for (int i = 0; i < DIM / VEC; i++)
                 acc[i] += vv * s[i];
         }
-        float scale = norm > 0 ? (float)(1.0 / sqrt(norm * DIM)) : 0.0f;
-        for (int d = 0; d < DIM; d++)
-            job->out[u * DIM + d] = acc[d / VEC][d % VEC] * scale;
+        /* coordinate d ~ N(0, 1) for a unit vector; dot / (256^2 DIM) estimates the cosine */
+        float scale = norm > 0 ? (float)(QUANT_ONE / sqrt(norm)) : 0.0f;
+        for (int d = 0; d < DIM; d++) {
+            float q = nearbyintf(acc[d / VEC][d % VEC] * scale);
+            q = q > QUANT_MAX ? QUANT_MAX : q < -QUANT_MAX ? -QUANT_MAX : q;
+            job->out[u * DIM + d] = (int16_t)q;
+        }
     }
     return 0;
 }
 
 int ingot_match_sketch(const uint16_t *unit_major, uint64_t n, uint64_t unit_len, int threads,
-                       float *out) {
+                       int16_t *out) {
     v4f *signs = malloc((size_t)unit_len * (DIM / VEC) * sizeof(*signs));
     if (!signs)
         return -INGOT_ENOMEM;
@@ -92,18 +104,71 @@ int ingot_match_sketch(const uint16_t *unit_major, uint64_t n, uint64_t unit_len
     return rc;
 }
 
+/* ---- Dot products: four targets against one pool unit ---- */
+
+#if defined(__SSE2__)
+static inline int32_t hsum(__m128i v) {
+    v = _mm_add_epi32(v, _mm_shuffle_epi32(v, 0x4E));
+    v = _mm_add_epi32(v, _mm_shuffle_epi32(v, 0xB1));
+    return _mm_cvtsi128_si32(v);
+}
+
+static inline __m128i load8(const int16_t *q) {
+    return _mm_loadu_si128((const __m128i *)(const void *)q);
+}
+
+static void dot4(const int16_t *t, const int16_t *p, int32_t *out) {
+    __m128i s0 = _mm_setzero_si128(), s1 = s0, s2 = s0, s3 = s0;
+    for (int i = 0; i < DIM; i += 8) {
+        __m128i x = load8(p + i);
+        s0 = _mm_add_epi32(s0, _mm_madd_epi16(x, load8(t + i)));
+        s1 = _mm_add_epi32(s1, _mm_madd_epi16(x, load8(t + DIM + i)));
+        s2 = _mm_add_epi32(s2, _mm_madd_epi16(x, load8(t + 2 * DIM + i)));
+        s3 = _mm_add_epi32(s3, _mm_madd_epi16(x, load8(t + 3 * DIM + i)));
+    }
+    out[0] = hsum(s0), out[1] = hsum(s1), out[2] = hsum(s2), out[3] = hsum(s3);
+}
+#elif defined(__ARM_NEON)
+static void dot4(const int16_t *t, const int16_t *p, int32_t *out) {
+    int32x4_t s0 = vdupq_n_s32(0), s1 = s0, s2 = s0, s3 = s0;
+    for (int i = 0; i < DIM; i += 8) {
+        int16x8_t x = vld1q_s16(p + i);
+        int16x8_t a = vld1q_s16(t + i), b = vld1q_s16(t + DIM + i);
+        int16x8_t c = vld1q_s16(t + 2 * DIM + i), d = vld1q_s16(t + 3 * DIM + i);
+        s0 = vmlal_s16(vmlal_s16(s0, vget_low_s16(x), vget_low_s16(a)), vget_high_s16(x),
+                       vget_high_s16(a));
+        s1 = vmlal_s16(vmlal_s16(s1, vget_low_s16(x), vget_low_s16(b)), vget_high_s16(x),
+                       vget_high_s16(b));
+        s2 = vmlal_s16(vmlal_s16(s2, vget_low_s16(x), vget_low_s16(c)), vget_high_s16(x),
+                       vget_high_s16(c));
+        s3 = vmlal_s16(vmlal_s16(s3, vget_low_s16(x), vget_low_s16(d)), vget_high_s16(x),
+                       vget_high_s16(d));
+    }
+    out[0] = vaddvq_s32(s0), out[1] = vaddvq_s32(s1), out[2] = vaddvq_s32(s2);
+    out[3] = vaddvq_s32(s3);
+}
+#else
+static void dot4(const int16_t *t, const int16_t *p, int32_t *out) {
+    int32_t s[4] = {0};
+    for (int i = 0; i < DIM; i++)
+        for (int k = 0; k < 4; k++)
+            s[k] += (int32_t)t[k * DIM + i] * p[i];
+    memcpy(out, s, sizeof(s));
+}
+#endif
+
 /* ---- Top-M search ---- */
 
 typedef struct {
-    const float *target;
+    const int16_t *target;
     uint64_t units;
     const ingot_match_pool *pool;
     uint32_t pool_count;
     ingot_match_candidates *cand;
 } search_job;
 
-/* Insert (score, source, index) into unit u's list (sorted descending by score). */
-static void list_insert(float *score, uint8_t *src, uint64_t *idx, uint32_t m, float s,
+/* Insert (score, source, index) into a unit's list (sorted descending by score). */
+static void list_insert(int32_t *score, uint8_t *src, uint64_t *idx, uint32_t m, int32_t s,
                         uint8_t source, uint64_t index) {
     uint32_t at = m - 1;
     while (at > 0 && score[at - 1] < s) {
@@ -117,58 +182,29 @@ static void list_insert(float *score, uint8_t *src, uint64_t *idx, uint32_t m, f
     idx[at] = index;
 }
 
-static inline float dot(const v4f *a, const v4f *b) {
-    v4f s0 = {0}, s1 = {0};
-    for (int i = 0; i < DIM / VEC; i += 2) {
-        s0 += a[i] * b[i];
-        s1 += a[i + 1] * b[i + 1];
-    }
-    s0 += s1;
-    return s0[0] + s0[1] + s0[2] + s0[3];
-}
-
-/* Four target units against one pool unit. */
-static inline void dot4(const v4f *t0, const v4f *t1, const v4f *t2, const v4f *t3,
-                        const v4f *p, float *out) {
-    v4f s0 = {0}, s1 = {0}, s2 = {0}, s3 = {0};
-    for (int i = 0; i < DIM / VEC; i++) {
-        v4f x = p[i];
-        s0 += t0[i] * x;
-        s1 += t1[i] * x;
-        s2 += t2[i] * x;
-        s3 += t3[i] * x;
-    }
-    out[0] = s0[0] + s0[1] + s0[2] + s0[3];
-    out[1] = s1[0] + s1[1] + s1[2] + s1[3];
-    out[2] = s2[0] + s2[1] + s2[2] + s2[3];
-    out[3] = s3[0] + s3[1] + s3[2] + s3[3];
-}
-
-static void score_tile(const search_job *job, uint64_t u0, uint64_t u1, float *best) {
+static void consider(const search_job *job, int32_t *best, uint64_t u0, uint64_t u,
+                     const ingot_match_pool *pl, uint32_t s, uint64_t i, int32_t dot) {
     uint32_t m = job->cand->per_unit;
+    int32_t a = dot < 0 ? -dot : dot;
+    if (a > best[(u - u0) * m + m - 1] && (!pl->self || i < u))
+        list_insert(best + (u - u0) * m, job->cand->source + u * m, job->cand->index + u * m, m,
+                    a, (uint8_t)s, i);
+}
+
+/* Target units [u0, u1) (padded to a multiple of 4 with zero sketches) against every pool unit. */
+static void score_tile(const search_job *job, const int16_t *tile, uint64_t u0, uint64_t u1,
+                       int32_t *best) {
+    uint64_t n = u1 - u0;
     for (uint32_t s = 0; s < job->pool_count; s++) {
         const ingot_match_pool *pl = &job->pool[s];
         uint64_t limit = pl->self ? (u1 < pl->units ? u1 : pl->units) : pl->units;
         for (uint64_t i = 0; i < limit; i++) {
-            const v4f *pv = (const v4f *)(const void *)(pl->sketch + i * DIM);
-            uint64_t u = u0;
-            for (; u + 4 <= u1; u += 4) {
-                const v4f *t = (const v4f *)(const void *)(job->target + u * DIM);
-                float sc[4];
-                dot4(t, t + DIM / VEC, t + 2 * DIM / VEC, t + 3 * DIM / VEC, pv, sc);
-                for (int j = 0; j < 4; j++) {
-                    float a = fabsf(sc[j]);
-                    uint64_t uu = u + (uint64_t)j;
-                    if (a > best[(uu - u0) * m + m - 1] && (!pl->self || i < uu))
-                        list_insert(best + (uu - u0) * m, job->cand->source + uu * m,
-                                    job->cand->index + uu * m, m, a, (uint8_t)s, i);
-                }
-            }
-            for (; u < u1; u++) {
-                float a = fabsf(dot((const v4f *)(const void *)(job->target + u * DIM), pv));
-                if (a > best[(u - u0) * m + m - 1] && (!pl->self || i < u))
-                    list_insert(best + (u - u0) * m, job->cand->source + u * m,
-                                job->cand->index + u * m, m, a, (uint8_t)s, i);
+            const int16_t *pv = pl->sketch + i * DIM;
+            for (uint64_t k = 0; k < n; k += 4) {
+                int32_t dot[4];
+                dot4(tile + k * DIM, pv, dot);
+                for (uint64_t j = 0; j < 4 && k + j < n; j++)
+                    consider(job, best, u0, u0 + k + j, pl, s, i, dot[j]);
             }
         }
     }
@@ -179,21 +215,28 @@ static int search_chunk(void *ctx, size_t chunk) {
     uint32_t m = job->cand->per_unit;
     uint64_t u0 = (uint64_t)chunk * TARGET_TILE;
     uint64_t u1 = u0 + TARGET_TILE < job->units ? u0 + TARGET_TILE : job->units;
-    float *best = malloc((size_t)TARGET_TILE * m * sizeof(*best));
-    if (!best)
+    int32_t *best = malloc((size_t)TARGET_TILE * m * sizeof(*best));
+    int16_t *tile = calloc((size_t)TARGET_TILE * DIM, sizeof(*tile));
+    if (!best || !tile) {
+        free(best);
+        free(tile);
         return -INGOT_ENOMEM;
+    }
+    memcpy(tile, job->target + u0 * DIM, (size_t)(u1 - u0) * DIM * sizeof(*tile));
     for (size_t i = 0; i < (size_t)TARGET_TILE * m; i++)
-        best[i] = -1.0f;
+        best[i] = -1;
     for (uint64_t u = u0; u < u1; u++)
         for (uint32_t j = 0; j < m; j++)
             job->cand->source[u * m + j] = NO_SOURCE;
-    score_tile(job, u0, u1, best);
+    score_tile(job, tile, u0, u1, best);
     free(best);
+    free(tile);
     return 0;
 }
 
-int ingot_match_search(const float *target_sketch, uint64_t units, const ingot_match_pool *pool,
-                       uint32_t pool_count, int threads, ingot_match_candidates *cand) {
+int ingot_match_search(const int16_t *target_sketch, uint64_t units,
+                       const ingot_match_pool *pool, uint32_t pool_count, int threads,
+                       ingot_match_candidates *cand) {
     if (!cand || !cand->per_unit || (pool_count && !pool) ||
         pool_count > INGOT_MATCH_MAX_SOURCES)
         return -INGOT_EINVAL;
