@@ -16,7 +16,8 @@
  * rule 1). An aborted descriptor advances nothing.
  *
  * Compile-time args:
- *   0: CB_STAGE index (addressed, never cycled: 2 tiles + the 256-byte constants block)
+ *   0: CB_STAGE index (addressed, never cycled: alpha's kGgMaxTiles tiles, beta's, then the
+ *      512-byte constants block)
  *   1: CB_OUT index (one page = one block)
  *   2: tile size in bytes (2048, bf16)
  *   3: wait mode -- 0 upstream, 1 stoppable (ships), 2 bound-only
@@ -27,7 +28,7 @@
  *       foundry/tt/build_tensix_dataflow_kernel.sh \
  *       foundry/tt/kernels/resident_gdngate_reader.c brisc <out>
  *
- * @status Written PM 7 (2026-10-08). Unexecuted.
+ * @status Shipped (Ornith, PM 7). Two tile columns (<= 64 heads) for Qwen3.8 2026-11-15.
  * @issues None
  * @todo None
  */
@@ -97,7 +98,7 @@ static bool request_is_sane(const gate_request *request)
         // and the rows' span inside the one page.
         const uint32_t total = request->band_stride;
 
-        return request->band_count == 1u && total <= kGgMaxHeads &&
+        return request->band_count == 1u && total != 0u && total <= kGgMaxHeads &&
                request->sub_rows + request->heads <= total &&
                request->block_stride >= 2u * total * 4u && (request->block_stride % 16u) == 0u &&
                (request->dst_base % 16u) == 0u &&
@@ -106,23 +107,26 @@ static bool request_is_sane(const gate_request *request)
     }
     if (request->sub_rows != 16u && request->sub_rows != 32u)
         return false;
-    if (request->band_stride < TILE_BYTES || (request->band_stride % 64u) != 0u)
+    if (request->band_stride < ftgg_tiles(request->heads) * TILE_BYTES ||
+        (request->band_stride % 64u) != 0u)
         return false;
     return request->block_stride >= ftgg_block_bytes(request->heads) &&
            (request->block_stride % 64u) == 0u && (request->dst_base % 64u) == 0u;
 }
 
-/** Read band `band`'s two tiles into the stage. */
-static void read_band(const gate_request *request, uint32_t band, uint32_t stage)
+/** Read band `band`'s `tiles` alpha tiles and `tiles` beta tiles into the stage (alpha at
+ *  `stage`, beta kGgMaxTiles tiles on). A band's tiles sit side by side in its strip. */
+static void read_band(const gate_request *request, uint32_t band, uint32_t tiles,
+                      uint32_t stage)
 {
     const uint32_t offset = band * request->band_stride;
 
     ft_tensix_noc_read(ft_tensix_noc_address(request->alpha_x, request->alpha_y,
                                              request->alpha_base + offset),
-                       stage, TILE_BYTES);
+                       stage, tiles * TILE_BYTES);
     ft_tensix_noc_read(ft_tensix_noc_address(request->beta_x, request->beta_y,
                                              request->beta_base + offset),
-                       stage + TILE_BYTES, TILE_BYTES);
+                       stage + kGgMaxTiles * TILE_BYTES, tiles * TILE_BYTES);
     ft_tensix_noc_read_barrier();
 }
 
@@ -134,7 +138,8 @@ static void read_band(const gate_request *request, uint32_t band, uint32_t stage
 static bool read_one_gate_op(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *parameters)
 {
     const uint32_t stage = ft_tensix_cb_write_pointer(CB_STAGE);
-    const uint32_t constants = stage + 2u * TILE_BYTES;
+    const uint32_t beta_stage = stage + kGgMaxTiles * TILE_BYTES;
+    const uint32_t constants = beta_stage + kGgMaxTiles * TILE_BYTES;
     gate_request request;
 
     if (TILE_BYTES == 0u) {
@@ -152,15 +157,16 @@ static bool read_one_gate_op(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *par
     ft_tensix_noc_read_barrier();
 
     if ((request.flags & kGgFlagFlat) != 0u) {
+        // FLAT carries the TOTAL heads in the band-stride word: the strip's tiles follow it.
         if (!ctx->aborting)
-            read_band(&request, 0u, stage);
+            read_band(&request, 0u, ftgg_tiles(request.band_stride), stage);
         if (!ftq_cb_reserve_back_stoppable(ctx, (int32_t)CB_OUT, 1, WAIT_MODE))
             return false;
         if (!ctx->aborting)
             ftgg_build_flat((uint32_t *)(uintptr_t)ft_tensix_cb_write_pointer(CB_OUT),
                             request.sub_rows, request.heads, request.band_stride,
                             (const uint16_t *)(uintptr_t)stage,
-                            (const uint16_t *)(uintptr_t)(stage + TILE_BYTES),
+                            (const uint16_t *)(uintptr_t)beta_stage,
                             (const uint32_t *)(uintptr_t)constants, request.rows,
                             request.block_stride,
                             (request.flags & kGgFlagRedBetaAsDecay) != 0u);
@@ -173,7 +179,7 @@ static bool read_one_gate_op(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *par
                                                                       : kGgTileRows;
 
         if (!ctx->aborting)
-            read_band(&request, band, stage);
+            read_band(&request, band, ftgg_tiles(request.heads), stage);
         for (uint32_t sub = 0; sub < 2u; sub++) {
             const uint32_t live = ftgg_sub_live_rows(band_rows, request.sub_rows, sub);
 
@@ -186,7 +192,7 @@ static bool read_one_gate_op(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *par
                 ftgg_build_block((uint32_t *)(uintptr_t)ft_tensix_cb_write_pointer(CB_OUT),
                                  request.heads, request.scale_bits,
                                  (const uint16_t *)(uintptr_t)stage,
-                                 (const uint16_t *)(uintptr_t)(stage + TILE_BYTES),
+                                 (const uint16_t *)(uintptr_t)beta_stage,
                                  (const uint32_t *)(uintptr_t)constants, sub * request.sub_rows,
                                  live, (request.flags & kGgFlagRedBetaAsDecay) != 0u);
             ft_tensix_cb_push_back(CB_OUT, 1u);
