@@ -19,6 +19,7 @@
 #include "ingot/codec/ingot_predict.h"
 #include "ingot/container/ingot_format.h"
 #include "ingot/container/ingot_writer.h"
+#include "ingot/container/ingot_writer_match.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,7 @@ typedef struct {
     ingot_predict_geometry geom;                          /* partner entries = directory indices */
     const ingot_entry *entry[INGOT_PREDICT_MAX_PARTNERS];
     const uint8_t *data[INGOT_PREDICT_MAX_PARTNERS];
+    const ingot_writer_match *match;                      /* match candidate, or NULL */
 } ingot_writer_partners;
 
 /** What the coder decided, for the stats and the entry report. */
@@ -36,6 +38,8 @@ typedef struct {
     uint64_t v2_bytes;     /* payload of the best non-predict choice (= the payload unless
                               predicted; exact with opt->exact_v2, else the estimate) */
     uint64_t prefix_bytes; /* predicted: the mode prefix (parameters + tables), else 0 */
+    uint32_t match_refs[INGOT_MATCH_MAX_SOURCES]; /* match: the payload's source refs */
+    uint32_t match_ref_count;
 } ingot_writer_coded;
 
 /**

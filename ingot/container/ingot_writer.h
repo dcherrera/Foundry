@@ -62,6 +62,13 @@ typedef struct {
                                     INGOT_POLICY_PLAIN implies it */
     int exact_v2;                /* also encode a predicted tensor's best other mode (into
                                     nothing) so v2 sizes are exact, not estimates */
+    int max_version;             /* newest format version to write: 0 or 4 = match mode (version
+                                    4) for layer roles; 3 = same-unit predict mode only */
+    ingot_base_set *refs;        /* earlier files of the same model (match sources outside this
+                                    file); must not hold this file's own tensors; NULL: none */
+    const int *pool_layers;      /* match pool layer offsets (NULL: 1 and 16) */
+    int pool_layer_count;
+    int match_candidates;        /* search candidates per unit (0: 16) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;
     ingot_progress_fn progress;  /* optional */

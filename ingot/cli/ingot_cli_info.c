@@ -24,7 +24,7 @@
 
 const char *ingot_cli_mode_name(ingot_mode m) {
     static const char *const NAMES[] = {"raw",         "plain",       "delta",  "quant",
-                                        "quant-delta", "block-delta", "predict"};
+                                        "quant-delta", "block-delta", "predict", "match"};
     return (unsigned)m < sizeof(NAMES) / sizeof(NAMES[0]) ? NAMES[m] : "?";
 }
 

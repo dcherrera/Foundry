@@ -283,13 +283,16 @@ static void test_magic_and_version_not_name(void) {
     remove(DIR "/v3.rebuilt.safetensors");
     ASSERT_INT_EQ(0, rebuild_with_base(DIR "/v3.ingot", NULL, DIR "/v3.rebuilt.safetensors"));
     ASSERT_TRUE(test_files_equal(DIR "/base.safetensors", DIR "/v3.rebuilt.safetensors"));
-    ASSERT_INT_EQ(0, test_copy_flipped(BASE_INGOT, DIR "/v4.ingot", 4, 0x06, -1)); /* 2 -> 4 */
+    ASSERT_INT_EQ(0, test_copy_flipped(BASE_INGOT, DIR "/v5.ingot", 4, 0x07, -1)); /* 2 -> 5 */
     r = NULL;
-    ASSERT_INT_EQ(-INGOT_EUNSUPPORTED, ingot_reader_open(DIR "/v4.ingot", &r));
-    ASSERT_INT_EQ(-INGOT_EUNSUPPORTED, rebuild_with_base(DIR "/v4.ingot", NULL,
+    ASSERT_INT_EQ(-INGOT_EUNSUPPORTED, ingot_reader_open(DIR "/v5.ingot", &r));
+    ASSERT_INT_EQ(-INGOT_EUNSUPPORTED, rebuild_with_base(DIR "/v5.ingot", NULL,
                                                          DIR "/x.safetensors"));
-    ASSERT_INT_EQ(1, ingot_reader_probe(DIR "/v4.ingot", &version));
-    ASSERT_INT_EQ(4, (int)version);
+    ASSERT_INT_EQ(1, ingot_reader_probe(DIR "/v5.ingot", &version));
+    ASSERT_INT_EQ(5, (int)version);
+    /* a version 2 file relabelled 4 lacks the directory tail */
+    ASSERT_INT_EQ(0, test_copy_flipped(BASE_INGOT, DIR "/v4.ingot", 4, 0x06, -1)); /* 2 -> 4 */
+    ASSERT_INT_EQ(-INGOT_EFORMAT, ingot_reader_open(DIR "/v4.ingot", &r));
     ASSERT_INT_EQ(0, test_copy_flipped(BASE_INGOT, DIR "/nomagic.ingot", 0, 0x20, -1)); /* iNGT */
     ASSERT_INT_EQ(-INGOT_EFORMAT, ingot_reader_open(DIR "/nomagic.ingot", &r));
     ASSERT_INT_EQ(0, ingot_reader_probe(DIR "/nomagic.ingot", NULL));

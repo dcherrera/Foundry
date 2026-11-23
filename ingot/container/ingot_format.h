@@ -25,10 +25,10 @@ extern "C" {
 #define INGOT_SUFFIX ".ingot"
 
 enum {
-    INGOT_VERSION = 3,         /* newest version written (files without version 3 features are
-                                  written as version 2) */
+    INGOT_VERSION = 4,         /* newest version written (a file is written at the oldest version
+                                  that holds its features: 2, 3 or 4) */
     INGOT_VERSION_MIN = 1,     /* oldest version read (version 1: random access only) */
-    INGOT_HEADER_BYTES = 144,  /* versions 2 and 3 */
+    INGOT_HEADER_BYTES = 144,  /* versions 2 to 4 */
     INGOT_HEADER_BYTES_V1 = 64,
     INGOT_SHA256_BYTES = 32,
     INGOT_MAX_DIMS = 8,
@@ -52,8 +52,10 @@ typedef enum {
     INGOT_MODE_QUANT_DELTA = 4, /* as QUANT, blocks identical to the base's are flagged */
     INGOT_MODE_BLOCK_DELTA = 5, /* any block type: identical blocks flagged, others raw */
     INGOT_MODE_PREDICT = 6,     /* BF16, predicted from earlier tensors of the same units
-                                   (ingot_predict.h; version 3 only) */
-    INGOT_MODE_COUNT = 7,       /* modes this version decodes */
+                                   (ingot_predict.h; version 3 and later) */
+    INGOT_MODE_MATCH = 7,       /* BF16, per-unit partners from any earlier tensor or an earlier
+                                   file (ingot_match.h; version 4) */
+    INGOT_MODE_COUNT = 8,       /* modes this version decodes */
 } ingot_mode;
 
 /** Source dtype (informational except where a mode depends on it). */
@@ -88,7 +90,8 @@ typedef struct {
     uint64_t payload_size;
     uint64_t hash;                  /* ingot_hash64 of the source bytes */
     uint64_t base_hash;             /* delta modes: ingot_hash64 of the base tensor; predict mode:
-                                       the partner entries (ingot_entry_partners); else 0 */
+                                       the partner entries (ingot_partner_field); match mode:
+                                       ingot_hash64 of its source list; else 0 */
 } ingot_entry;
 
 /* Predict entries name their (at most two) partner entries in base_hash: directory index + 1 in

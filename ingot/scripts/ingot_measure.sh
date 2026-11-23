@@ -80,7 +80,7 @@ remote_size() { # shard name -> its size at SRC (empty if absent)
         ssh:*) local r=${SRC#ssh:}
                ssh -n -o ConnectTimeout=20 "${r%%:*}" "stat -c %s $(printf '%q' "${r#*:}/$1")" \
                    2>/dev/null || true ;;
-        *) stat -f %z "$SRC/$1" 2>/dev/null || stat -c %s "$SRC/$1" 2>/dev/null || true ;;
+        *) stat -c %s "$SRC/$1" 2>/dev/null || stat -f %z "$SRC/$1" 2>/dev/null || true ;;
     esac
 }
 fetch() { # shard name -> bytes on stdout

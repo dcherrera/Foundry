@@ -6,6 +6,9 @@ original file (same sha256).
 - **BF16 safetensors:** ~10.5 bits per weight instead of 16. Format version 3 codes a tensor
   given the tensors that hold the same units (a down_proj column given its neuron's gate and up
   rows; also up, z, out_proj, o_proj): −0.021 bits per weight on Qwen3.8-27B layers 4–7.
+  Version 4 (match mode) codes every layer tensor given up to 8 partner units per unit, found by
+  a search over the previous layer, a sibling layer, earlier tensors of the same layer and the
+  tensor's own earlier rows, including tensors in earlier shards (`--refs`).
 - **GGUF Q8_0:** ~7.9 instead of 8.5. The scales are coded as the BF16 values they came from.
 - **GGUF K-quants:** a few percent smaller (the scale and code fields are coded).
 - **Fine-tunes:** a fine-tune of a model you already have can be stored as a delta against it,
@@ -36,6 +39,10 @@ ingot encode --base base-Q8_0.gguf finetune-Q8_0.gguf
 # check it: decode without writing, compare every tensor hash and the file's sha256
 ingot verify model.gguf.ingot                  # (+ the original, byte for byte: ... model.gguf)
 ingot verify --base base-Q8_0.gguf --check-base finetune-Q8_0.gguf.ingot
+
+# a multi-shard model (version 4): give each shard the shards before it, encode and decode
+ingot encode --refs model-00001-of-00002.safetensors model-00002-of-00002.safetensors
+ingot decode --refs model-00001-of-00002.safetensors model-00002-of-00002.safetensors.ingot
 
 # get the original back
 ingot decode model.gguf.ingot                  # -> model.gguf

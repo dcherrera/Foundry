@@ -8,7 +8,8 @@
  *   ingot verify [opts] SRC [ORIG]    decode without writing; every hash + the sha256 (+ ORIG)
  *   ingot info SRC | st-ls HEADER | st-wrap NAME DTYPE AxB NBYTES
  *   opts: -j N, --base PATH (repeatable), --base-sha256 HEX, --check-base, --self-check, --measure,
- *         --policy auto|plain|delta, --no-predict, --tensor-log FILE, -q
+ *         --policy auto|plain|delta, --no-predict, --max-version 3|4, --refs PATH (repeatable),
+ *         --pool-layers LIST, --candidates N, --tensor-log FILE, -q
  *
  * @status Active
  * @issues None
@@ -28,12 +29,18 @@
 #include "ingot/container/ingot_writer.h"
 #include "ingot/core/ingot_error.h"
 
-enum { MAX_BASES = 64, MAX_ARGS = 4, COMPARE_CHUNK = 1 << 20 };
+enum { MAX_BASES = 64, MAX_ARGS = 4, COMPARE_CHUNK = 1 << 20, MAX_POOL_LAYERS = 8 };
 
 typedef struct {
     int threads;
     const char *bases[MAX_BASES];
     size_t base_count;
+    const char *refs[MAX_BASES];
+    size_t ref_count;
+    int pool_layers[MAX_POOL_LAYERS];
+    int pool_layer_count; /* -1: none given (defaults) */
+    int max_version;
+    int candidates;
     uint8_t base_sha256[32];
     int has_base_sha256;
     int check_base;
@@ -66,8 +73,25 @@ static int parse_hex32(const char *s, uint8_t out[32]) {
     return 0;
 }
 
+/* "1,16" -> pool layer offsets (each 1..1024; "0" or "" gives none). */
+static int parse_layers(const char *s, cli_options *o) {
+    o->pool_layer_count = 0;
+    while (*s) {
+        char *end = NULL;
+        long v = strtol(s, &end, 10);
+        if (end == s || v < 0 || v > 1024 || o->pool_layer_count == MAX_POOL_LAYERS)
+            return -1;
+        if (v > 0)
+            o->pool_layers[o->pool_layer_count++] = (int)v;
+        s = *end == ',' ? end + 1 : end;
+        if (*end && *end != ',')
+            return -1;
+    }
+    return 0;
+}
+
 static int parse_options(int argc, char **argv, cli_options *o) {
-    *o = (cli_options){.threads = 4};
+    *o = (cli_options){.threads = 4, .pool_layer_count = -1};
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
         int has_value = i + 1 < argc;
@@ -75,6 +99,19 @@ static int parse_options(int argc, char **argv, cli_options *o) {
             o->threads = atoi(argv[++i]);
         } else if (!strcmp(a, "--base") && has_value && o->base_count < MAX_BASES) {
             o->bases[o->base_count++] = argv[++i];
+        } else if (!strcmp(a, "--refs") && has_value && o->ref_count < MAX_BASES) {
+            o->refs[o->ref_count++] = argv[++i];
+        } else if (!strcmp(a, "--pool-layers") && has_value) {
+            if (parse_layers(argv[++i], o))
+                return -1;
+        } else if (!strcmp(a, "--max-version") && has_value) {
+            o->max_version = atoi(argv[++i]);
+            if (o->max_version != 3 && o->max_version != 4)
+                return -1;
+        } else if (!strcmp(a, "--candidates") && has_value) {
+            o->candidates = atoi(argv[++i]);
+            if (o->candidates < 1 || o->candidates > 64)
+                return -1;
         } else if (!strcmp(a, "--base-sha256") && has_value) {
             if (parse_hex32(argv[++i], o->base_sha256))
                 return -1;
@@ -102,6 +139,16 @@ static int parse_options(int argc, char **argv, cli_options *o) {
         }
     }
     return o->threads > 0 ? 0 : -1;
+}
+
+static int open_refs(const cli_options *o, ingot_base_set **refs) {
+    *refs = NULL;
+    if (!o->ref_count)
+        return 0;
+    int rc = ingot_base_set_open(o->refs, o->ref_count, o->threads, refs);
+    if (rc)
+        fprintf(stderr, "ingot: cannot open refs: %s\n", ingot_error_name(rc));
+    return rc;
 }
 
 static int open_bases(const cli_options *o, ingot_base_set **base) {
@@ -178,7 +225,7 @@ static void print_encode_stats(const char *src, const ingot_encode_stats *st, do
 }
 
 static int cmd_encode(const cli_options *o) {
-    ingot_base_set *base = NULL;
+    ingot_base_set *base = NULL, *refs = NULL;
     const char *dst = NULL;
     char *owned = NULL;
     if (o->arg_count < 1 || o->arg_count > 2)
@@ -187,7 +234,9 @@ static int cmd_encode(const cli_options *o) {
         fprintf(stderr, "ingot encode: %s is already an .ingot file\n", o->args[0]);
         return 2;
     }
-    if ((!o->measure && output_path(o, "encode", 0, &dst, &owned)) || open_bases(o, &base)) {
+    if ((!o->measure && output_path(o, "encode", 0, &dst, &owned)) || open_bases(o, &base) ||
+        open_refs(o, &refs)) {
+        ingot_base_set_close(base);
         free(owned);
         return 2;
     }
@@ -195,6 +244,11 @@ static int cmd_encode(const cli_options *o) {
                                 .base_sha256 = o->has_base_sha256 ? o->base_sha256 : NULL,
                                 .self_check = o->self_check,
                                 .no_predict = o->no_predict,
+                                .max_version = o->max_version,
+                                .refs = refs,
+                                .pool_layers = o->pool_layer_count >= 0 ? o->pool_layers : NULL,
+                                .pool_layer_count = o->pool_layer_count,
+                                .match_candidates = o->candidates,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)"encode"};
@@ -202,6 +256,7 @@ static int cmd_encode(const cli_options *o) {
     if (o->tensor_log && !log) {
         fprintf(stderr, "ingot encode: cannot write %s\n", o->tensor_log);
         ingot_base_set_close(base);
+        ingot_base_set_close(refs);
         free(owned);
         return 2;
     }
@@ -221,6 +276,7 @@ static int cmd_encode(const cli_options *o) {
     else
         print_encode_stats(o->args[0], &st, now_seconds() - t0);
     ingot_base_set_close(base);
+    ingot_base_set_close(refs);
     free(owned);
     return rc ? 1 : 0;
 }
@@ -238,7 +294,10 @@ static int decode_v1(const cli_options *o, const char *dst, ingot_base_set *base
 static int stream_to(const cli_options *o, ingot_base_set *base, const char *dst,
                      ingot_write_fn write, void *ctx, ingot_stream_result *res) {
     ingot_input *in = NULL;
-    ingot_stream_options opt = {.threads = o->threads, .base = base,
+    ingot_base_set *refs = NULL;
+    if (open_refs(o, &refs))
+        return -INGOT_EBASE;
+    ingot_stream_options opt = {.threads = o->threads, .base = base, .refs = refs,
                                 .check_base_sha256 = o->check_base,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)(dst ? "decode" : "verify")};
@@ -248,6 +307,7 @@ static int stream_to(const cli_options *o, ingot_base_set *base, const char *dst
                  : ingot_stream_decode(in, write, ctx, &opt, res);
     ingot_cli_progress_end();
     ingot_input_close(in);
+    ingot_base_set_close(refs);
     return rc;
 }
 
@@ -375,6 +435,11 @@ static void usage(void) {
             "                            a full round-trip check that needs no disk)\n"
             "       --policy auto|plain|delta   encode mode policy (default auto)\n"
             "       --no-predict         encode: no cross-tensor prediction (a version 2 file)\n"
+            "       --max-version 3|4    encode: newest format (default 4: match mode)\n"
+            "       --refs PATH          earlier files of the model (match sources outside this\n"
+            "                            file; encode and decode; repeat)\n"
+            "       --pool-layers LIST   encode: match pool layer offsets (default 1,16)\n"
+            "       --candidates N       encode: searched partner candidates per unit (16)\n"
             "       --tensor-log FILE    encode: one line per entry (mode, payload, v2 bytes)\n"
             "       -q                   no progress line\n"
             "Encode writes SRC.ingot and decode strips .ingot unless DST is given; an existing\n"

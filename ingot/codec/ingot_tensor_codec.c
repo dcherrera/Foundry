@@ -13,6 +13,7 @@
 #include <stdlib.h>
 
 #include "ingot/codec/ingot_delta.h"
+#include "ingot/codec/ingot_match.h"
 #include "ingot/codec/ingot_plain.h"
 #include "ingot/codec/ingot_predict.h"
 #include "ingot/codec/ingot_qtensor.h"
@@ -25,6 +26,7 @@ struct ingot_tensor_decoder {
     ingot_delta_decoder *delta;
     ingot_qtensor_decoder *quant;
     ingot_predict_decoder *predict;
+    ingot_match_decoder *match;
 };
 
 void ingot_entry_rows_cols(const ingot_entry *e, uint64_t *rows, uint64_t *cols) {
@@ -57,6 +59,26 @@ static int open_predict(const ingot_entry *e, const uint8_t *prefix, uint64_t av
     return rc;
 }
 
+/* A match payload: 2-D BF16, naming the same sources as its directory list (by hash). */
+static int open_match(const ingot_entry *e, const uint8_t *prefix, uint64_t avail,
+                      ingot_match_decoder **out, uint64_t *prefix_bytes) {
+    if (e->ndim != 2 || e->dtype != INGOT_DTYPE_BF16)
+        return -INGOT_EFORMAT;
+    int rc = ingot_match_decoder_open(e->shape[0], e->shape[1], prefix, avail, out, prefix_bytes);
+    if (rc)
+        return rc;
+    const ingot_match_params *p = ingot_match_decoder_params(*out);
+    uint32_t refs[INGOT_MATCH_MAX_SOURCES];
+    for (uint32_t s = 0; s < p->source_count; s++)
+        refs[s] = p->source[s].ref;
+    if (ingot_match_ref_hash(refs, p->source_count) != e->base_hash) {
+        ingot_match_decoder_close(*out);
+        *out = NULL;
+        return -INGOT_EFORMAT;
+    }
+    return 0;
+}
+
 int ingot_tensor_decoder_open(const ingot_entry *e, const uint8_t *prefix, uint64_t avail,
                               ingot_tensor_decoder **out, uint64_t *prefix_bytes) {
     if (!e || !prefix || !out || !prefix_bytes)
@@ -74,6 +96,8 @@ int ingot_tensor_decoder_open(const ingot_entry *e, const uint8_t *prefix, uint6
         rc = ingot_delta_decoder_open(prefix, avail, e->source_size / 2, &d->delta, prefix_bytes);
     else if (e->mode == INGOT_MODE_PREDICT)
         rc = open_predict(e, prefix, avail, &d->predict, prefix_bytes);
+    else if (e->mode == INGOT_MODE_MATCH)
+        rc = open_match(e, prefix, avail, &d->match, prefix_bytes);
     else if (e->mode != INGOT_MODE_RAW && e->mode < INGOT_MODE_COUNT)
         rc = ingot_qtensor_decoder_open(e->mode, e->dtype, rows, cols, prefix, avail, &d->quant,
                                         prefix_bytes);
@@ -92,6 +116,8 @@ size_t ingot_tensor_decoder_blocks(const ingot_tensor_decoder *d) {
         return ingot_delta_decoder_blocks(d->delta);
     if (d->predict)
         return ingot_predict_decoder_blocks(d->predict);
+    if (d->match)
+        return ingot_match_decoder_blocks(d->match);
     return ingot_qtensor_decoder_blocks(d->quant);
 }
 
@@ -105,10 +131,16 @@ void ingot_tensor_decoder_range(const ingot_tensor_decoder *d, size_t b, uint64_
         ingot_plain_decoder_range(d->plain, b, lo, hi);
     else if (d->predict)
         ingot_predict_decoder_range(d->predict, b, lo, hi);
+    else if (d->match)
+        ingot_match_decoder_range(d->match, b, lo, hi);
     else
         ingot_delta_decoder_range(d->delta, b, lo, hi);
     *lo *= 2; /* weights -> bytes */
     *hi *= 2;
+}
+
+int ingot_tensor_decoder_serial(const ingot_tensor_decoder *d) {
+    return d->match ? ingot_match_decoder_serial(d->match) : 0;
 }
 
 int ingot_tensor_decoder_needs_base(const ingot_tensor_decoder *d) {
@@ -117,6 +149,12 @@ int ingot_tensor_decoder_needs_base(const ingot_tensor_decoder *d) {
 }
 
 uint32_t ingot_tensor_decoder_partners(const ingot_tensor_decoder *d, uint32_t *entries) {
+    if (d->match) {
+        const ingot_match_params *p = ingot_match_decoder_params(d->match);
+        for (uint32_t s = 0; entries && s < p->source_count; s++)
+            entries[s] = p->source[s].ref;
+        return p->source_count;
+    }
     if (!d->predict)
         return 0;
     const ingot_predict_geometry *g = ingot_predict_decoder_geometry(d->predict);
@@ -127,6 +165,16 @@ uint32_t ingot_tensor_decoder_partners(const ingot_tensor_decoder *d, uint32_t *
 
 int ingot_tensor_decoder_bind(ingot_tensor_decoder *d, uint32_t j, const ingot_entry *pe,
                               const uint8_t *data) {
+    if (d->match) {
+        const ingot_match_params *p = ingot_match_decoder_params(d->match);
+        if (j < p->source_count && p->source[j].self)
+            return 0; /* blocks read the tensor being decoded */
+        if (!pe || !data || pe->dtype != INGOT_DTYPE_BF16 || pe->ndim != 2 ||
+            pe->shape[0] * pe->shape[1] * 2 != pe->source_size)
+            return -INGOT_EFORMAT;
+        return ingot_match_decoder_bind(d->match, j, pe->shape[0], pe->shape[1],
+                                        (const uint16_t *)(const void *)data);
+    }
     if (!d->predict || !pe || !data || pe->dtype != INGOT_DTYPE_BF16 || pe->ndim != 2 ||
         pe->shape[0] * pe->shape[1] * 2 != pe->source_size)
         return -INGOT_EFORMAT;
@@ -142,6 +190,8 @@ int ingot_tensor_decoder_block(const ingot_tensor_decoder *d, size_t b,
         return ingot_plain_decoder_block(d->plain, b, v, (uint16_t *)(void *)out);
     if (d->predict)
         return ingot_predict_decoder_block(d->predict, b, v, (uint16_t *)(void *)out);
+    if (d->match)
+        return ingot_match_decoder_block(d->match, b, v, (uint16_t *)(void *)out);
     if (d->delta)
         return ingot_delta_decoder_block(d->delta, b, v, (const uint16_t *)(const void *)base,
                                          (uint16_t *)(void *)out);
@@ -155,6 +205,7 @@ void ingot_tensor_decoder_close(ingot_tensor_decoder *d) {
     ingot_delta_decoder_close(d->delta);
     ingot_qtensor_decoder_close(d->quant);
     ingot_predict_decoder_close(d->predict);
+    ingot_match_decoder_close(d->match);
     free(d);
 }
 
@@ -213,7 +264,8 @@ int ingot_tensor_decode_payload(const ingot_entry *e, const uint8_t *payload, ui
         rc = ingot_block_area_open(payload + skip + at, size - skip - at,
                                    ingot_tensor_decoder_blocks(d), &job.area);
     if (!rc)
-        rc = ingot_parallel_for(ingot_tensor_decoder_blocks(d), threads, payload_block, &job);
+        rc = ingot_parallel_for(ingot_tensor_decoder_blocks(d),
+                                ingot_tensor_decoder_serial(d) ? 1 : threads, payload_block, &job);
     ingot_tensor_decoder_close(d);
     return rc;
 }

@@ -56,15 +56,26 @@ void ingot_tensor_decoder_range(const ingot_tensor_decoder *d, size_t b, uint64_
 int ingot_tensor_decoder_needs_base(const ingot_tensor_decoder *d);
 
 /**
+ * 1 when blocks must be decoded in order into one buffer holding the whole tensor (a match
+ * payload with a self source), else 0.
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+int ingot_tensor_decoder_serial(const ingot_tensor_decoder *d);
+
+/**
  * Partner entries a predict payload needs (directory indices, at most
- * INGOT_PREDICT_MAX_PARTNERS, written to entries); 0 for other modes.
+ * INGOT_PREDICT_MAX_PARTNERS), or a match payload's source refs (at most INGOT_MATCH_MAX_SOURCES;
+ * directory index, entry_count + ref, or INGOT_MATCH_SELF_REF), written to entries when not NULL;
+ * 0 for other modes.
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
  */
 uint32_t ingot_tensor_decoder_partners(const ingot_tensor_decoder *d, uint32_t *entries);
 
 /**
- * Bind partner j's decoded bytes (entry pe; data must outlive the block decodes).
+ * Bind partner j's decoded bytes (entry pe; data must outlive the block decodes). A match self
+ * source needs no binding (a no-op).
  * @return 0 or -INGOT_EFORMAT (not a BF16 tensor of the declared shape)
  *
  * Thread-safe: no   Reentrant: yes   Signal-safe: yes
@@ -103,8 +114,8 @@ typedef struct {
  * @param size     Payload size
  * @param framed   1 for version 2 and 3 payloads, 0 for version 1
  * @param base     The base tensor's bytes (delta modes), else NULL
- * @param partners Predict mode: each partner, in the payload's order
- *                 (ingot_tensor_decoder_partners), else NULL
+ * @param partners Predict and match modes: each partner / source, in the payload's order
+ *                 (ingot_tensor_decoder_partners; a self source's slot is ignored), else NULL
  * @param threads  Worker threads
  * @param out      e->source_size bytes, 2-aligned
  * @return         0 or an error as ingot_tensor_decoder_block

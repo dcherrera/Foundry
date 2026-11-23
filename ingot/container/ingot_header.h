@@ -101,6 +101,15 @@ int ingot_directory_parse(const uint8_t *dir, uint64_t size, size_t count,
                           ingot_entry **entries);
 
 /**
+ * ingot_directory_parse that allows bytes after the entries (the version 4 tail);
+ * *used_bytes = where the entries end.
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: no
+ */
+int ingot_directory_parse_used(const uint8_t *dir, uint64_t size, size_t count,
+                               ingot_entry **entries, uint64_t *used_bytes);
+
+/**
  * Free a parsed directory (NULL is a no-op).
  *
  * Thread-safe: no   Reentrant: yes   Signal-safe: no
