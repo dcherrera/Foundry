@@ -310,6 +310,11 @@ INGOT_CUDA_FN float ingot_cuda_f16_f32(uint32_t h) {
     return sign ? -v.f : v.f;
 }
 
+/** Q8_0 kernel: shared-memory scales per warp (one row's, rounded up to 4) for rows of cols. */
+INGOT_CUDA_FN uint32_t ingot_cuda_q8_scale_slot(uint64_t cols) {
+    return (uint32_t)((cols / INGOT_CUDA_Q8_BLOCK + 3) & ~(uint64_t)3);
+}
+
 /** Code context (0..7) of a scale: its distance from the row's median in half binades. */
 INGOT_CUDA_FN uint32_t ingot_cuda_q8_code_context(uint32_t d16, uint32_t median) {
     const int32_t diff = (int32_t)d16 - (int32_t)median;

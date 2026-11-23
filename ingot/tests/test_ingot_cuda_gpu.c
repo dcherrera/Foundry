@@ -11,7 +11,8 @@
  * Build on the bank: make -C ingot cuda (PTX + this test). Run on one die:
  *   CUDA_VISIBLE_DEVICES=<die> ingot/build/test_ingot_cuda_gpu ingot/build/ingot_cuda.ptx
  * Red: make -C ingot cuda-red builds the PTX with INGOT_CUDA_RED_WORDS (a match lane reads its
- * symbol's word before its sign bit's); the match cases must fail with it.
+ * symbol's word before its sign bit's; a Q8_0 block's code context off by a half binade); the
+ * match and Q8_0 cases must fail with it.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -162,6 +163,28 @@ static int run_plain_throughput(ingot_cuda_runtime *rt) {
     return r.failures;
 }
 
+/* Q8_0 (mode 3): a small tensor with escaped scales and blocks without |code| = 127, then a
+ * Qwen3.8 MLP shape for decode throughput. */
+static int run_q8(ingot_cuda_runtime *rt) {
+    int failures = 0;
+    for (int i = 0; i < 2; i++) {
+        cuda_case k;
+        test_rng = 0x5EED0100ull + (uint64_t)i;
+        if (i == 0)
+            case_q8(&k, "q8", 300, 2048);
+        else
+            case_q8(&k, "q8-17408x5120", 17408, 5120);
+        gpu_result r = run_case(rt, &k);
+        failures += r.failures;
+        double n = (double)k.e.shape[0] * (double)k.e.shape[1];
+        if (i == 1)
+            printf("    q8 decode %.2f G weights/s (store), %.2f G weights/s (matvec)\n",
+                   n / (r.store_ms * 1e6), n / (r.matvec_ms * 1e6));
+        case_free(&k);
+    }
+    return failures;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s KERNELS.ptx\n", argv[0]);
@@ -178,6 +201,7 @@ int main(int argc, char **argv) {
         case_free(&k);
     }
     failures += run_plain_throughput(rt);
+    failures += run_q8(rt);
     printf("%s: %d failure(s)\n", failures ? "FAILED" : "PASSED", failures);
     ingot_cuda_runtime_close(rt);
     return failures ? 1 : 0;

@@ -27,7 +27,7 @@ enum {
 struct ingot_cuda_runtime {
     CUcontext ctx;
     CUmodule module;
-    CUfunction plain, delta, match, combine;
+    CUfunction plain, delta, match, combine, q8; /* q8: NULL in kernels built before it */
     CUevent start, stop;
 };
 
@@ -74,6 +74,8 @@ static int load_module(ingot_cuda_runtime *rt, const char *ptx_path) {
         rc = check(cuModuleGetFunction(&rt->match, rt->module, "ingot_cuda_match"), "match");
     if (!rc)
         rc = check(cuModuleGetFunction(&rt->combine, rt->module, "ingot_cuda_combine"), "combine");
+    if (!rc && cuModuleGetFunction(&rt->q8, rt->module, "ingot_cuda_q8") != CUDA_SUCCESS)
+        rt->q8 = NULL;
     return rc;
 }
 
@@ -189,14 +191,19 @@ int ingot_cuda_launch(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
         return -INGOT_EUNSUPPORTED;
     CUfunction fn = p->kind == INGOT_CUDA_KIND_PLAIN   ? rt->plain
                     : p->kind == INGOT_CUDA_KIND_DELTA ? rt->delta
+                    : p->kind == INGOT_CUDA_KIND_Q8    ? rt->q8
                                                        : rt->match;
+    if (!fn)
+        return -INGOT_EUNSUPPORTED; /* kernels built before Q8_0 */
     uint32_t per = p->kind == INGOT_CUDA_KIND_MATCH ? MATCH_BLOCKS_PER_GROUP
                                                     : PLAIN_BLOCKS_PER_GROUP;
     uint64_t params = 0, count = 0;
     ingot_cuda_params q = *p;
-    uint32_t shared = p->kind == INGOT_CUDA_KIND_PLAIN
-                          ? ingot_cuda_table_slots(p, PLAIN_BLOCKS_PER_GROUP) * p->table_slot_bytes
-                          : 0;
+    uint32_t shared = 0;
+    if (p->kind == INGOT_CUDA_KIND_PLAIN)
+        shared = ingot_cuda_table_slots(p, PLAIN_BLOCKS_PER_GROUP) * p->table_slot_bytes;
+    if (p->kind == INGOT_CUDA_KIND_Q8)
+        shared = PLAIN_BLOCKS_PER_GROUP * ingot_cuda_q8_scale_slot(p->cols) * 2;
     q.flags |= img->self_source ? INGOT_CUDA_STORE : 0; /* later rows read earlier ones */
     int rc = upload_params(rt, &q, img->serial, &params, &count);
     if (!rc)

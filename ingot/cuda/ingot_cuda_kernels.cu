@@ -3,7 +3,7 @@
 /**
  * @file   ingot_cuda_kernels.cu
  * @brief  K80 (sm_37, CUDA 11.4) decode of BF16 .ingot payloads, alone or fused with y = W x:
- *         plain (mode 1), delta (mode 2) and match (modes 6 and 7) block decoders.
+ *         plain (mode 1), delta (mode 2), match (modes 6 and 7) and Q8_0 (mode 3) block decoders.
  *
  * @status Active
  * @issues None
@@ -163,12 +163,15 @@ static __device__ __forceinline__ void window_begin(word_window *ww, const uint1
     ww->r = 0;
 }
 
-/* warp_renorm with the words taken from the window by shuffles (a step uses at most 32). */
-static __device__ __forceinline__ void window_renorm(word_window *ww, uint32_t *x, bool need,
-                                                     const uint16_t *words, uint32_t count,
-                                                     uint32_t lane, uint32_t *status) {
+/* warp_renorm with the words taken from the window by shuffles (a step uses at most 32); the
+ * step's symbols are in stream order from lane o (symbol i on lane o + i). */
+static __device__ __forceinline__ void window_renorm_from(word_window *ww, uint32_t *x, bool need,
+                                                          uint32_t o, const uint16_t *words,
+                                                          uint32_t count, uint32_t lane,
+                                                          uint32_t *status) {
     const uint32_t mask = __ballot_sync(FULL, need);
-    const uint32_t at = ww->r + __popc(mask & lanemask_lt());
+    const uint32_t rot = __funnelshift_r(mask, mask, o), i = (lane - o) & 31;
+    const uint32_t at = ww->r + __popc(rot & ((1u << i) - 1u));
     const uint32_t lo = __shfl_sync(FULL, ww->w0, at & 31);
     const uint32_t hi = __shfl_sync(FULL, ww->w1, at & 31);
     if (need) {
@@ -185,6 +188,12 @@ static __device__ __forceinline__ void window_renorm(word_window *ww, uint32_t *
         ww->r -= 32;
         ww->w2 = window_word(words, ww->base + 64 + lane, count);
     }
+}
+
+static __device__ __forceinline__ void window_renorm(word_window *ww, uint32_t *x, bool need,
+                                                     const uint16_t *words, uint32_t count,
+                                                     uint32_t lane, uint32_t *status) {
+    window_renorm_from(ww, x, need, 0, words, count, lane, status);
 }
 
 /* Step k's 6 raw bits of each lane: the step's 192 bits are words 6k .. 6k + 5; lanes 0..6 load
@@ -262,6 +271,184 @@ extern "C" __global__ void ingot_cuda_plain(const ingot_cuda_params *__restrict_
     status |= __ballot_sync(FULL, x != LOW) ? INGOT_CUDA_BAD_STATE : 0;
     status |= ww.base + ww.r != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
     status |= v.raw_bytes != (6ull * n + 7) / 8 ? INGOT_CUDA_BAD_RAW : 0;
+    status = group_or(status, 32);
+    if (lane == 0)
+        ((uint32_t *)(uintptr_t)p->status)[b] = status;
+}
+
+/* ---- Q8_0 (mode 3) -------------------------------------------------------------------------- */
+
+/* A value per stream index (symbol i on lane o + i): inclusive prefix in stream order, back on
+ * the lane holding index i; *total = the sum over all 32. */
+static __device__ __forceinline__ int32_t stream_scan(int32_t v, uint32_t o, uint32_t lane,
+                                                      int32_t *total) {
+    int32_t s = __shfl_sync(FULL, v, (lane + o) & 31);
+    for (int off = 1; off < 32; off <<= 1) {
+        int32_t t = __shfl_up_sync(FULL, s, off);
+        s += lane >= (uint32_t)off ? t : 0;
+    }
+    *total = __shfl_sync(FULL, s, 31);
+    return __shfl_sync(FULL, s, (lane - o) & 31);
+}
+
+/* One symbol decoded by lane o alone (table t); returns it on every lane. */
+static __device__ __forceinline__ uint32_t lone_symbol(word_window *ww, uint32_t *x,
+                                                       const uint8_t *t, uint32_t o,
+                                                       const ingot_cuda_block *v, uint32_t lane,
+                                                       uint32_t *status) {
+    const bool me = lane == o;
+    uint32_t s = me && t ? ingot_cuda_rans_step(x, t) : 0;
+    *status |= me && !t ? INGOT_CUDA_BAD_TABLE : 0;
+    window_renorm_from(ww, x, me && *x < LOW, o, v->words, v->word_count, lane, status);
+    return __shfl_sync(FULL, s, o);
+}
+
+/* One warp per coded block (whole rows), symbol n on lane n % 32 (o = the next symbol's lane).
+ * Per row: the scales, 32 per step (a step stops after an escape, whose fp16 step decodes alone);
+ * the median scale; then one step per Q8 block: its 31 codes and the next block's pos (32 codes,
+ * then the next pos alone, when the block has no |code| = 127). Lane k ends with code k. */
+extern "C" __global__ void ingot_cuda_q8(const ingot_cuda_params *__restrict__ p) {
+    extern __shared__ unsigned long long shared_q8[];
+    const uint32_t lane = threadIdx.x & 31, wi = threadIdx.x >> 5;
+    const uint64_t warp = (uint64_t)blockIdx.x * (blockDim.x >> 5) + wi;
+    if (warp >= p->launch_blocks)
+        return;
+    const uint64_t b = p->block_first + warp, cols = p->cols;
+    const uint32_t blocks = (uint32_t)(cols / INGOT_CUDA_Q8_BLOCK);
+    uint16_t *scales = (uint16_t *)shared_q8 + wi * ingot_cuda_q8_scale_slot(cols);
+    const bool store = p->flags & INGOT_CUDA_STORE, matvec = p->flags & INGOT_CUDA_MATVEC;
+    uint64_t lo, hi;
+    ingot_cuda_block_range(p, b, &lo, &hi);
+    const ingot_cuda_block v = ingot_cuda_block_at(p, b);
+    const uint8_t *t_scale0 = ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_SCALE);
+    const uint8_t *t_scale1 = ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_SCALE + 1);
+    const uint8_t *t_fp16 = ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_FP16);
+    const uint8_t *t_pos = ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_POS);
+    uint32_t x = v.states[lane], status = 0, o = 0, bit = 0;
+    word_window ww;
+    window_begin(&ww, v.words, v.word_count, lane);
+    int32_t ref_amax = 0, ref_fp16 = 0;
+    uint8_t *out = (uint8_t *)(uintptr_t)p->out;
+    const float *xv = (const float *)(uintptr_t)p->x;
+    for (uint64_t r = lo / cols; r < hi / cols; r++) {
+        __syncwarp(); /* the previous row's scales are read */
+        for (uint32_t k = 0; k < blocks;) {
+            const uint32_t m = min(32u, blocks - k), i = (lane - o) & 31;
+            const bool mine = i < m;
+            const uint8_t *t = k + i ? t_scale1 : t_scale0;
+            const uint32_t saved = x;
+            const uint32_t sym = mine && t ? ingot_cuda_rans_step(&x, t) : 0;
+            status |= mine && !t ? INGOT_CUDA_BAD_TABLE : 0;
+            const uint32_t emask = __ballot_sync(FULL, mine && sym == INGOT_CUDA_Q8_ESCAPE);
+            const uint32_t erot = __funnelshift_r(emask, emask, o);
+            const uint32_t e = erot ? (uint32_t)__ffs(erot) - 1 : 32; /* first escape */
+            const bool take = mine && i <= e, normal = take && i != e;
+            x = mine && !take ? saved : x;
+            window_renorm_from(&ww, &x, take && x < LOW, o, v.words, v.word_count, lane, &status);
+            const uint32_t nb = normal ? ingot_cuda_step_raw_bits(sym) : 0;
+            int32_t nb_total, join_total;
+            const uint32_t at = bit + (uint32_t)(stream_scan((int32_t)nb, o, lane, &nb_total) -
+                                                 (int32_t)nb);
+            const uint32_t raw = nb ? ingot_cuda_raw_bits(v.raw, at, nb) : 0;
+            bit += (uint32_t)nb_total;
+            const int32_t join = normal ? ingot_cuda_step_join(sym, raw) : 0;
+            const int32_t a = ref_amax + stream_scan(join, o, lane, &join_total);
+            const bool bad = normal && (a < 0 || a >= 0x7F80);
+            status |= bad ? INGOT_CUDA_BAD_DELTA : 0;
+            const uint32_t d = normal && !bad ? ingot_cuda_q8_scale((uint32_t)a) : 0;
+            if (normal)
+                scales[k + i] = (uint16_t)d;
+            const uint32_t taken = e < m ? e : m; /* scales of normal symbols this step */
+            if (taken) {
+                const uint32_t last = (o + taken - 1) & 31;
+                ref_amax = __shfl_sync(FULL, a, last);
+                ref_fp16 = ingot_cuda_bf16_ordered(__shfl_sync(FULL, d, last));
+            }
+            o = (o + taken) & 31;
+            k += taken;
+            if (e < m) { /* the escape on lane o, then the fp16-pattern step on the next lane */
+                o = (o + 1) & 31;
+                const uint32_t s2 = lone_symbol(&ww, &x, t_fp16, o, &v, lane, &status);
+                const uint32_t nb2 = ingot_cuda_step_raw_bits(s2);
+                const int32_t f = ref_fp16 + ingot_cuda_step_join(
+                                                 s2, ingot_cuda_raw_bits(v.raw, bit, nb2));
+                bit += nb2;
+                status |= f < -32768 || f > 32767 ? INGOT_CUDA_BAD_DELTA : 0;
+                ref_fp16 = f < -32768 || f > 32767 ? 0 : f;
+                if (lane == 0)
+                    scales[k] = (uint16_t)ingot_cuda_bf16_from_ordered(ref_fp16);
+                o = (o + 1) & 31;
+                k++;
+            }
+        }
+        __syncwarp();
+        uint32_t med = 0;
+        bool found = false;
+        for (uint32_t c = lane; c < blocks; c += 32) { /* the scale of rank blocks / 2 */
+            const uint32_t sc = scales[c];
+            uint32_t less = 0, same = 0;
+            for (uint32_t j = 0; j < blocks; j++) {
+                less += scales[j] < sc;
+                same += scales[j] == sc;
+            }
+            if (!found && less <= blocks / 2 && blocks / 2 < less + same) {
+                med = sc;
+                found = true;
+            }
+        }
+        const uint32_t fm = __ballot_sync(FULL, found);
+        const uint32_t median = __shfl_sync(FULL, med, fm ? (uint32_t)__ffs(fm) - 1 : 0);
+        uint32_t pos = lone_symbol(&ww, &x, t_pos, o, &v, lane, &status);
+        o = (o + 1) & 31;
+        float acc = 0.0f;
+        for (uint32_t kb = 0; kb < blocks; kb++) {
+            const uint32_t neg = pos < 32 ? ingot_cuda_raw_bits(v.raw, bit, 1) : 0;
+            bit += pos < 32;
+            const uint32_t cnt = pos < 32 ? 31 : 32, d16 = scales[kb];
+            const bool next = cnt == 31 && kb + 1 < blocks; /* the next pos in this step */
+#ifdef INGOT_CUDA_RED_WORDS
+            const uint32_t cx = ingot_cuda_q8_code_context(d16, median + 512); /* planted red */
+#else
+            const uint32_t cx = ingot_cuda_q8_code_context(d16, median);
+#endif
+            const uint8_t *tc = ingot_cuda_table(p, INGOT_CUDA_Q8_CTX_CODE + cx);
+            const uint32_t i = (lane - o) & 31;
+            const bool code = i < cnt, decodes = code || (next && i == 31);
+            const uint8_t *t = code ? tc : t_pos;
+            const uint32_t sym = decodes && t ? ingot_cuda_rans_step(&x, t) : 0;
+            status |= decodes && !t ? INGOT_CUDA_BAD_TABLE : 0;
+            window_renorm_from(&ww, &x, decodes && x < LOW, o, v.words, v.word_count, lane,
+                               &status);
+            const uint32_t from = cnt == 32 || lane < pos ? lane : lane - 1;
+            const uint32_t got = __shfl_sync(FULL, sym, (o + from) & 31);
+            const int32_t q = lane == pos ? (neg ? -127 : 127) : (int32_t)got - 128;
+            if (store) {
+                uint8_t *blk = out + (r * blocks + kb) * INGOT_CUDA_Q8_BLOCK_BYTES;
+                blk[2 + lane] = (uint8_t)q;
+                if (lane == 0)
+                    *(uint16_t *)blk = (uint16_t)d16;
+            }
+            if (matvec)
+                acc = fmaf(ingot_cuda_f16_f32(d16) * (float)q,
+                           __ldg(xv + kb * INGOT_CUDA_Q8_BLOCK + lane), acc);
+            const uint32_t npos = __shfl_sync(FULL, sym, (o + 31) & 31);
+            o = (o + cnt + next) & 31;
+            if (next)
+                pos = npos;
+            else if (kb + 1 < blocks) {
+                pos = lone_symbol(&ww, &x, t_pos, o, &v, lane, &status);
+                o = (o + 1) & 31;
+            }
+        }
+        if (matvec) {
+            const float sum = group_sum(acc, 32);
+            if (lane == 0)
+                ingot_cuda_row_store(p, b, lo, hi, r, sum);
+        }
+    }
+    status |= __ballot_sync(FULL, x != LOW) ? INGOT_CUDA_BAD_STATE : 0;
+    status |= ww.base + ww.r != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
+    status |= v.raw_bytes != (bit + 7) / 8 ? INGOT_CUDA_BAD_RAW : 0;
     status = group_or(status, 32);
     if (lane == 0)
         ((uint32_t *)(uintptr_t)p->status)[b] = status;
