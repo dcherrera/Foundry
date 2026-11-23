@@ -46,6 +46,7 @@ typedef struct {
     long search_layers;
     long strip;
     long anchor_every;
+    long waves;
     int max_k;
     uint8_t base_sha256[32];
     int has_base_sha256;
@@ -125,6 +126,10 @@ static int parse_options(int argc, char **argv, cli_options *o) {
         } else if (!strcmp(a, "--anchor-every") && has_value) {
             o->anchor_every = atol(argv[++i]);
             if (o->anchor_every < 2)
+                return -1;
+        } else if (!strcmp(a, "--waves") && has_value) {
+            o->waves = atol(argv[++i]);
+            if (o->waves < 2)
                 return -1;
         } else if (!strcmp(a, "--max-partners") && has_value) {
             o->max_k = atoi(argv[++i]);
@@ -280,6 +285,7 @@ static int cmd_encode(const cli_options *o) {
                                 .match_search_layers = o->search_layers,
                                 .match_strip = o->strip,
                                 .match_anchor_every = o->anchor_every,
+                                .match_waves = o->waves,
                                 .match_max_k = o->max_k,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
@@ -480,6 +486,8 @@ static void usage(void) {
             "       --anchor-every A     encode: layers L %% A == 0 are anchors (not match coded);\n"
             "                            others also take strip-aligned partners from their anchor\n"
             "                            (needs --strip)\n"
+            "       --waves W            encode: strips in W groups; self partners also from\n"
+            "                            strips of earlier groups (needs --strip)\n"
             "       --max-partners K     encode: at most K partners per unit (1..8, default 8)\n"
             "       --no-self-partners   encode: no partners from the tensor's own rows (every\n"
             "                            tensor decodes in parallel; slightly larger)\n"

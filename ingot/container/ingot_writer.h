@@ -83,6 +83,9 @@ typedef struct {
                                     targets; every other target's pool also holds its anchor
                                     (layer L - L % A), whose partners must lie in the target's
                                     row strip (decoded alongside it); needs match_strip */
+    long match_waves;            /* waves W (0: none; needs match_strip): strips split into W
+                                    contiguous groups; a self partner may also come from a strip
+                                    of an earlier group (strips decode group by group) */
     int match_max_k;             /* partners per unit, 1..8 (0: 8) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;

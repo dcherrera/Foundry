@@ -157,7 +157,8 @@ static void select_unit(select_job *job, uint64_t u) {
         uint8_t s = job->cand->source[u * m + j];
         uint64_t i = job->cand->index[u * m + j];
         if (s == NO_SOURCE || s >= p->source_count || i >= job->src[s].units ||
-            (job->src[s].self && (i >= u || (p->strip_rows && i < u - u % p->strip_rows))))
+            (job->src[s].self &&
+             (i >= u || (p->strip_rows && !p->waves && i < u - u % p->strip_rows))))
             continue;
         int dup = 0;
         for (uint32_t t = 0; t < have; t++)
@@ -570,6 +571,7 @@ int ingot_match_plan_create(ingot_predict_axis axis, uint64_t units, uint64_t un
     p->data = data;
     p->count = units * unit_len;
     q->strip_rows = cand->strip_rows;
+    q->waves = cand->waves;
     p->block_count = ingot_match_block_count(q, NULL);
     int rc = ingot_match_params_alloc(q);
     clock_t c0 = clock();

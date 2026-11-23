@@ -16,7 +16,9 @@
  * of [n_s, H] or columns of [H, n_s]. A source may be D itself (rows only): unit u then uses rows
  * i < u, and the blocks decode in order (ingot_match_decoder_serial) unless they are R-row
  * strips whose self partners stay in their own strip (flag bit 1: strips; then blocks are
- * independent and each decodes its rows in order).
+ * independent and each decodes its rows in order). Flag bit 2 (waves, with strips) lets a self
+ * partner sit in any earlier row: the encoder keeps each strip's partners in strips of earlier
+ * waves, so a device decodes the strips wave by wave (the CPU decoder runs them in order).
  *
  * Per unit u (side stream, one rANS block in the prefix): scale s_u (unit RMS ~ 2^(s_u / 4)), K_u
  * (0..8) and K_u partners (source, unit index, int16 coefficient q). Predictor, in integers:
@@ -27,7 +29,8 @@
  * Payload prefix (after the frame, little-endian):
  *   u32 source_count NS, u32 axis, u64 U, u64 H, i32 C, u32 block_log2 (18), u64 block_count,
  *   u32 classes S, u32 class_width, i32 class_ref, u32 context_count (36 S), u64 param_hash,
- *   u32 flags (bit 0: self source, bit 1: strips), u32 strip rows R (0 without bit 1),
+ *   u32 flags (bit 0: self source, bit 1: strips, bit 2: waves),
+ *   u32 strip rows R (0 without bit 1),
  *   u64 side_table_bytes, u64 side_block_bytes,
  *   NS x { u32 ref (0xFFFFFFFF: self), u32 axis, u64 units, i32 E, u32 0 },
  *   side tables, pad to 8, side block, pad to 8, weight tables, pad to 8.
@@ -57,6 +60,7 @@ enum {
     INGOT_MATCH_COEF_MAX = 32767,
     INGOT_MATCH_FLAG_SELF = 1,
     INGOT_MATCH_FLAG_STRIPS = 2, /* blocks are R-row strips; self partners stay in their strip */
+    INGOT_MATCH_FLAG_WAVES = 4,  /* with strips: self partners may sit in earlier strips */
 };
 
 /* Source ref of the self source (D itself). */
@@ -84,6 +88,7 @@ typedef struct {
     int32_t class_ref;
     uint64_t strip_rows;       /* R: blocks of R rows of D, self partners in the unit's strip
                                   (rows i >= u - u % R); 0: blocks of 2^18 weights */
+    int waves;                 /* strips decode in waves: self partners in any earlier row */
     int8_t *scale;             /* [U] */
     uint8_t *k;                /* [U] */
     uint8_t *link;             /* [U * 8]: source index of partner k */
@@ -304,6 +309,7 @@ typedef struct {
     uint64_t *index;
     uint32_t max_k;     /* partners kept per unit, 1..8 (0: 8; encoder policy, not format) */
     uint64_t strip_rows;  /* R-row strip blocks for the payload (0: 2^18-weight blocks) */
+    int waves;            /* with strips: self partners may sit in earlier strips */
 } ingot_match_candidates;
 
 /** Histograms, tables and parameters of one target tensor. Opaque. */
