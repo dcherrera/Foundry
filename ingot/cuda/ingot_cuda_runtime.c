@@ -150,12 +150,14 @@ int ingot_cuda_image_upload(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
 }
 
 /* One kernel launch over the params at device address `params`. */
-static int launch_one(CUfunction fn, uint64_t params, uint64_t blocks, uint32_t blocks_per_group) {
+static int launch_one(CUfunction fn, uint64_t params, uint64_t blocks, uint32_t blocks_per_group,
+                      uint32_t shared_bytes) {
     CUdeviceptr arg = (CUdeviceptr)params;
     void *args[] = {&arg};
     unsigned grid = (unsigned)((blocks + blocks_per_group - 1) / blocks_per_group);
     unsigned threads = blocks == 1 && blocks_per_group == MATCH_BLOCKS_PER_GROUP ? 32 : THREADS;
-    return check(cuLaunchKernel(fn, grid, 1, 1, threads, 1, 1, 0, NULL, args, NULL), "launch");
+    return check(cuLaunchKernel(fn, grid, 1, 1, threads, 1, 1, shared_bytes, NULL, args, NULL),
+                 "launch");
 }
 
 /* Params for every launch: one, or one per block of a serial payload. */
@@ -192,13 +194,16 @@ int ingot_cuda_launch(ingot_cuda_runtime *rt, const ingot_cuda_image *img,
                                                     : PLAIN_BLOCKS_PER_GROUP;
     uint64_t params = 0, count = 0;
     ingot_cuda_params q = *p;
+    uint32_t shared = p->kind == INGOT_CUDA_KIND_PLAIN
+                          ? ingot_cuda_table_slots(p, PLAIN_BLOCKS_PER_GROUP) * p->table_slot_bytes
+                          : 0;
     q.flags |= img->self_source ? INGOT_CUDA_STORE : 0; /* later rows read earlier ones */
     int rc = upload_params(rt, &q, img->serial, &params, &count);
     if (!rc)
         rc = check(cuEventRecord(rt->start, NULL), "event");
     for (uint64_t i = 0; !rc && i < count; i++)
         rc = launch_one(fn, params + i * sizeof(ingot_cuda_params),
-                        img->serial ? 1 : p->launch_blocks, per);
+                        img->serial ? 1 : p->launch_blocks, per, shared);
     if (!rc && (p->flags & INGOT_CUDA_MATVEC) && p->block_first == 0 &&
         p->launch_blocks == p->block_count)
         rc = check(cuLaunchKernel(rt->combine, 1, 1, 1, 1, 1, 1, 0, NULL,

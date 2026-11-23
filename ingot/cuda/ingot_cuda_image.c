@@ -84,12 +84,23 @@ static int tables_read(table_list *tl, uint32_t count, const uint32_t *alphabets
     return 0;
 }
 
+/* Largest table image (the plain kernel copies this many bytes from any table's start). */
+static uint64_t tables_max_bytes(const table_list *tl) {
+    uint64_t m = 0;
+    for (uint32_t i = 0; i < tl->count; i++) {
+        uint64_t n = tl->t[i].used ? ingot_cuda_table_image_bytes(&tl->t[i]) : 0;
+        m = n > m ? n : m;
+    }
+    return m;
+}
+
+/* Pool bytes, with the largest image again as slack after the last table. */
 static uint64_t tables_image_bytes(const table_list *tl) {
     uint64_t n = 4u * tl->count;
     n = align_up(n, 8);
     for (uint32_t i = 0; i < tl->count; i++)
         n += tl->t[i].used ? ingot_cuda_table_image_bytes(&tl->t[i]) : 0;
-    return n;
+    return n + tables_max_bytes(tl);
 }
 
 /* Offsets (u32 per context, relative to the pool) then the lookup images. */
@@ -142,6 +153,7 @@ static int image_common(ingot_cuda_image *img, const uint8_t *payload, uint64_t 
     img->params.block_count = ingot_load_u64(payload + 8);
     img->params.launch_blocks = img->params.block_count;
     img->params.block_weights = (uint64_t)1 << INGOT_BLOCK_LOG2;
+    img->params.table_slot_bytes = (uint32_t)tables_max_bytes(tl);
     img->table_bytes = s->offsets + s->pool;
     return 0;
 }

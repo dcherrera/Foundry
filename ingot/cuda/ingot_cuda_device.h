@@ -132,7 +132,7 @@ typedef struct {
     uint64_t partials;              /* fp32 [block_count][2]: first / last split row */
     uint64_t status;                /* u32 per block */
     uint32_t source_count;
-    uint32_t pad;
+    uint32_t table_slot_bytes;      /* plain: largest table image, the shared-memory copy size */
     ingot_cuda_source source[INGOT_CUDA_MAX_SOURCES];
 } ingot_cuda_params;
 
@@ -377,6 +377,18 @@ INGOT_CUDA_FN const uint8_t *ingot_cuda_table(const ingot_cuda_params *p, uint32
     uint32_t off = INGOT_CUDA_LOAD((const uint32_t *)(uintptr_t)p->table_offsets + cx);
     return off == INGOT_CUDA_TABLE_EMPTY ? (const uint8_t *)0
                                          : (const uint8_t *)(uintptr_t)p->tables + off;
+}
+
+/**
+ * Plain: table copies in a thread block of `warps` warps (one block per warp). 1 when every
+ * thread block's blocks share one group (and so one table), else `warps` (one per warp).
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+INGOT_CUDA_FN uint32_t ingot_cuda_table_slots(const ingot_cuda_params *p, uint32_t warps) {
+    int one = p->block_count <= p->blocks_per_group ||
+              (p->blocks_per_group % warps == 0 && p->block_first % warps == 0);
+    return one ? 1u : warps;
 }
 
 /* ---- Matvec rows ---------------------------------------------------------------------------- */

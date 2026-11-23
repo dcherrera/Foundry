@@ -121,46 +121,146 @@ static __device__ __forceinline__ void step_rows(const ingot_cuda_params *__rest
 
 /* ---- Plain ---------------------------------------------------------------------------------- */
 
+/* Copy `bytes` (a multiple of 8) of a table image to shared memory with n threads from first. */
+static __device__ __forceinline__ void table_to_shared(unsigned long long *dst, const uint8_t *src,
+                                                       uint32_t bytes, uint32_t first, uint32_t n) {
+    const unsigned long long *s = (const unsigned long long *)src;
+    for (uint32_t k = first; k < bytes / 8; k += n)
+        dst[k] = __ldg(s + k);
+}
+
+/* ingot_cuda_rans_step on a table image in shared memory. */
+static __device__ __forceinline__ uint32_t shared_rans_step(uint32_t *x,
+                                                            const unsigned long long *table) {
+    const uint16_t *coarse = (const uint16_t *)table;
+    const unsigned long long *entry = table + INGOT_CUDA_TABLE_HEADER / 8;
+    const uint32_t slot = *x & 0xFFFFu;
+    uint32_t r = coarse[slot >> INGOT_CUDA_COARSE_SHIFT];
+    unsigned long long e = entry[r];
+    while (slot - (uint32_t)(e & 0xFFFFu) > (uint32_t)((e >> 16) & 0xFFFFu))
+        e = entry[++r];
+    *x = ((uint32_t)((e >> 16) & 0xFFFFu) + 1u) * (*x >> 16) + slot - (uint32_t)(e & 0xFFFFu);
+    return (uint32_t)(e >> 32);
+}
+
+/** A warp's window on its block's words: lane l holds words base + l (w0), base + 32 + l (w1)
+ *  and base + 64 + l (w2, loaded a window ahead); r words past base are used (r < 32). */
+typedef struct {
+    uint32_t w0, w1, w2, base, r;
+} word_window;
+
+static __device__ __forceinline__ uint32_t window_word(const uint16_t *words, uint32_t at,
+                                                       uint32_t count) {
+    return at < count ? __ldg(words + at) : 0u;
+}
+
+static __device__ __forceinline__ void window_begin(word_window *ww, const uint16_t *words,
+                                                    uint32_t count, uint32_t lane) {
+    ww->w0 = window_word(words, lane, count);
+    ww->w1 = window_word(words, 32 + lane, count);
+    ww->w2 = window_word(words, 64 + lane, count);
+    ww->base = 0;
+    ww->r = 0;
+}
+
+/* warp_renorm with the words taken from the window by shuffles (a step uses at most 32). */
+static __device__ __forceinline__ void window_renorm(word_window *ww, uint32_t *x, bool need,
+                                                     const uint16_t *words, uint32_t count,
+                                                     uint32_t lane, uint32_t *status) {
+    const uint32_t mask = __ballot_sync(FULL, need);
+    const uint32_t at = ww->r + __popc(mask & lanemask_lt());
+    const uint32_t lo = __shfl_sync(FULL, ww->w0, at & 31);
+    const uint32_t hi = __shfl_sync(FULL, ww->w1, at & 31);
+    if (need) {
+        if (ww->base + at < count)
+            *x = *x << 16 | (at < 32 ? lo : hi);
+        else
+            *status |= INGOT_CUDA_BAD_WORDS;
+    }
+    ww->r += __popc(mask);
+    if (ww->r >= 32) {
+        ww->w0 = ww->w1;
+        ww->w1 = ww->w2;
+        ww->base += 32;
+        ww->r -= 32;
+        ww->w2 = window_word(words, ww->base + 64 + lane, count);
+    }
+}
+
+/* Step k's 6 raw bits of each lane: the step's 192 bits are words 6k .. 6k + 5; lanes 0..6 load
+ * words 6k + lane and a lane's bits are shuffled in (they may straddle two words). */
+static __device__ __forceinline__ uint32_t step_raw6(const uint32_t *raw, uint32_t raw_words,
+                                                     uint32_t k, uint32_t lane) {
+    const uint32_t at = 6 * k + lane;
+    const uint32_t w = lane < 7 && at < raw_words ? __ldg(raw + at) : 0u;
+    const uint32_t j = (6 * lane) >> 5;
+    const uint32_t a = __shfl_sync(FULL, w, j), b = __shfl_sync(FULL, w, j + 1);
+    return __funnelshift_r(a, b, (6 * lane) & 31) & 0x3Fu;
+}
+
+/* One warp per block, the block's table in shared memory (one copy per thread block when its
+ * warps share a group, else one per warp). Matvec: cols % 32 == 0 and blocks start at multiples
+ * of 32, so a step lies in one row; the warp tracks that row and column (no division per step). */
 extern "C" __global__ void ingot_cuda_plain(const ingot_cuda_params *__restrict__ p) {
-    const uint32_t lane = threadIdx.x & 31;
-    const uint64_t warp = ((uint64_t)blockIdx.x * blockDim.x + threadIdx.x) >> 5;
-    if (warp >= p->launch_blocks)
+    extern __shared__ unsigned long long shared_tables[];
+    const uint32_t lane = threadIdx.x & 31, wi = threadIdx.x >> 5, warps = blockDim.x >> 5;
+    const uint64_t warp = (uint64_t)blockIdx.x * warps + wi;
+    const bool live = warp < p->launch_blocks;
+    const uint64_t b = p->block_first + (live ? warp : p->launch_blocks - 1);
+    const uint8_t *gt = ingot_cuda_table(p, (uint32_t)(b / p->blocks_per_group));
+    unsigned long long *table = shared_tables;
+    if (ingot_cuda_table_slots(p, warps) == 1) {
+        if (gt)
+            table_to_shared(table, gt, p->table_slot_bytes, threadIdx.x, blockDim.x);
+        __syncthreads();
+    } else {
+        table += wi * (p->table_slot_bytes / 8);
+        if (gt)
+            table_to_shared(table, gt, p->table_slot_bytes, lane, 32);
+        __syncwarp();
+    }
+    if (!live)
         return;
-    const uint64_t b = p->block_first + warp, cols = p->cols;
     const bool store = p->flags & INGOT_CUDA_STORE, matvec = p->flags & INGOT_CUDA_MATVEC;
     uint64_t lo, hi;
     ingot_cuda_block_range(p, b, &lo, &hi);
-    const uint32_t n = (uint32_t)(hi - lo);
+    const uint32_t n = (uint32_t)(hi - lo), cols = (uint32_t)p->cols;
     const ingot_cuda_block v = ingot_cuda_block_at(p, b);
-    const uint8_t *table = ingot_cuda_table(p, (uint32_t)(b / p->blocks_per_group));
-    uint32_t x = v.states[lane], wp = 0, status = table ? 0 : INGOT_CUDA_BAD_TABLE;
-    uint16_t *out = (uint16_t *)(uintptr_t)p->out;
+    const uint32_t *raw = (const uint32_t *)v.raw, raw_words = (v.raw_bytes + 3) / 4;
+    uint32_t x = v.states[lane], status = gt ? 0 : INGOT_CUDA_BAD_TABLE;
+    word_window ww;
+    window_begin(&ww, v.words, v.word_count, lane);
+    uint16_t *out = (uint16_t *)(uintptr_t)p->out + lo;
     const float *xv = (const float *)(uintptr_t)p->x;
-    lane_rows lr;
-    lane_rows_begin(&lr, lo + lane, cols);
-    for (uint32_t step = 0; step < n; step += 32) {
-        const uint32_t i = step + lane;
-        const bool active = i < n;
-        uint32_t sym = active && table ? ingot_cuda_rans_step(&x, table) : 0;
-        warp_renorm(&x, active && x < LOW, v.words, v.word_count, &wp, &status);
-        if (active) {
-            uint32_t raw6 = ingot_cuda_raw_bits(v.raw, 6ull * i, 6);
-            uint32_t w = (raw6 & 0x20u) << 10 | sym << 5 | (raw6 & 0x1Fu);
-            if (store)
-                out[lo + i] = (uint16_t)w;
-            if (matvec)
-                lr.acc = fmaf(ingot_cuda_bf16_f32(w), __ldg(xv + lr.col), lr.acc);
-        }
+    uint64_t row = matvec ? lo / cols : 0;
+    uint32_t col = matvec ? (uint32_t)(lo % cols) : 0;
+    float acc = 0.0f;
+    for (uint32_t step = 0, k = 0; step < n; step += 32, k++) {
+        const bool active = step + lane < n;
+        const uint32_t sym = active && gt ? shared_rans_step(&x, table) : 0;
+        window_renorm(&ww, &x, active && x < LOW, v.words, v.word_count, lane, &status);
+        const uint32_t raw6 = step_raw6(raw, raw_words, k, lane);
+        const uint32_t w = (raw6 & 0x20u) << 10 | sym << 5 | (raw6 & 0x1Fu);
+        if (active && store)
+            out[step + lane] = (uint16_t)w;
         if (matvec) {
-            const uint64_t end = lo + step + 32 < hi ? lo + step + 32 : hi;
-            const uint64_t row = (lo + step) / cols;
-            const bool flush = end % cols == 0 || end == hi;
-            step_rows(p, &lr, flush, flush, 32, b, lo, hi, row);
-            lane_rows_advance(&lr, 32, cols);
+            if (active)
+                acc = fmaf(ingot_cuda_bf16_f32(w), __ldg(xv + col + lane), acc);
+            col += 32;
+            if (col == cols || step + 32 >= n) {
+                const float sum = group_sum(acc, 32);
+                if (lane == 0)
+                    ingot_cuda_row_store(p, b, lo, hi, row, sum);
+                acc = 0.0f;
+            }
+            if (col == cols) {
+                col = 0;
+                row++;
+            }
         }
     }
     status |= __ballot_sync(FULL, x != LOW) ? INGOT_CUDA_BAD_STATE : 0;
-    status |= wp != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
+    status |= ww.base + ww.r != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
     status |= v.raw_bytes != (6ull * n + 7) / 8 ? INGOT_CUDA_BAD_RAW : 0;
     status = group_or(status, 32);
     if (lane == 0)
