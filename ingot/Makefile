@@ -31,7 +31,7 @@ HEADERS := $(wildcard core/*.h codec/*.h container/*.h cuda/*.h)
 TESTS := $(B)/test_ingot_rans $(B)/test_ingot_codec $(B)/test_ingot_container $(B)/test_ingot_red \
          $(B)/test_ingot_quant $(B)/test_ingot_stream $(B)/test_ingot_kquant \
          $(B)/test_ingot_predict $(B)/test_ingot_predict_O0 $(B)/test_ingot_match \
-         $1 \
+         $(B)/test_ingot_match_O0 \
          $(B)/test_ingot_cuda_reference
 
 .PHONY: all test clean bench
@@ -90,7 +90,7 @@ NVCC_FLAGS := -arch=sm_37 -ccbin $(NVCC_HOST_CC) -Wno-deprecated-gpu-targets \
 CUDA_DEVICE := cuda/ingot_cuda_kernels.cu cuda/ingot_cuda_device.h
 
 .PHONY: cuda cuda-red
-cuda: $(B)/ingot_cuda.ptx $(B)/ingot_cuda.cubin $(B)/test_ingot_cuda_gpu
+cuda: $(B)/ingot_cuda.ptx $(B)/ingot_cuda.cubin $(B)/test_ingot_cuda_gpu $(B)/test_ingot_cuda_file
 cuda-red: $(B)/red/ingot_cuda.ptx
 
 $(B)/ingot_cuda.ptx: $(CUDA_DEVICE) | $(B)
@@ -105,5 +105,10 @@ $(B)/red/ingot_cuda.ptx: $(CUDA_DEVICE) | $(B)
 
 $(B)/test_ingot_cuda_gpu: tests/test_ingot_cuda_gpu.c tests/ingot_cuda_cases.h \
                           cuda/ingot_cuda_runtime.c $(LIB_SRC) $(HEADERS) | $(B)
+	$(CC) $(CFLAGS) -isystem $(CUDA_INC) -o $@ $< cuda/ingot_cuda_runtime.c $(LIB_SRC) \
+	    $(LDLIBS) -lcuda
+
+$(B)/test_ingot_cuda_file: tests/test_ingot_cuda_file.c cuda/ingot_cuda_runtime.c $(LIB_SRC) \
+                           $(HEADERS) | $(B)
 	$(CC) $(CFLAGS) -isystem $(CUDA_INC) -o $@ $< cuda/ingot_cuda_runtime.c $(LIB_SRC) \
 	    $(LDLIBS) -lcuda
