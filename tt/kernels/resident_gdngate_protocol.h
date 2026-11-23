@@ -17,10 +17,10 @@
  *     words 1..15      zero
  *     per head h       decay[0..31] | beta[0..31]; rows >= the sub-chunk's live rows zero
  *
- * THE INPUTS. alpha and beta are each ONE bf16 32x32 tile a band (32 positions x 32 heads,
- * face-ordered: element (row, head) at ftgg_face_index(row, head)), so band b of a strip is
- * at `base + b * band_stride`. The per-layer constants are a 64-word block in DRAM:
- * ssm_a[32] then ssm_dt[32] as fp32 bits, uploaded once.
+ * THE INPUTS. alpha and beta are each ftgg_tiles(heads) bf16 32x32 tiles a band, side by side
+ * (32 positions x 32 heads a tile, face-ordered: element (row, head) at ftgg_element(row,
+ * head)), so band b of a strip is at `base + b * band_stride`. The per-layer constants are a
+ * 128-word block in DRAM: ssm_a[64] then ssm_dt[64] as fp32 bits, uploaded once.
  *
  * THE OUTPUT. Block (band, sub) goes to `dst_base + (2 * band + sub) * block_stride` — two
  * slots a band, always, so a slot's address is a function of its sub-chunk alone. sub 1 is
@@ -46,14 +46,14 @@ enum { kGgFlags = 0 };       /**< bit 0 red `gdngate_beta_as_decay`; bit 1 FLAT 
 enum { kGgRows = 1 };        /**< positions this descriptor covers, from band 0 row 0 */
 enum { kGgBandCount = 2 };   /**< ceil(rows / 32) */
 enum { kGgSubRows = 3 };     /**< the DELTA sub-chunk length: 16 or 32 */
-enum { kGgHeads = 4 };       /**< value heads, 1..32 (one tile column) */
+enum { kGgHeads = 4 };       /**< value heads, 1..64 (two tile columns) */
 enum { kGgAlphaXY = 5 };     /**< x | y << 16 */
 enum { kGgAlphaBase = 6 };   /**< band 0's tile */
 enum { kGgBetaXY = 7 };
 enum { kGgBetaBase = 8 };
 enum { kGgBandStride = 9 };  /**< bytes between consecutive bands of a strip */
 enum { kGgConstXY = 10 };
-enum { kGgConstBase = 11 };  /**< ssm_a[32] | ssm_dt[32], fp32 bits */
+enum { kGgConstBase = 11 };  /**< ssm_a[64] | ssm_dt[64], fp32 bits */
 enum { kGgDstXY = 12 };
 enum { kGgDstBase = 13 };    /**< slot (band 0, sub 0) */
 enum { kGgBlockStride = 14 };
@@ -71,12 +71,15 @@ enum { kGgFlagFlat = 0x2 };
 /* ----- shapes ----- */
 enum { kGgTileRows = 32 };
 enum { kGgFaceRows = 16 };
-enum { kGgMaxHeads = 32 };
+enum { kGgTileHeads = 32 };   /**< heads a tile column holds */
+enum { kGgTileElements = 1024 };
+enum { kGgMaxTiles = 2 };
+enum { kGgMaxHeads = kGgMaxTiles * kGgTileHeads };
 enum { kGgHeaderWords = 16 };
 enum { kGgHeadWords = 64 };
-enum { kGgConstWords = 64 };
-/** One block at the full 32 heads: 16 + 32 * 64 words. */
-enum { kGgBlockBytes = (16 + 32 * 64) * 4 };
+enum { kGgConstWords = 2 * kGgMaxHeads };
+/** One block at the full 64 heads: 16 + 64 * 64 words. */
+enum { kGgBlockBytes = (16 + kGgMaxHeads * 64) * 4 };
 /** Bands one descriptor may cover: a super-band of 26 bands with room to spare. */
 enum { kGgMaxBands = 64 };
 
@@ -94,6 +97,18 @@ FTGG_INLINE uint32_t ftgg_face_index(uint32_t row, uint32_t col)
 
     return face * kGgFaceRows * kGgFaceRows + (row % kGgFaceRows) * kGgFaceRows +
            (col % kGgFaceRows);
+}
+
+/** Tiles a band of an alpha or beta strip spans at `heads` heads. */
+FTGG_INLINE uint32_t ftgg_tiles(uint32_t heads)
+{
+    return (heads + kGgTileHeads - 1u) / kGgTileHeads;
+}
+
+/** Element (row, head) of a band's side-by-side tiles: tile head / 32, column head % 32. */
+FTGG_INLINE uint32_t ftgg_element(uint32_t row, uint32_t head)
+{
+    return (head / kGgTileHeads) * kGgTileElements + ftgg_face_index(row, head % kGgTileHeads);
 }
 
 /** Live rows of sub-chunk `sub` of a band of `band_rows` rows (0 = the slot is not written).
@@ -118,8 +133,8 @@ FTGG_INLINE uint32_t ftgg_block_bytes(uint32_t heads)
  * the host (its reference and its verify), so the layout cannot drift between them.
  *
  * @param block       ftgg_block_bytes(heads) bytes, fully written
- * @param alpha,beta  one band's face-ordered bf16 tiles (32 rows x 32 heads)
- * @param constants   ssm_a[32] | ssm_dt[32], fp32 bits
+ * @param alpha,beta  one band's ftgg_tiles(heads) face-ordered bf16 tiles, side by side
+ * @param constants   ssm_a[64] | ssm_dt[64], fp32 bits
  * @param first,live  the sub-chunk: band rows [first, first + live)
  * @param red         kGgFlagRedBetaAsDecay: the decay run carries beta (must DIFFER)
  */
@@ -139,7 +154,7 @@ FTGG_INLINE void ftgg_build_block(uint32_t *block, uint32_t heads, uint32_t scal
         const uint32_t ssm_dt = constants[kGgMaxHeads + head];
 
         for (uint32_t row = 0; row < live; row++) {
-            const uint32_t at = ftgg_face_index(first + row, head);
+            const uint32_t at = ftgg_element(first + row, head);
             const uint32_t b = ft_det_gdn_beta((uint32_t)beta[at] << 16);
             const uint32_t decay = ft_det_gdn_gate((uint32_t)alpha[at] << 16, ssm_dt, ssm_a);
 
@@ -172,7 +187,7 @@ FTGG_INLINE void ftgg_build_flat(uint32_t *out, uint32_t head_first, uint32_t he
         uint32_t *line = out + row * (row_stride / 4u);
 
         for (uint32_t head = head_first; head < head_first + heads; head++) {
-            const uint32_t at = ftgg_face_index(row, head);
+            const uint32_t at = ftgg_element(row, head);
             const uint32_t b = ft_det_gdn_beta((uint32_t)beta[at] << 16);
             const uint32_t decay = ft_det_gdn_gate((uint32_t)alpha[at] << 16,
                                                    constants[kGgMaxHeads + head], constants[head]);
