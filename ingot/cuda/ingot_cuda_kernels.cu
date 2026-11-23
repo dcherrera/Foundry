@@ -291,7 +291,58 @@ static __device__ __forceinline__ uint32_t match_symbols(const ingot_cuda_params
     return ((flip ^ neg) & 1u) << 15 | sym << 5;
 }
 
-extern "C" __global__ void ingot_cuda_match(const ingot_cuda_params *__restrict__ p) {
+/** One unit's partners held in registers while its weights decode (row units: a whole row). */
+typedef struct {
+    uint64_t unit;
+    uint32_t rec, k, self_mask;
+    const uint16_t *ptr[INGOT_CUDA_MAX_K]; /* the partner unit's first element */
+    uint32_t pos_stride[INGOT_CUDA_MAX_K];
+    int32_t q[INGOT_CUDA_MAX_K], shift[INGOT_CUDA_MAX_K];
+} unit_partners;
+
+/* Load unit u's record and partners (unrolled over the 8 slots, so they stay in registers). */
+static __device__ __forceinline__ void unit_load(const ingot_cuda_params *__restrict__ p,
+                                                 const ingot_cuda_source *sources, uint64_t u,
+                                                 unit_partners *c) {
+    c->unit = u;
+    c->rec = __ldg((const uint32_t *)(uintptr_t)p->unit_records + u);
+    c->k = ingot_cuda_unit_k(c->rec);
+    c->self_mask = 0;
+    const unsigned long long *part = (const unsigned long long *)(uintptr_t)p->partners +
+                                     __ldg((const uint32_t *)(uintptr_t)p->partner_offsets + u);
+#pragma unroll
+    for (uint32_t j = 0; j < INGOT_CUDA_MAX_K; j++) {
+        if (j >= c->k)
+            continue;
+        unsigned long long pr = __ldg(part + j);
+        const ingot_cuda_source *s = &sources[(uint32_t)(pr >> 48)];
+        c->ptr[j] = (const uint16_t *)(uintptr_t)s->ptr + (uint32_t)pr * s->unit_stride;
+        c->pos_stride[j] = s->pos_stride;
+        c->q[j] = (int32_t)(int16_t)(uint16_t)(pr >> 32);
+        c->shift[j] = s->shift;
+        c->self_mask |= s->self << j;
+    }
+}
+
+/* Context of the weight at position h of the cached unit (the shared header's
+ * ingot_cuda_match_context, with the partners hoisted). */
+static __device__ __forceinline__ uint32_t unit_context(const unit_partners *c, uint64_t h,
+                                                        const uint8_t *cells,
+                                                        const uint32_t *bases, uint32_t *neg) {
+    int64_t acc = 0;
+#pragma unroll
+    for (uint32_t j = 0; j < INGOT_CUDA_MAX_K; j++) {
+        if (j >= c->k)
+            continue;
+        const uint16_t *a = c->ptr[j] + (uint32_t)h * c->pos_stride[j];
+        uint32_t x = (c->self_mask >> j) & 1u ? *(const volatile uint16_t *)a : __ldg(a);
+        acc += ingot_cuda_partner_term(x, c->shift[j], c->q[j]);
+    }
+    return ingot_cuda_context_of(acc, c->rec, cells, bases, neg);
+}
+
+extern "C" __global__ void ingot_cuda_match(
+const ingot_cuda_params *__restrict__ p) {
     __shared__ uint8_t cells[INGOT_CUDA_BUCKET_SETS * INGOT_CUDA_BUCKET_CELLS];
     __shared__ uint32_t bases[INGOT_CUDA_BUCKET_SETS * 12];
     __shared__ ingot_cuda_source sources[INGOT_CUDA_MAX_SOURCES];
@@ -314,15 +365,18 @@ extern "C" __global__ void ingot_cuda_match(const ingot_cuda_params *__restrict_
     uint32_t x0 = v.states[2 * j], x1 = v.states[2 * j + 1], wp = 0, status = 0;
     lane_rows lr;
     lane_rows_begin(&lr, lo + j, cols);
+    unit_partners cache;
+    cache.unit = ~(uint64_t)0;
     for (uint32_t step = 0; step < steps; step += 16) {
         const uint32_t i = step + j;
         const bool active = i < n;
         uint32_t w = 0;
         if (active) {
             uint32_t neg = 0;
-            uint32_t z = ingot_cuda_match_context(p, sources, cells, bases,
-                                                  p->axis ? lr.col : lr.row,
-                                                  p->axis ? lr.row : lr.col, &neg);
+            const uint64_t u = p->axis ? lr.col : lr.row;
+            if (u != cache.unit)
+                unit_load(p, sources, u, &cache);
+            uint32_t z = unit_context(&cache, p->axis ? lr.row : lr.col, cells, bases, &neg);
             w = match_symbols(p, z, neg, &x0, &x1, &status);
         }
         half_renorm(&x0, &x1, active && x0 < LOW, active && x1 < LOW, v.words, v.word_count,

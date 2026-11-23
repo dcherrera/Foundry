@@ -254,20 +254,17 @@ INGOT_CUDA_FN int32_t ingot_cuda_step_join(uint32_t symbol, uint32_t raw) {
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
  */
 INGOT_CUDA_FN int64_t ingot_cuda_partner_term(uint32_t x, int32_t shift, int32_t q) {
+    /* Branch-free (selects only): m' = m >> max(-e, 0) (0 once -e >= 8, as m < 2^8), shifted
+     * left by max(e, 0); saturation when m << e would pass 2^40, i.e. e >= 40 or
+     * m > 2^(40 - e) for e in 33..39, or for inf / NaN. */
     uint32_t exp = (x >> 7) & 0xFFu;
-    int32_t m = (int32_t)(exp ? (x & 0x7Fu) | 0x80u : x & 0x7Fu);
+    uint32_t m = (x & 0x7Fu) | (exp ? 0x80u : 0u);
     int32_t e = (int32_t)(exp ? exp : 1u) - 134 + shift;
-    int32_t a = 0, s = 0;
-    int sat = m != 0 && (exp == 0xFFu || (e >= 33 && (e >= 40 || m > (1 << (40 - e)))));
-    if (sat) {
-        a = q;
-        s = 40;
-    } else if (e >= 0) {
-        a = q * m;
-        s = e;
-    } else if (e > -8) {
-        a = q * (m >> -e);
-    }
+    uint32_t right = (uint32_t)(e < 0 ? (-e < 31 ? -e : 31) : 0);
+    uint32_t over = (uint32_t)(e > 32 ? (e < 40 ? 40 - e : 0) : 31);
+    int sat = m != 0 && (exp == 0xFFu || e >= 40 || m > (1u << over));
+    int32_t a = sat ? q : q * (int32_t)(m >> right);
+    int32_t s = sat ? 40 : e > 0 ? e : 0;
     a = (x & 0x8000u) ? -a : a;
     return (int64_t)((uint64_t)(int64_t)a << s);
 }
@@ -428,6 +425,20 @@ INGOT_CUDA_FN void ingot_cuda_combine_rows(const ingot_cuda_params *p) {
 /* ---- Match contexts ------------------------------------------------------------------------- */
 
 /**
+ * Context z of a unit (record rec) given its prediction p = acc; *neg = p < 0.
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+INGOT_CUDA_FN uint32_t ingot_cuda_context_of(int64_t acc, uint32_t rec, const uint8_t *cells,
+                                             const uint32_t *bases, uint32_t *neg) {
+    *neg = acc < 0;
+    uint64_t mag = acc < 0 ? (uint64_t)0 - (uint64_t)acc : (uint64_t)acc;
+    return ingot_cuda_unit_zbase(rec) +
+           ingot_cuda_bucket(mag, ingot_cuda_unit_sh(rec), ingot_cuda_unit_rsel_of(rec), cells,
+                             bases);
+}
+
+/**
  * Context z (and the sign of p in *neg) of the weight at unit u, position h. `sources` holds the
  * descriptors (shared memory on the device); `cells` and `bases` the bucket tables.
  *
@@ -450,11 +461,7 @@ INGOT_CUDA_FN uint32_t ingot_cuda_match_context(const ingot_cuda_params *p,
         uint32_t x = s->self ? *(const volatile uint16_t *)ptr : INGOT_CUDA_LOAD(ptr);
         acc += ingot_cuda_partner_term(x, s->shift, (int32_t)(int16_t)(uint16_t)(pr >> 32));
     }
-    *neg = acc < 0;
-    uint64_t mag = acc < 0 ? (uint64_t)0 - (uint64_t)acc : (uint64_t)acc;
-    return ingot_cuda_unit_zbase(rec) +
-           ingot_cuda_bucket(mag, ingot_cuda_unit_sh(rec), ingot_cuda_unit_rsel_of(rec), cells,
-                             bases);
+    return ingot_cuda_context_of(acc, rec, cells, bases, neg);
 }
 
 /**
