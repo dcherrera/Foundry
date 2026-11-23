@@ -349,34 +349,75 @@ extern "C" __global__ void ingot_cuda_delta(const ingot_cuda_params *__restrict_
 
 /* ---- Match (modes 6 and 7) ------------------------------------------------------------------ */
 
+/** A half-warp's window on its block's words: lane j holds word base + 16 c + j in wc (c = 0..4;
+ *  w3 and w4 are loaded a step ahead); r words past base are used (r < 16). A step uses at most
+ *  32 words, so it reads only w0..w2. */
+typedef struct {
+    uint32_t w0, w1, w2, w3, w4, base, r;
+} half_window;
+
+static __device__ __forceinline__ void half_window_begin(half_window *hw, const uint16_t *words,
+                                                         uint32_t count, uint32_t j) {
+    hw->w0 = window_word(words, j, count);
+    hw->w1 = window_word(words, 16 + j, count);
+    hw->w2 = window_word(words, 32 + j, count);
+    hw->w3 = window_word(words, 48 + j, count);
+    hw->w4 = window_word(words, 64 + j, count);
+    hw->base = 0;
+    hw->r = 0;
+}
+
+/* Word base + a of the window (a < 48), by shuffles within the half-warp. */
+static __device__ __forceinline__ uint32_t half_window_at(const half_window *hw, uint32_t a) {
+    const uint32_t v0 = __shfl_sync(FULL, hw->w0, a & 15, 16);
+    const uint32_t v1 = __shfl_sync(FULL, hw->w1, a & 15, 16);
+    const uint32_t v2 = __shfl_sync(FULL, hw->w2, a & 15, 16);
+    return a < 16 ? v0 : a < 32 ? v1 : v2;
+}
+
 /* Both lanes of a match weight renormalized in stream order (sign bit's word first). */
 static __device__ __forceinline__ void half_renorm(uint32_t *x0, uint32_t *x1, bool need0,
-                                                   bool need1, const uint16_t *words,
-                                                   uint32_t word_count, uint32_t *wp,
-                                                   uint32_t *status) {
+                                                   bool need1, half_window *hw,
+                                                   const uint16_t *words, uint32_t word_count,
+                                                   uint32_t j, uint32_t *status) {
     const uint32_t shift = threadIdx.x & 16;
     const uint32_t m0 = (__ballot_sync(FULL, need0) >> shift) & 0xFFFFu;
     const uint32_t m1 = (__ballot_sync(FULL, need1) >> shift) & 0xFFFFu;
     const uint32_t lt = (lanemask_lt() >> shift) & 0xFFFFu;
-    const uint32_t before = *wp + __popc(m0 & lt) + __popc(m1 & lt);
+    const uint32_t before = hw->r + __popc(m0 & lt) + __popc(m1 & lt);
 #ifdef INGOT_CUDA_RED_WORDS
     const uint32_t at0 = before + need1, at1 = before; /* planted red: symbol's word first */
 #else
     const uint32_t at0 = before, at1 = before + need0;
 #endif
+    const uint32_t word0 = half_window_at(hw, at0), word1 = half_window_at(hw, at1);
     if (need0) {
-        if (at0 < word_count)
-            *x0 = *x0 << 16 | __ldg(words + at0);
+        if (hw->base + at0 < word_count)
+            *x0 = *x0 << 16 | word0;
         else
             *status |= INGOT_CUDA_BAD_WORDS;
     }
     if (need1) {
-        if (at1 < word_count)
-            *x1 = *x1 << 16 | __ldg(words + at1);
+        if (hw->base + at1 < word_count)
+            *x1 = *x1 << 16 | word1;
         else
             *status |= INGOT_CUDA_BAD_WORDS;
     }
-    *wp += __popc(m0) + __popc(m1);
+    /* advance by s = 0..2 chunks of 16 (selects, no branch: the halves differ) */
+    const uint32_t r = hw->r + __popc(m0) + __popc(m1), s = r >> 4;
+    hw->r = r & 15;
+    hw->base += 16 * s;
+    const uint32_t l48 = s == 2 ? window_word(words, hw->base + 48 + j, word_count) : 0u;
+    const uint32_t l64 = s != 0 ? window_word(words, hw->base + 64 + j, word_count) : 0u;
+    const uint32_t n0 = s == 0 ? hw->w0 : s == 1 ? hw->w1 : hw->w2;
+    const uint32_t n1 = s == 0 ? hw->w1 : s == 1 ? hw->w2 : hw->w3;
+    const uint32_t n2 = s == 0 ? hw->w2 : s == 1 ? hw->w3 : hw->w4;
+    const uint32_t n3 = s == 0 ? hw->w3 : s == 1 ? hw->w4 : l48;
+    hw->w4 = s == 0 ? hw->w4 : l64;
+    hw->w0 = n0;
+    hw->w1 = n1;
+    hw->w2 = n2;
+    hw->w3 = n3;
 }
 
 /* Sign-agree tables (binary) as the frequency f0 of symbol 0 (65536: only 0; 0: only 1; EMPTY:
@@ -491,7 +532,9 @@ const ingot_cuda_params *__restrict__ p) {
     const uint32_t n = has ? (uint32_t)(hi - lo) : 0;
     const uint32_t steps = max(n, __shfl_xor_sync(FULL, n, 16));
     const ingot_cuda_block v = ingot_cuda_block_at(p, b);
-    uint32_t x0 = v.states[2 * j], x1 = v.states[2 * j + 1], wp = 0, status = 0;
+    uint32_t x0 = v.states[2 * j], x1 = v.states[2 * j + 1], status = 0;
+    half_window hw;
+    half_window_begin(&hw, v.words, v.word_count, j);
     const uint32_t *raw = (const uint32_t *)v.raw;
     uint32_t raw_word = (5 * j) >> 5, raw_bit = (5 * j) & 31; /* weight step + j's raw bits */
     lane_rows lr;
@@ -510,8 +553,8 @@ const ingot_cuda_params *__restrict__ p) {
             uint32_t z = unit_context(&cache, p->axis ? lr.row : lr.col, cells, bases, &neg);
             w = match_symbols(p, sign_f0, sym_off, z, neg, &x0, &x1, &status);
         }
-        half_renorm(&x0, &x1, active && x0 < LOW, active && x1 < LOW, v.words, v.word_count,
-                    &wp, &status);
+        half_renorm(&x0, &x1, active && x0 < LOW, active && x1 < LOW, &hw, v.words, v.word_count,
+                    j, &status);
         if (active) {
             w |= __funnelshift_r(__ldg(raw + raw_word), __ldg(raw + raw_word + 1), raw_bit) & 0x1Fu;
             if (store)
@@ -533,7 +576,7 @@ const ingot_cuda_params *__restrict__ p) {
     status |= (__ballot_sync(FULL, x0 != LOW || x1 != LOW) >> (threadIdx.x & 16)) & 0xFFFFu
                   ? INGOT_CUDA_BAD_STATE
                   : 0;
-    status |= wp != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
+    status |= hw.base + hw.r != v.word_count ? INGOT_CUDA_BAD_WORD_COUNT : 0;
     status |= v.raw_bytes != (5ull * n + 7) / 8 ? INGOT_CUDA_BAD_RAW : 0;
     status = group_or(status, 16);
     if (has && j == 0)
