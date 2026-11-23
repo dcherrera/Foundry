@@ -13779,6 +13779,7 @@ static const char FC_PTX_MATVEC_KQUANTS[] =
     "	.param .u32 fc_matvec_q80_r4c4_param_6\n"
     ")\n"
     ".maxntid 256, 1, 1\n"
+    ".minnctapersm 3\n"
     "{\n"
     "	.reg .pred 	%p<75>;\n"
     "	.reg .f32 	%f<1753>;\n"
