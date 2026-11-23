@@ -3148,6 +3148,25 @@ static int fc_q80_tile_min_n(void)
     return v;
 }
 
+/* Grid rule. A row tile launches rows / 128 blocks and a SMX holds 2-3 of them, so a small
+ * matrix leaves most of a 13-SMX K80 die idle; the _nx kernels launch 4x the blocks. On the
+ * Qwen3.6 TP2 per-die shapes (sm_37, die A/B, all bit-identical) the _nx kernels win at
+ * n = 3 / 4 up to 2048 rows (16 tile blocks: 1.06-1.70x) and lose at 4096 (0.84x at n = 3);
+ * at n = 5, where _nx runs the 8-wide tile, they win only at 256 rows (1.57x). Same bits
+ * either way (per-output identity above). FC_Q80_TILE_GRID_RULE=0 turns the rule off. */
+#define FC_Q80_TILE_MIN_BLOCKS_N34 17
+#define FC_Q80_TILE_MIN_BLOCKS_N5 3
+
+static int fc_q80_tile_grid_rule(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *e = getenv("FC_Q80_TILE_GRID_RULE");
+        v = e ? atoi(e) != 0 : 1;
+    }
+    return v;
+}
+
 /* Launch a row tile; 0 = launched, -1 = not applicable (caller runs _nx). */
 static int fc_matvec_q80_tile_launch(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
                                      fc_buffer *out, int rows, int cols, int row_stride,
@@ -3161,6 +3180,10 @@ static int fc_matvec_q80_tile_launch(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *
                     : n == 5 ? ctx->kern_matvec_q80_r4c5 : ctx->kern_matvec_q80_r4c8;
     const int nc = n <= 5 ? n : 8;
     if (!kern)
+        return -1;
+    const int blocks = (rows + FC_Q80_TILE_ROWS_HOST - 1) / FC_Q80_TILE_ROWS_HOST;
+    if (n <= 5 && fc_q80_tile_grid_rule() &&
+        blocks < (n == 5 ? FC_Q80_TILE_MIN_BLOCKS_N5 : FC_Q80_TILE_MIN_BLOCKS_N34))
         return -1;
     if (fc_ctx_enter(ctx) != 0)
         return 0;
