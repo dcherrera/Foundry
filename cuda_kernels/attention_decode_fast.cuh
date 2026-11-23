@@ -58,10 +58,9 @@
 
 /* q4 code c (0..15) to (c - 8) * d without a conversion: c is inserted under exponent 0x4B
  * (the float 2^23 + c) and 2^23 + 8 is subtracted, exactly; the value and the +0 at c = 8
- * are those of (float)(c - 8) * d. Found by the K80 superoptimizer's decode search (every
- * code x every f16 scale x every shift proved): 3 instructions for a low nibble, 4 for a
- * high one or V's shifted nibble, against 4-5 with I2F. FC_ATTN_KVF_RED is a gate-only red
- * build (the codes offset by 7). */
+ * are those of (float)(c - 8) * d for every code, f16 scale and shift: 3 instructions for a
+ * low nibble, 4 for a high one or V's shifted nibble, against 4-5 with I2F.
+ * FC_ATTN_KVF_RED is a gate-only red build (the codes offset by 7). */
 #ifdef FC_ATTN_KVF_RED
 #define FC_KVF_MINUS_BIAS (-8388615.0f)
 #else
