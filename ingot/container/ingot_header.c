@@ -20,7 +20,7 @@
 
 size_t ingot_header_size(uint32_t version) {
     return version == 1 ? INGOT_HEADER_BYTES_V1
-           : version >= 2 && version <= 4 ? INGOT_HEADER_BYTES : 0;
+           : version >= 2 && version <= INGOT_VERSION ? INGOT_HEADER_BYTES : 0;
 }
 
 static int check_ranges(const ingot_file_header *h) {

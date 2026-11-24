@@ -416,10 +416,11 @@ static int uses_base(const entry_list *l) {
     return 0;
 }
 
-/* Version 3 only when the file needs it: a predicted tensor or payloads out of source order. */
+/* The oldest version that holds the file: 5 with a dictionary ref, 4 with match targets (the
+ * directory has a tail), 3 with a predicted tensor or payloads out of source order. */
 static uint32_t file_version(const entry_list *l) {
     if (l->tail_bytes)
-        return 4; /* match targets: the directory has a tail */
+        return ingot_match_writer_uses_dict(l->match) ? 5 : 4;
     for (size_t k = 0; k < l->count; k++)
         if (l->order[k] != k || l->items[k].mode == INGOT_MODE_PREDICT)
             return 3;

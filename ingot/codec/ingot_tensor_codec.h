@@ -127,6 +127,20 @@ int ingot_tensor_decode_payload(const ingot_entry *e, const uint8_t *payload, ui
                                 const ingot_partner_data *partners, int threads, uint8_t *out);
 
 /**
+ * Decode only bytes [0, n) of a payload that needs no base and no partners (plain, quant): just
+ * the blocks covering them, by random access. No hash check (the entry hash covers all bytes).
+ *
+ * @param n        Bytes wanted (<= e->source_size); out holds n bytes, 2-aligned
+ * @return         0, -INGOT_EUNSUPPORTED (the payload needs a base or partners), -INGOT_EINVAL,
+ *                 or an error as ingot_tensor_decoder_block
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: no
+ */
+int ingot_tensor_decode_payload_prefix(const ingot_entry *e, const uint8_t *payload,
+                                       uint64_t size, int framed, uint64_t n, int threads,
+                                       uint8_t *out);
+
+/**
  * Rows and columns of an entry for the row-based modes (cols = last dimension).
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes

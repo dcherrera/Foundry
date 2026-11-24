@@ -29,9 +29,9 @@ HEADERS := $(wildcard core/*.h codec/*.h container/*.h)
 TESTS := $(B)/test_ingot_rans $(B)/test_ingot_codec $(B)/test_ingot_container $(B)/test_ingot_red \
          $(B)/test_ingot_quant $(B)/test_ingot_stream $(B)/test_ingot_kquant \
          $(B)/test_ingot_predict $(B)/test_ingot_predict_O0 $(B)/test_ingot_match \
-         $(B)/test_ingot_match_O0
+         $(B)/test_ingot_match_O0 $(B)/test_ingot_dict
 
-.PHONY: all test clean bench
+.PHONY: all test clean bench red
 bench: $(B)/bench_ingot_qtensor
 all: $(B)/ingot $(TESTS)
 
@@ -54,6 +54,15 @@ $(B)/test_ingot_match_O0: tests/test_ingot_match.c tests/ingot_test_files.h $(LI
                           $(HEADERS) | $(B)
 	$(CC) $(subst -O2,-O0,$(CFLAGS)) -o $@ $< $(LIB_SRC) $(LDLIBS)
 
+# Red build: the dictionary suite without its planted rows must fail (proves its size check can).
+$(B)/test_ingot_dict_red: tests/test_ingot_dict.c tests/ingot_test_files.h $(LIB_SRC) \
+                          $(HEADERS) | $(B)
+	$(CC) $(CFLAGS) -DINGOT_TEST_RED -o $@ $< $(LIB_SRC) $(LDLIBS)
+
+red: $(B)/test_ingot_dict_red
+	! ./$(B)/test_ingot_dict_red > $(B)/red.log 2>&1
+	@echo "red: the unplanted dictionary suite fails, as it must"
+
 # Coder benchmark on a real GGUF (not part of all / test): build/bench_ingot_qtensor FILE.gguf
 $(B)/bench_ingot_qtensor: tests/bench_ingot_qtensor.c $(LIB_SRC) $(HEADERS) | $(B)
 	$(CC) $(CFLAGS) -o $@ $< $(LIB_SRC) $(LDLIBS)
@@ -70,7 +79,9 @@ test: $(TESTS) $(B)/ingot
 	./$(B)/test_ingot_predict_O0 contexts
 	./$(B)/test_ingot_match
 	./$(B)/test_ingot_match_O0 contexts
+	./$(B)/test_ingot_dict
 	./tests/test_ingot_cli.sh
+	$(MAKE) red
 
 clean:
 	rm -rf $(B)

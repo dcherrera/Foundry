@@ -11,6 +11,7 @@
 #include "ingot_tensor_codec.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "ingot/codec/ingot_delta.h"
 #include "ingot/codec/ingot_match.h"
@@ -214,6 +215,7 @@ typedef struct {
     ingot_block_area area;
     const uint8_t *base;
     uint8_t *out;
+    uint64_t limit; /* bytes of out: a block past it decodes aside and is cut */
 } payload_job;
 
 static int payload_block(void *ctx, size_t b) {
@@ -222,9 +224,24 @@ static int payload_block(void *ctx, size_t b) {
     uint64_t lo = 0, hi = 0;
     int rc = ingot_block_view_get(&job->area, b, &v);
     ingot_tensor_decoder_range(job->dec, b, &lo, &hi);
-    return rc ? rc
-              : ingot_tensor_decoder_block(job->dec, b, &v, job->base ? job->base + lo : NULL,
-                                           job->out + lo);
+    const uint8_t *base = job->base ? job->base + lo : NULL;
+    if (rc || hi <= job->limit)
+        return rc ? rc : ingot_tensor_decoder_block(job->dec, b, &v, base, job->out + lo);
+    uint8_t *aside = malloc((size_t)(hi - lo));
+    rc = aside ? ingot_tensor_decoder_block(job->dec, b, &v, base, aside) : -INGOT_ENOMEM;
+    if (!rc)
+        memcpy(job->out + lo, aside, (size_t)(job->limit - lo));
+    free(aside);
+    return rc;
+}
+
+/* Blocks whose range starts below limit (ranges ascend from 0). */
+static size_t blocks_below(const ingot_tensor_decoder *d, uint64_t limit) {
+    size_t n = ingot_tensor_decoder_blocks(d), b = 0;
+    uint64_t lo = 0, hi = 0;
+    while (b < n && (ingot_tensor_decoder_range(d, b, &lo, &hi), lo < limit))
+        b++;
+    return b;
 }
 
 /* Bind every partner a predict payload names. */
@@ -238,11 +255,11 @@ static int bind_partners(ingot_tensor_decoder *d, const ingot_partner_data *part
     return rc;
 }
 
-int ingot_tensor_decode_payload(const ingot_entry *e, const uint8_t *payload, uint64_t size,
-                                int framed, const uint8_t *base,
-                                const ingot_partner_data *partners, int threads, uint8_t *out) {
-    if (!e || !payload || !out)
-        return -INGOT_EINVAL;
+/* Decode bytes [0, limit) of a payload (limit = source_size: all of it). prefix_only: refuse a
+ * payload that needs a base or partners. */
+static int decode_payload(const ingot_entry *e, const uint8_t *payload, uint64_t size, int framed,
+                          const uint8_t *base, const ingot_partner_data *partners, int threads,
+                          uint64_t limit, int prefix_only, uint8_t *out) {
     uint64_t frame_prefix = 0, frame_blocks = 0, skip = 0;
     if (framed) {
         if (size < INGOT_PAYLOAD_FRAME_BYTES)
@@ -257,15 +274,35 @@ int ingot_tensor_decode_payload(const ingot_entry *e, const uint8_t *payload, ui
     if (!rc && framed && (frame_prefix != skip + at ||
                           frame_blocks != ingot_tensor_decoder_blocks(d)))
         rc = -INGOT_EFORMAT;
-    if (!rc)
+    if (!rc && prefix_only &&
+        (ingot_tensor_decoder_needs_base(d) || ingot_tensor_decoder_partners(d, NULL)))
+        rc = -INGOT_EUNSUPPORTED;
+    if (!rc && !prefix_only)
         rc = bind_partners(d, partners);
-    payload_job job = {.dec = d, .base = base, .out = out};
+    payload_job job = {.dec = d, .base = base, .out = out, .limit = limit};
     if (!rc)
         rc = ingot_block_area_open(payload + skip + at, size - skip - at,
                                    ingot_tensor_decoder_blocks(d), &job.area);
     if (!rc)
-        rc = ingot_parallel_for(ingot_tensor_decoder_blocks(d),
+        rc = ingot_parallel_for(blocks_below(d, limit),
                                 ingot_tensor_decoder_serial(d) ? 1 : threads, payload_block, &job);
     ingot_tensor_decoder_close(d);
     return rc;
+}
+
+int ingot_tensor_decode_payload(const ingot_entry *e, const uint8_t *payload, uint64_t size,
+                                int framed, const uint8_t *base,
+                                const ingot_partner_data *partners, int threads, uint8_t *out) {
+    if (!e || !payload || !out)
+        return -INGOT_EINVAL;
+    return decode_payload(e, payload, size, framed, base, partners, threads, e->source_size, 0,
+                          out);
+}
+
+int ingot_tensor_decode_payload_prefix(const ingot_entry *e, const uint8_t *payload,
+                                       uint64_t size, int framed, uint64_t n, int threads,
+                                       uint8_t *out) {
+    if (!e || !payload || !out || n > e->source_size)
+        return -INGOT_EINVAL;
+    return n ? decode_payload(e, payload, size, framed, NULL, NULL, threads, n, 1, out) : 0;
 }

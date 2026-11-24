@@ -25,10 +25,10 @@ extern "C" {
 #define INGOT_SUFFIX ".ingot"
 
 enum {
-    INGOT_VERSION = 4,         /* newest version written (a file is written at the oldest version
-                                  that holds its features: 2, 3 or 4) */
+    INGOT_VERSION = 5,         /* newest version written (a file is written at the oldest version
+                                  that holds its features: 2, 3, 4 or 5) */
     INGOT_VERSION_MIN = 1,     /* oldest version read (version 1: random access only) */
-    INGOT_HEADER_BYTES = 144,  /* versions 2 to 4 */
+    INGOT_HEADER_BYTES = 144,  /* versions 2 to 5 */
     INGOT_HEADER_BYTES_V1 = 64,
     INGOT_SHA256_BYTES = 32,
     INGOT_MAX_DIMS = 8,
@@ -54,7 +54,8 @@ typedef enum {
     INGOT_MODE_PREDICT = 6,     /* BF16, predicted from earlier tensors of the same units
                                    (ingot_predict.h; version 3 and later) */
     INGOT_MODE_MATCH = 7,       /* BF16, per-unit partners from any earlier tensor or an earlier
-                                   file (ingot_match.h; version 4) */
+                                   file (ingot_match.h; version 4; version 5 adds row-prefix
+                                   refs, which may be read from a later file's .ingot) */
     INGOT_MODE_COUNT = 8,       /* modes this version decodes */
 } ingot_mode;
 

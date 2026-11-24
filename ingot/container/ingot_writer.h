@@ -62,9 +62,10 @@ typedef struct {
                                     INGOT_POLICY_PLAIN implies it */
     int exact_v2;                /* also encode a predicted tensor's best other mode (into
                                     nothing) so v2 sizes are exact, not estimates */
-    int max_version;             /* newest format version to write: 0 or 4 = match mode (version
-                                    4) for layer roles; 3 = same-unit predict mode only */
-    ingot_base_set *refs;        /* earlier files of the same model (match sources outside this
+    int max_version;             /* newest format version to write: 0 or 5 = match mode for layer
+                                    roles, with dict_ref (version 5); 4 = match mode without
+                                    dict_ref; 3 = same-unit predict mode only */
+    ingot_base_set *refs;        /* other files of the same model (match sources outside this
                                     file); must not hold this file's own tensors; NULL: none */
     const int *pool_layers;      /* match pool layer offsets (NULL: 1 and 16) */
     int pool_layer_count;
@@ -76,6 +77,13 @@ typedef struct {
                                     0: all */
     int match_no_self;           /* no self sources: every match tensor decodes its blocks in
                                     parallel (a self source makes them decode in order) */
+    const char *dict_ref;        /* a 2-D BF16 tensor of the ref set (e.g. lm_head.weight, which
+                                    may sit in a later file) whose first dict_rows rows join the
+                                    match pool of every layer role in layers dict_first ..
+                                    dict_last; a file that uses it is version 5; NULL: none */
+    uint64_t dict_rows;          /* 0: all rows */
+    long dict_first;
+    long dict_last;
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;
     ingot_progress_fn progress;  /* optional */

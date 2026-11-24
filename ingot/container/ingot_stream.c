@@ -246,27 +246,13 @@ static int alloc_slots(stream_state *s, coded_entry *c, uint64_t max_block) {
     return 0;
 }
 
-/* External ref r, read whole from the ref set and checked against its recorded hash. */
+/* External ref r from the ref set (version 5: may be a row prefix), checked against its hash. */
 static int load_ref(stream_state *s, uint32_t r) {
     held_entry *h = &s->refs[r];
-    const ingot_entry *e = &s->tail.refs[r];
-    ingot_base_tensor t;
     if (h->data)
         return 0;
-    if (!s->opt->refs || ingot_base_set_find(s->opt->refs, e->name, &t) ||
-        t.size != e->source_size || t.dtype != e->dtype)
-        return -INGOT_EBASE;
-    h->data = malloc((size_t)(e->source_size ? e->source_size : 1));
-    if (!h->data)
-        return -INGOT_ENOMEM;
-    int rc = ingot_base_set_read(s->opt->refs, &t, 0, h->data, (size_t)e->source_size);
-    if (!rc && ingot_hash64(h->data, (size_t)e->source_size) != e->hash)
-        rc = -INGOT_EBASE;
-    if (rc) {
-        free(h->data);
-        h->data = NULL;
-    }
-    return rc == -INGOT_EUNSUPPORTED ? -INGOT_EBASE : rc;
+    return ingot_base_set_load_ref(s->opt->refs, &s->tail.refs[r], s->header.version >= 5,
+                                   &h->data);
 }
 
 /* A predict or match payload's sources: earlier entries (held since they were decoded),

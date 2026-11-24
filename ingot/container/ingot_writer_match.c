@@ -64,6 +64,7 @@ typedef struct {
     uint16_t *unit_major;
     int16_t *sketch;
     uint32_t pending;     /* targets not yet written that pool it */
+    int dict;             /* the dictionary: e is its row prefix, no aligned candidates */
 } ref_info;
 
 struct ingot_match_writer {
@@ -75,7 +76,27 @@ struct ingot_match_writer {
     ref_info *refs;
     uint32_t ref_count;
     uint32_t ref_capacity;
+    uint32_t dict_id;     /* ref index of the dictionary, or UINT32_MAX */
 };
+
+/* Add ri (e.shape, e.source_size, t, role set) under name as ref *id. @return 1 or an error */
+static int append_ref(ingot_match_writer *w, const char *name, ref_info *ri, size_t *id) {
+    if (w->ref_count == w->ref_capacity) {
+        uint32_t cap = w->ref_capacity ? 2 * w->ref_capacity : 32;
+        ref_info *grown = realloc(w->refs, cap * sizeof(*grown));
+        if (!grown)
+            return -INGOT_ENOMEM;
+        w->refs = grown;
+        w->ref_capacity = cap;
+    }
+    ri->e.name = strdup(name);
+    if (!ri->e.name)
+        return -INGOT_ENOMEM;
+    ri->e.dtype = ri->t.dtype;
+    *id = w->ref_count;
+    w->refs[w->ref_count++] = *ri;
+    return 1;
+}
 
 static int find_ref(ingot_match_writer *w, const char *name, const ingot_match_role *t,
                     size_t *id) {
@@ -91,23 +112,62 @@ static int find_ref(ingot_match_writer *w, const char *name, const ingot_match_r
         !ingot_match_role_of(name, bt.dtype, ri.e.ndim, ri.e.shape, &ri.role) ||
         ri.role.unit_len != t->unit_len || bt.size != ri.e.shape[0] * ri.e.shape[1] * 2)
         return 0;
-    if (w->ref_count == w->ref_capacity) {
-        uint32_t cap = w->ref_capacity ? 2 * w->ref_capacity : 32;
-        ref_info *grown = realloc(w->refs, cap * sizeof(*grown));
-        if (!grown)
-            return -INGOT_ENOMEM;
-        w->refs = grown;
-        w->ref_capacity = cap;
-    }
-    ri.e.name = strdup(name);
-    if (!ri.e.name)
-        return -INGOT_ENOMEM;
-    ri.e.dtype = bt.dtype;
     ri.e.source_size = bt.size;
     ri.t = bt;
-    *id = w->ref_count;
-    w->refs[w->ref_count++] = ri;
-    return 1;
+    return append_ref(w, name, &ri, id);
+}
+
+/* Does target ti pool the dictionary: in its layer range, same unit length, a free slot? */
+static int pools_dict(const ingot_match_writer *w, const entry_info *ti, uint64_t unit_len) {
+    return ti->is_target && ti->role.layer >= w->opt->dict_first &&
+           ti->role.layer <= w->opt->dict_last && ti->role.unit_len == unit_len &&
+           ti->pool_count < INGOT_MATCH_MAX_SOURCES;
+}
+
+/* Join the dictionary to target ti's pool, before its self source (kept last). */
+static void add_dict_member(ingot_match_writer *w, entry_info *ti) {
+    pool_member *last = ti->pool_count ? &ti->pool[ti->pool_count - 1] : NULL;
+    pool_member dict = {MEMBER_REF, w->dict_id, 0};
+    if (last && last->kind == MEMBER_SELF) {
+        ti->pool[ti->pool_count] = *last;
+        *last = dict;
+    } else {
+        ti->pool[ti->pool_count] = dict;
+    }
+    ti->pool_count++;
+    w->refs[w->dict_id].pending++;
+}
+
+/* The dictionary: the first dict_rows rows of a 2-D BF16 ref tensor, as row units, appended
+ * after the pools are built (the last ref), and only when some target pools it. */
+static int add_dict(ingot_match_writer *w) {
+    ingot_base_tensor bt;
+    ref_info ri = {.dict = 1};
+    size_t id = 0, users = 0;
+    if (!w->opt->refs || ingot_base_set_find(w->opt->refs, w->opt->dict_ref, &bt) ||
+        bt.dtype != INGOT_DTYPE_BF16 ||
+        ingot_base_set_shape(w->opt->refs, &bt, &ri.e.ndim, ri.e.shape) || ri.e.ndim != 2 ||
+        !ri.e.shape[0] || !ri.e.shape[1])
+        return -INGOT_EBASE;
+    if (w->opt->dict_rows && w->opt->dict_rows < ri.e.shape[0])
+        ri.e.shape[0] = w->opt->dict_rows;
+    ri.e.source_size = ri.e.shape[0] * ri.e.shape[1] * 2;
+    ri.t = bt;
+    ri.role = (ingot_match_role){.is_role = 1, .layer = -1, .rank = -1,
+                                 .axis = INGOT_PREDICT_ROWS, .units = ri.e.shape[0],
+                                 .unit_len = ri.e.shape[1]};
+    for (size_t i = 0; i < w->entry_count; i++)
+        users += (size_t)pools_dict(w, &w->info[i], ri.role.unit_len);
+    if (!users)
+        return 0;
+    int rc = append_ref(w, w->opt->dict_ref, &ri, &id);
+    if (rc < 0)
+        return rc;
+    w->dict_id = (uint32_t)id;
+    for (size_t i = 0; i < w->entry_count; i++)
+        if (pools_dict(w, &w->info[i], ri.role.unit_len))
+            add_dict_member(w, &w->info[i]);
+    return 0;
 }
 
 /* Pool member k's name: an entry of this file (same unit length), else a ref, else none. */
@@ -141,7 +201,7 @@ static int build_pool(ingot_match_writer *w, size_t e) {
     size_t noff = w->opt->pool_layers ? (size_t)w->opt->pool_layer_count : 2;
     char name[MAX_NAME];
     size_t total = ingot_match_pool_names(lt->name, &ti->role, offs, noff, 0, name, sizeof(name));
-    ti->pool = calloc(total + 1, sizeof(*ti->pool));
+    ti->pool = calloc(total + 2, sizeof(*ti->pool));
     ti->deps = calloc(total + 1, sizeof(*ti->deps));
     if (!ti->pool || !ti->deps)
         return -INGOT_ENOMEM;
@@ -164,7 +224,8 @@ int ingot_match_writer_create(const ingot_encode_options *opt, const ingot_layou
     ingot_match_writer *w = calloc(1, sizeof(*w));
     if (!w)
         return -INGOT_ENOMEM;
-    *w = (ingot_match_writer){opt, layout, tensor_entry, entry_count, NULL, NULL, 0, 0};
+    *w = (ingot_match_writer){opt, layout, tensor_entry, entry_count, NULL, NULL, 0, 0,
+                              UINT32_MAX};
     w->info = calloc(entry_count ? entry_count : 1, sizeof(*w->info));
     int rc = w->info ? 0 : -INGOT_ENOMEM;
     size_t tensors = ingot_layout_count(layout);
@@ -177,6 +238,8 @@ int ingot_match_writer_create(const ingot_encode_options *opt, const ingot_layou
     for (size_t t = 0; !rc && t < tensors; t++)
         if (w->info[tensor_entry[t]].is_target)
             rc = build_pool(w, tensor_entry[t]);
+    if (!rc && opt->dict_ref && (opt->max_version == 0 || opt->max_version >= 5))
+        rc = add_dict(w);
     if (rc) {
         ingot_match_writer_free(w);
         return rc;
@@ -229,6 +292,15 @@ static int sketch_of(const uint16_t *view, const ingot_match_role *r, int thread
 static int load_ref(ingot_match_writer *w, ref_info *r) {
     if (r->data)
         return 0;
+    if (r->dict) { /* its first rows only */
+        r->data = malloc((size_t)r->e.source_size);
+        int rc = r->data ? ingot_base_set_read_prefix(w->opt->refs, &r->t, r->data,
+                                                      (size_t)r->e.source_size)
+                         : -INGOT_ENOMEM;
+        if (!rc)
+            r->e.hash = ingot_hash64(r->data, (size_t)r->e.source_size);
+        return rc == -INGOT_EUNSUPPORTED ? -INGOT_EBASE : rc;
+    }
     const uint8_t *buf = NULL;
     int rc = ingot_base_set_load(w->opt->refs, &r->t, &buf);
     if (rc)
@@ -287,6 +359,7 @@ static int prepare_member(ingot_match_writer *w, const pool_member *m, size_t ta
                                   r->role.units, (const uint16_t *)(const void *)r->data,
                                   in->unit_major, 0};
         out->src_entry[s] = &r->e;
+        out->no_aligned[s] = (uint8_t)r->dict;
         pool[s] = (ingot_match_pool){r->sketch, m->aligned_only ? 0 : r->role.units, 0};
     } else {
         size_t j = m->kind == MEMBER_SELF ? target : m->id;
@@ -347,7 +420,7 @@ static const uint64_t SELF_OFFSETS[] = {1, 2, 32, 64, 128, 256};
 static uint32_t aligned_count(const ingot_writer_match *out, uint64_t twin) {
     uint32_t n = sizeof(SELF_OFFSETS) / sizeof(SELF_OFFSETS[0]);
     for (uint32_t s = 0; s < out->source_count; s++)
-        if (out->src[s].units == out->units)
+        if (out->src[s].units == out->units && !out->no_aligned[s])
             n += out->src[s].self ? (twin ? 1 : 0) : (twin ? 3 : 1);
     return n;
 }
@@ -359,7 +432,7 @@ static void add_aligned_candidates(ingot_writer_match *out, uint32_t first, uint
         uint8_t *cs = out->cand.source + u * per;
         uint64_t *ci = out->cand.index + u * per;
         for (uint32_t s = 0; s < out->source_count; s++) {
-            if (out->src[s].units != out->units)
+            if (out->src[s].units != out->units || out->no_aligned[s])
                 continue;
             int self = out->src[s].self;
             if (!self) {
@@ -502,6 +575,17 @@ int ingot_match_writer_tail_write(const ingot_match_writer *w, const uint32_t *p
     free(count);
     free(src);
     return rc;
+}
+
+int ingot_match_writer_uses_dict(const ingot_match_writer *w) {
+    if (!w || w->dict_id == UINT32_MAX)
+        return 0;
+    uint32_t ref = (uint32_t)(w->entry_count + w->dict_id);
+    for (size_t i = 0; i < w->entry_count; i++)
+        for (uint32_t k = 0; k < w->info[i].used_count; k++)
+            if (w->info[i].used[k] == ref)
+                return 1;
+    return 0;
 }
 
 void ingot_match_writer_free(ingot_match_writer *w) {

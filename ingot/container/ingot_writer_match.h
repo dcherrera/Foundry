@@ -37,6 +37,7 @@ typedef struct {
     uint32_t source_count;
     ingot_match_input src[INGOT_MATCH_MAX_SOURCES];      /* ref = final directory reference */
     const ingot_entry *src_entry[INGOT_MATCH_MAX_SOURCES]; /* shape and size (self: the target) */
+    uint8_t no_aligned[INGOT_MATCH_MAX_SOURCES];         /* searched only (the dictionary) */
     ingot_match_candidates cand;                         /* owned; freed by done */
 } ingot_writer_match;
 
@@ -104,6 +105,13 @@ void ingot_match_writer_release_entry(ingot_match_writer *w, size_t i);
 size_t ingot_match_writer_tail_reserve(const ingot_match_writer *w);
 int ingot_match_writer_tail_write(const ingot_match_writer *w, const uint32_t *position,
                                   uint8_t *out, size_t size);
+
+/**
+ * 1 when a written payload names the dictionary (--dict-ref): the file is then version 5.
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+int ingot_match_writer_uses_dict(const ingot_match_writer *w);
 
 /**
  * Free (NULL is a no-op).

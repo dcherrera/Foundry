@@ -191,28 +191,14 @@ static int cached_entry(const ingot_reader *r, size_t j, ingot_base_set *base, i
     return 0;
 }
 
-/* External ref k from the reader's ref set, checked against its recorded hash. */
+/* External ref k from the reader's ref set (version 5: may be a row prefix), hash-checked. */
 static int cached_ref(const ingot_reader *r, uint32_t k, decode_cache *cache,
                       const uint8_t **data) {
-    const ingot_entry *e = &r->tail.refs[k];
-    ingot_base_tensor t;
-    if (!cache->ref[k]) {
-        if (!r->refs || ingot_base_set_find(r->refs, e->name, &t) || t.size != e->source_size ||
-            t.dtype != e->dtype)
-            return -INGOT_EBASE;
-        uint8_t *buf = malloc((size_t)(e->source_size ? e->source_size : 1));
-        int rc = buf ? ingot_base_set_read(r->refs, &t, 0, buf, (size_t)e->source_size)
-                     : -INGOT_ENOMEM;
-        if (!rc && ingot_hash64(buf, (size_t)e->source_size) != e->hash)
-            rc = -INGOT_EBASE;
-        if (rc) {
-            free(buf);
-            return rc == -INGOT_EUNSUPPORTED ? -INGOT_EBASE : rc;
-        }
-        cache->ref[k] = buf;
-    }
+    int rc = cache->ref[k] ? 0
+                           : ingot_base_set_load_ref(r->refs, &r->tail.refs[k],
+                                                     r->header.version >= 5, &cache->ref[k]);
     *data = cache->ref[k];
-    return 0;
+    return rc;
 }
 
 /* A predict or match entry: its sources first (each strictly earlier or external, so this
@@ -292,6 +278,21 @@ int ingot_reader_decode(const ingot_reader *r, size_t i, ingot_base_set *base, i
     free(cache.entry);
     free(cache.ref);
     return rc;
+}
+
+int ingot_reader_decode_prefix(const ingot_reader *r, size_t i, uint64_t n, int threads,
+                               uint8_t *out) {
+    if (!r || !out || i >= r->header.entry_count || n > r->entries[i].source_size)
+        return -INGOT_EINVAL;
+    const ingot_entry *e = &r->entries[i];
+    if (is_delta(e->mode) || e->mode == INGOT_MODE_PREDICT || e->mode == INGOT_MODE_MATCH)
+        return -INGOT_EUNSUPPORTED; /* not ref-free */
+    if (e->mode == INGOT_MODE_RAW) {
+        memcpy(out, r->map + e->payload_offset, (size_t)n);
+        return 0;
+    }
+    return ingot_tensor_decode_payload_prefix(e, r->map + e->payload_offset, e->payload_size,
+                                              r->header.version >= 2, n, threads, out);
 }
 
 /* macOS write(2) rejects counts above INT_MAX; larger tensors go in 1 GiB pieces. */

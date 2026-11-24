@@ -8,14 +8,16 @@
  *   ingot verify [opts] SRC [ORIG]    decode without writing; every hash + the sha256 (+ ORIG)
  *   ingot info SRC | st-ls HEADER | st-wrap NAME DTYPE AxB NBYTES
  *   opts: -j N, --base PATH (repeatable), --base-sha256 HEX, --check-base, --self-check, --measure,
- *         --policy auto|plain|delta, --no-predict, --max-version 3|4, --refs PATH (repeatable),
- *         --pool-layers LIST, --candidates N, --tensor-log FILE, -q
+ *         --policy auto|plain|delta, --no-predict, --max-version 3|4|5, --refs PATH (repeatable),
+ *         --pool-layers LIST, --candidates N, --dict-ref NAME, --dict-rows N, --dict-layers A-B,
+ *         --tensor-log FILE, -q
  *
  * @status Active
  * @issues None
  * @todo   None
  */
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +46,10 @@ typedef struct {
     long twin_offset;
     int no_self;
     long search_layers;
+    const char *dict_ref;
+    uint64_t dict_rows;
+    long dict_first;
+    long dict_last;
     uint8_t base_sha256[32];
     int has_base_sha256;
     int check_base;
@@ -93,8 +99,24 @@ static int parse_layers(const char *s, cli_options *o) {
     return 0;
 }
 
+/* "48-63" -> layers 48 .. 63 (inclusive); "5" -> layer 5 only. */
+static int parse_layer_range(const char *s, long *first, long *last) {
+    char *end = NULL;
+    *first = strtol(s, &end, 10);
+    if (end == s || *first < 0)
+        return -1;
+    *last = *first;
+    if (*end == '-') {
+        const char *at = end + 1;
+        *last = strtol(at, &end, 10);
+        if (end == at)
+            return -1;
+    }
+    return *end || *last < *first ? -1 : 0;
+}
+
 static int parse_options(int argc, char **argv, cli_options *o) {
-    *o = (cli_options){.threads = 4, .pool_layer_count = -1};
+    *o = (cli_options){.threads = 4, .pool_layer_count = -1, .dict_last = LONG_MAX};
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
         int has_value = i + 1 < argc;
@@ -109,7 +131,14 @@ static int parse_options(int argc, char **argv, cli_options *o) {
                 return -1;
         } else if (!strcmp(a, "--max-version") && has_value) {
             o->max_version = atoi(argv[++i]);
-            if (o->max_version != 3 && o->max_version != 4)
+            if (o->max_version < 3 || o->max_version > INGOT_VERSION)
+                return -1;
+        } else if (!strcmp(a, "--dict-ref") && has_value) {
+            o->dict_ref = argv[++i];
+        } else if (!strcmp(a, "--dict-rows") && has_value) {
+            o->dict_rows = strtoull(argv[++i], NULL, 10);
+        } else if (!strcmp(a, "--dict-layers") && has_value) {
+            if (parse_layer_range(argv[++i], &o->dict_first, &o->dict_last))
                 return -1;
         } else if (!strcmp(a, "--search-layers") && has_value) {
             o->search_layers = atol(argv[++i]);
@@ -263,6 +292,10 @@ static int cmd_encode(const cli_options *o) {
                                 .match_twin_offset = o->twin_offset,
                                 .match_no_self = o->no_self,
                                 .match_search_layers = o->search_layers,
+                                .dict_ref = o->dict_ref,
+                                .dict_rows = o->dict_rows,
+                                .dict_first = o->dict_first,
+                                .dict_last = o->dict_last,
                                 .exact_v2 = o->measure || o->tensor_log != NULL,
                                 .progress = o->quiet ? NULL : ingot_cli_progress,
                                 .progress_ctx = (void *)"encode"};
@@ -449,9 +482,14 @@ static void usage(void) {
             "                            a full round-trip check that needs no disk)\n"
             "       --policy auto|plain|delta   encode mode policy (default auto)\n"
             "       --no-predict         encode: no cross-tensor prediction (a version 2 file)\n"
-            "       --max-version 3|4    encode: newest format (default 4: match mode)\n"
-            "       --refs PATH          earlier files of the model (match sources outside this\n"
+            "       --max-version 3|4|5  encode: newest format (default 5; 4: no --dict-ref)\n"
+            "       --refs PATH          other files of the model (match sources outside this\n"
             "                            file; encode and decode; repeat)\n"
+            "       --dict-ref NAME      encode: a ref tensor whose rows join the match pool\n"
+            "                            (e.g. lm_head.weight; decode then needs its file or\n"
+            "                            .ingot in --refs; the file is version 5)\n"
+            "       --dict-rows N        encode: only its first N rows (default all)\n"
+            "       --dict-layers A-B    encode: only for layer roles in layers A..B\n"
             "       --pool-layers LIST   encode: match pool layer offsets (default 1,16)\n"
             "       --candidates N       encode: searched partner candidates per unit (32)\n"
             "       --twin-offset N      encode: also try units u -+ N (grown models; Qwen3.5-27B\n"

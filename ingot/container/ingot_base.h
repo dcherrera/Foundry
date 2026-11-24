@@ -87,6 +87,33 @@ int ingot_base_set_read(ingot_base_set *b, const ingot_base_tensor *t, uint64_t 
 int ingot_base_set_load(ingot_base_set *b, const ingot_base_tensor *t, const uint8_t **data);
 
 /**
+ * Bytes [0, n) of a ref-free tensor into buf: a model file tensor, or a raw / plain / quant .ingot
+ * entry (only the blocks covering them are decoded; no whole-tensor buffer).
+ *
+ * @return 0, -INGOT_EINVAL, -INGOT_EUNSUPPORTED (an .ingot entry with a base or sources of its
+ *         own: delta, predict, match), or an i/o or decode error
+ *
+ * Thread-safe: no   Reentrant: no   Signal-safe: no
+ */
+int ingot_base_set_read_prefix(ingot_base_set *b, const ingot_base_tensor *t, void *buf,
+                               size_t n);
+
+/**
+ * An external ref of a match entry (name, dtype, ndim, shape, source_size, hash) into a new
+ * buffer (*out, freed by the caller). The tensor found by name must be ref-free and have the
+ * ref's dtype and size; with allow_prefix (version 5) it may instead be a 2-D tensor with the
+ * ref's row length and more rows, of which the ref is the first rows. The bytes read must hash to
+ * the ref's hash.
+ *
+ * @return 0, -INGOT_EBASE (missing, other shape, not ref-free, or wrong hash), -INGOT_ENOMEM, or
+ *         an i/o or decode error
+ *
+ * Thread-safe: no   Reentrant: no   Signal-safe: no
+ */
+int ingot_base_set_load_ref(ingot_base_set *b, const ingot_entry *ref, int allow_prefix,
+                            uint8_t **out);
+
+/**
  * The single model file of the set, if it holds exactly one .safetensors / .gguf file and no
  * .ingot file: its size, and its SHA-256 (hashing the whole file, or for a forward-only file the
  * rest of it, which ends any further reads).

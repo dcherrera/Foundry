@@ -20,6 +20,7 @@
 #include "ingot/container/ingot_layout.h"
 #include "ingot/container/ingot_reader.h"
 #include "ingot/core/ingot_error.h"
+#include "ingot/core/ingot_hash.h"
 #include "ingot/core/ingot_input.h"
 #include "tt/convert/ft_sha256.h"
 
@@ -218,6 +219,56 @@ int ingot_base_set_load(ingot_base_set *b, const ingot_base_tensor *t, const uin
     if (!rc)
         *data = b->buffer;
     return rc;
+}
+
+int ingot_base_set_read_prefix(ingot_base_set *b, const ingot_base_tensor *t, void *buf,
+                               size_t n) {
+    if (!b || !t || !buf || t->file >= b->count || n > t->size)
+        return -INGOT_EINVAL;
+    const base_file *f = &b->files[t->file];
+    if (f->layout) {
+        const ingot_layout_tensor *lt = ingot_layout_tensor_at(f->layout, t->index);
+        return ingot_input_read_at(f->input, lt->offset, buf, n);
+    }
+    return ingot_reader_decode_prefix(f->reader, t->index, n, b->threads, buf);
+}
+
+/* Does found tensor t hold ref: its dtype and size, or (allow_prefix) a 2-D tensor with the
+ * ref's row length and more rows, the ref being its first rows? */
+static int holds_ref(const ingot_base_set *b, const ingot_base_tensor *t, const ingot_entry *ref,
+                     int allow_prefix) {
+    int ndim = 0;
+    uint64_t shape[INGOT_MAX_DIMS] = {0};
+    if (t->dtype != ref->dtype || ingot_base_set_shape(b, t, &ndim, shape))
+        return 0;
+    if (t->size == ref->source_size)
+        return 1;
+    return allow_prefix && ndim == 2 && ref->ndim == 2 && shape[1] == ref->shape[1] &&
+           shape[0] > ref->shape[0] && ref->source_size * shape[0] == t->size * ref->shape[0];
+}
+
+int ingot_base_set_load_ref(ingot_base_set *b, const ingot_entry *ref, int allow_prefix,
+                            uint8_t **out) {
+    ingot_base_tensor t;
+    if (!out)
+        return -INGOT_EINVAL;
+    *out = NULL;
+    if (!b || !ref || ingot_base_set_find(b, ref->name, &t) ||
+        !holds_ref(b, &t, ref, allow_prefix))
+        return -INGOT_EBASE;
+    size_t n = (size_t)ref->source_size;
+    uint8_t *buf = malloc(n ? n : 1);
+    if (!buf)
+        return -INGOT_ENOMEM;
+    int rc = ingot_base_set_read_prefix(b, &t, buf, n);
+    if (!rc && ingot_hash64(buf, n) != ref->hash)
+        rc = -INGOT_EBASE;
+    if (rc) {
+        free(buf);
+        return rc == -INGOT_EUNSUPPORTED ? -INGOT_EBASE : rc;
+    }
+    *out = buf;
+    return 0;
 }
 
 static const base_file *single_model_file(const ingot_base_set *b) {

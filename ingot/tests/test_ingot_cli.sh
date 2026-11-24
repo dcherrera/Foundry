@@ -53,9 +53,9 @@ cp "$N/m.safetensors.ingot" "$N/blob"
 check "renamed file still verifies" "$INGOT" verify "$N/blob" "$N/orig.safetensors"
 refuse "decode without .ingot suffix needs DST" "$INGOT" decode "$N/blob"
 check "renamed file decodes with DST" "$INGOT" decode "$N/blob" "$N/blob.safetensors"
-printf '\005' | dd of="$N/blob" bs=1 seek=4 conv=notrunc 2>/dev/null   # version 2 -> 5
+printf '\006' | dd of="$N/blob" bs=1 seek=4 conv=notrunc 2>/dev/null   # version 2 -> 6
 refuse "unknown format version refused" "$INGOT" verify "$N/blob"
-check "unknown version is named" grep -q "unsupported .ingot format version 5" \
+check "unknown version is named" grep -q "unsupported .ingot format version 6" \
     <("$INGOT" info "$N/blob" 2>&1)
 check "non-ingot file is named" grep -q "not an .ingot file" \
     <("$INGOT" info "$N/orig.safetensors" 2>&1)
@@ -110,6 +110,22 @@ check "decode a version 4 file from stdin" sh -c "\"$INGOT\" decode -q - \"$P/p4
 check "stdin version 4 round trip byte-identical" cmp "$P/p4.st" "$D/pred.safetensors"
 check "version 4 not larger than version 3" sh -c \
     "[ \$(wc -c < \"$P/p4.ingot\") -le \$(wc -c < \"$P/p.ingot\") ]"
+
+# Dictionary (version 5): the dictionary is a tensor of another file, decoded from its .ingot
+# (files from test_ingot_dict).
+[ -s "$D/dtarget.safetensors" ] || { echo "run test_ingot_dict first"; exit 1; }
+DICT=(--dict-ref lm_head.weight --dict-rows 600 --dict-layers 0-63)
+check "encode with a dictionary" "$INGOT" encode -q --self-check --refs "$D/zdict.safetensors" \
+    "${DICT[@]}" "$D/dtarget.safetensors" "$P/d5.ingot"
+check "info names version 5" grep -q "version 5" <("$INGOT" info "$P/d5.ingot")
+check "verify with the dictionary's .ingot" "$INGOT" verify -q --refs "$D/zdict.ingot" \
+    "$P/d5.ingot" "$D/dtarget.safetensors"
+refuse "verify without the dictionary" "$INGOT" verify -q "$P/d5.ingot"
+refuse "dictionary layers out of order" "$INGOT" encode -q --measure --dict-layers 9-3 \
+    "$D/dtarget.safetensors"
+check "max-version 4: no dictionary" "$INGOT" encode -q --max-version 4 \
+    --refs "$D/zdict.safetensors" "${DICT[@]}" "$D/dtarget.safetensors" "$P/d4.ingot"
+check "info names version 4" grep -q "version 4" <("$INGOT" info "$P/d4.ingot")
 
 echo "cli: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

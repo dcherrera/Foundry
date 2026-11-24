@@ -111,6 +111,18 @@ int ingot_reader_decode(const ingot_reader *r, size_t i, ingot_base_set *base, i
                         uint8_t *out);
 
 /**
+ * Decode bytes [0, n) of a ref-free entry i (raw, plain or quant: no base, no sources) by random
+ * access: only the blocks covering them. No hash check (the caller checks what it reads).
+ *
+ * @return 0, -INGOT_EUNSUPPORTED (the entry has a base or sources), -INGOT_EINVAL, or a decode
+ *         error
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: no
+ */
+int ingot_reader_decode_prefix(const ingot_reader *r, size_t i, uint64_t n, int threads,
+                               uint8_t *out);
+
+/**
  * The ref set match entries read their external refs from (version 4; NULL: none). A match
  * entry decodes its sources first (each once per ingot_reader_decode call).
  *
