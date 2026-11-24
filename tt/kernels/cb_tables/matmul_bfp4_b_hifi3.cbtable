@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 David (Corey) Herrera
-# matmul_bfp4_b_hifi3.cbtable — P-SWAP PROBE ONLY (Nex-n2 qwen38_tt_prefill_rework_spec.md §3); never shipped.
+# matmul_bfp4_b_hifi3.cbtable — P-SWAP PROBE ONLY; never shipped.
 #   matmul_bfp4_b.cbtable at HiFi3: does phase 4 multiply zero with Bfp4 in SrcA (the PV case)?
 #   Read only by tests/test_fidelity_swap.c. Format: tools/emit_tensix_cb_formats.py
 
