@@ -32,6 +32,9 @@
  *      how many candidates beat it; distinct under the total order) and
  *      writes rank r < k to slot r. A row whose candidates overflow
  *      FC_TOPK_CAND_CAP (mass ties at T) reports status 1.
+ *   Optionally stage 2 also flags each row that holds a NaN (the selection
+ *   skips NaN, so the pairs alone cannot show one): nan[u] = 1, zeroed by
+ *   stage 1. The fallback tree does not check.
  * Fallback for an overflowed row (or more than FC_TOPK_FAST_MAXBLK chunks):
  * a tree of fc_topk_select launches — each block emits its chunk's top-k by
  * k rounds of block argmax, later levels merge until one block per row is
@@ -108,11 +111,12 @@ __device__ __forceinline__ void fc_topk_load(const float *row, int p, int m,
  * e:      elements per thread; chunk = blockDim.x * e
  * bv/bi:  [nslots][gridDim.x] chunk maxima (output)
  * count:  [nslots] candidate counters, zeroed here for stage 2
+ * nan:    [nslots] NaN flags, zeroed here for stage 2, or NULL
  *
  * Grid (ceil(n / chunk), nslots); blockDim.x a multiple of 32, <= 1024.
  */
 __global__ void fc_topk_blockmax(const float *x, int n, int e,
-                                 float *bv, int *bi, int *count)
+                                 float *bv, int *bi, int *count, int *nan)
 {
     __shared__ float s_v[32];
     __shared__ int   s_i[32];
@@ -139,8 +143,11 @@ __global__ void fc_topk_blockmax(const float *x, int n, int e,
         if (lane == 0) {
             bv[(size_t)blockIdx.y * gridDim.x + blockIdx.x] = wv;
             bi[(size_t)blockIdx.y * gridDim.x + blockIdx.x] = wi;
-            if (blockIdx.x == 0)
+            if (blockIdx.x == 0) {
                 count[blockIdx.y] = 0;
+                if (nan)
+                    nan[blockIdx.y] = 0;
+            }
         }
     }
 }
@@ -155,12 +162,13 @@ __global__ void fc_topk_blockmax(const float *x, int n, int e,
  * bv/bi:    [nslots][gridDim.x] chunk maxima from stage 1
  * cv/ci:    [nslots][FC_TOPK_CAND_CAP] candidates (output, any order)
  * count:    [nslots] appended count (may exceed the cap: overflow)
+ * nan:      [nslots] set to 1 when the row holds a NaN, or NULL
  *
  * Shared memory: gridDim.x <= FC_TOPK_FAST_MAXBLK maxima.
  */
 __global__ void fc_topk_filter(const float *x, int n, int e, const float *bv,
                                const int *bi, int k, float *cv, int *ci,
-                               int *count)
+                               int *count, int *nan)
 {
     __shared__ float s_bv[FC_TOPK_FAST_MAXBLK];
     __shared__ int   s_bi[FC_TOPK_FAST_MAXBLK];
@@ -196,7 +204,13 @@ __global__ void fc_topk_filter(const float *x, int n, int e, const float *bv,
     for (int j = 0; j < e; j++) {
         float a;
         int ai;
-        fc_topk_load(row, base + j * blockDim.x, n, &a, &ai);
+        int p = base + j * blockDim.x;
+        if (nan) {
+            unsigned int nm = __ballot(p < n && row[p] != row[p]);
+            if (nm && lane == __ffs(nm) - 1)
+                nan[u] = 1;
+        }
+        fc_topk_load(row, p, n, &a, &ai);
         int keep = ai != FC_TOPK_NO_WINNER && !fc_topk_beats(tv, ti, a, ai);
         unsigned int mask = __ballot(keep);
         if (mask == 0)

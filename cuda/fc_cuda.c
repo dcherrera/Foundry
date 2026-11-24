@@ -3698,8 +3698,9 @@ static CUresult fc_topk_fetch(fc_cuda_ctx *ctx, CUdeviceptr d_oval,
     return err;
 }
 
-int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
-                             int n, int k, int *out_idx, float *out_val)
+int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                                 int n, int k, int *out_idx, float *out_val,
+                                 int *out_nan)
 {
     if (!fc_cuda_ctx_available(ctx) || !ctx->kern_topk_select ||
         !logits || !out_idx || !out_val ||
@@ -3721,14 +3722,14 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     /* Scratch, int32/f32 words: tree levels 2 x [nslots][nblk0*k] (val|idx)
      * | fast maxima [nslots][nblkf] (val|idx) | candidates [nslots][CAP]
      * (val|idx) | count [nslots] | out [nslots][k] val | idx | status
-     * [nslots]. Later tree levels only shrink. */
+     * [nslots] | nan [nslots]. Later tree levels only shrink. */
     size_t lvl = (size_t)nslots * nblk0 * k;
     size_t mxn = (size_t)nslots * nblkf;
     size_t cnd = (size_t)nslots * FC_TOPK_CAND_CAP;
     size_t outn = (size_t)nslots * k;
-    size_t words = 4 * lvl + 2 * mxn + 2 * cnd + nslots + 2 * outn + nslots;
+    size_t words = 4 * lvl + 2 * mxn + 2 * cnd + nslots + 2 * outn + 2 * nslots;
     size_t bytes = words * sizeof(int32_t);
-    int32_t *tmp = malloc((2 * outn + nslots) * sizeof(int32_t));
+    int32_t *tmp = malloc((2 * outn + 2 * (size_t)nslots) * sizeof(int32_t));
     if (!tmp)
         return -1;
 
@@ -3764,18 +3765,19 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     CUdeviceptr d_oval = d_cnt + (size_t)nslots * W;
     CUdeviceptr d_oidx = d_oval + outn * W;
     CUdeviceptr d_stat = d_oidx + outn * W;
+    CUdeviceptr d_nan = out_nan ? d_stat + (size_t)nslots * W : 0;
 
     CUresult err = CUDA_SUCCESS;
     int done = 0;
     if (fast) {
         int threads = FC_TOPK_THREADS0;
-        void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt };
+        void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt, &d_nan };
         err = fcw_cuLaunchKernel(ctx->kern_topk_blockmax,
                                (unsigned int)nblkf, (unsigned int)nslots, 1,
                                (unsigned int)threads, 1, 1,
                                0, ctx->stream, margs, NULL);
         void *fargs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &k,
-                          &d_cv, &d_ci, &d_cnt };
+                          &d_cv, &d_ci, &d_cnt, &d_nan };
         if (err == CUDA_SUCCESS)
             err = fcw_cuLaunchKernel(ctx->kern_topk_filter,
                                    (unsigned int)nblkf, (unsigned int)nslots, 1,
@@ -3789,12 +3791,14 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
                                    (unsigned int)threads, 1, 1,
                                    0, ctx->stream, rargs, NULL);
         if (err == CUDA_SUCCESS)
-            err = fc_topk_fetch(ctx, d_oval, outn, (size_t)nslots, tmp);
+            err = fc_topk_fetch(ctx, d_oval, outn,
+                                (size_t)nslots * (out_nan ? 2 : 1), tmp);
         done = err == CUDA_SUCCESS;
         for (int u = 0; done && u < nslots; u++)
             if (tmp[2 * outn + u] != 0)
                 done = 0;               /* a row overflowed: take the tree */
     }
+    const int fast_done = done;
 
     CUdeviceptr in_val = logits->dptr, in_idx = 0;
     int m = n, e = e0, threads = FC_TOPK_THREADS0, nblk = nblk0;
@@ -3824,6 +3828,9 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     if (err == CUDA_SUCCESS) {
         memcpy(out_val, tmp, outn * sizeof(float));
         memcpy(out_idx, tmp + outn, outn * sizeof(int));
+        /* The tree does not check for NaN: -1 = unknown. */
+        for (int u = 0; out_nan && u < nslots; u++)
+            out_nan[u] = fast_done ? tmp[2 * outn + nslots + u] : -1;
     }
     free(tmp);
     if (err != CUDA_SUCCESS) {
@@ -3831,6 +3838,13 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
         return -1;
     }
     return fc_topk_check_rows(out_idx, nslots, k, n);
+}
+
+int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                             int n, int k, int *out_idx, float *out_val)
+{
+    return fc_topk_logits_slots_nan_ctx(ctx, logits, nslots, n, k, out_idx, out_val,
+                                        NULL);
 }
 
 int fc_topk_logits_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int n, int k,
