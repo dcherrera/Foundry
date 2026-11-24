@@ -1533,6 +1533,12 @@ int fc_graph_launch(fc_graph *g);
 
 void fc_graph_free(fc_graph *g);
 
+/* Node census of a captured graph, taken at instantiation: the count of nodes of
+ * CUgraphNodeType `type` (0 kernel, 1 memcpy, 2 memset, 5 empty, 6 event wait,
+ * 7 event record), or of all nodes for type < 0. 0 when unknown. */
+#define FC_GRAPH_NODE_TYPES 12
+size_t fc_graph_node_count(const fc_graph *g, int type);
+
 /* ================================================================
  * CUDA events — non-blocking completion
  *
@@ -1591,6 +1597,29 @@ int fc_event_sync(fc_event *ev);
 int fc_event_wait_ctx(fc_cuda_ctx *waiter, fc_event *ev);
 
 void fc_event_free(fc_event *ev);
+
+/* Timing events: a timing-enabled fc_event, for measuring GPU time between two points
+ * of one stream (free with fc_event_free; fc_event_sync works on it). Recorded while
+ * ctx's stream is being captured, it becomes an event-record node that every replay of
+ * the graph re-records. NULL when the driver lacks the timing symbols.
+ * fc_tevent_elapsed_ms: ms between two completed records of one ctx's events; returns
+ * 0, or -1 (different contexts, not yet complete, or unavailable). */
+fc_event *fc_tevent_create_ctx(fc_cuda_ctx *ctx);
+int fc_tevent_record_ctx(fc_cuda_ctx *ctx, fc_event *ev);
+int fc_tevent_elapsed_ms(fc_event *from, fc_event *to, float *ms);
+
+/* Call census: counts of the driver calls that cost host time, taken only while enabled
+ * (off by default; off, each counted call pays one branch): kernel launches (direct, or captured into a graph), graph launches, explicit
+ * synchronizes (stream, context, event), and memcpys by kind with their bytes. The blocking
+ * HtoD / DtoH copies (h2d_sync, d2h_sync) also wait on the host. Read by snapshot and diff. */
+typedef struct {
+    unsigned long long launches, graph_launches, syncs;
+    unsigned long long h2d_sync, h2d_async, h2d_bytes;
+    unsigned long long d2h_sync, d2h_async, d2h_bytes;
+    unsigned long long d2d, d2d_bytes, peer, peer_bytes;
+} fc_call_census;
+void fc_call_census_enable(int on);
+void fc_call_census_read(fc_call_census *out);
 
 /* ================================================================
  * Synchronization

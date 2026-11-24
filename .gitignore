@@ -96,6 +96,7 @@ cuda/tests/test_matvec_q80_ksplit
 cuda/tests/bench_q80_ksplit
 cuda/tests/test_copy_2d_graph
 cuda/tests/test_xchg_2d
+cuda/tests/test_call_census
 cuda/tests/test_moe_q80_rowsplit
 
 # scale-test corpus (100MB, not source)
