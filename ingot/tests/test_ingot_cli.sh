@@ -53,9 +53,9 @@ cp "$N/m.safetensors.ingot" "$N/blob"
 check "renamed file still verifies" "$INGOT" verify "$N/blob" "$N/orig.safetensors"
 refuse "decode without .ingot suffix needs DST" "$INGOT" decode "$N/blob"
 check "renamed file decodes with DST" "$INGOT" decode "$N/blob" "$N/blob.safetensors"
-printf '\004' | dd of="$N/blob" bs=1 seek=4 conv=notrunc 2>/dev/null   # version 2 -> 4
+printf '\005' | dd of="$N/blob" bs=1 seek=4 conv=notrunc 2>/dev/null   # version 2 -> 5
 refuse "unknown format version refused" "$INGOT" verify "$N/blob"
-check "unknown version is named" grep -q "unsupported .ingot format version 4" \
+check "unknown version is named" grep -q "unsupported .ingot format version 5" \
     <("$INGOT" info "$N/blob" 2>&1)
 check "non-ingot file is named" grep -q "not an .ingot file" \
     <("$INGOT" info "$N/orig.safetensors" 2>&1)
@@ -87,7 +87,7 @@ check "truncated file is named" grep -q "truncated or incomplete download" <("$I
 P="$D/cli_pred"
 rm -rf "$P" && mkdir -p "$P"
 [ -s "$D/pred.safetensors" ] || { echo "run test_ingot_predict first"; exit 1; }
-check "encode with prediction + tensor log" "$INGOT" encode -q --self-check \
+check "encode with prediction + tensor log" "$INGOT" encode -q --self-check --max-version 3 \
     --tensor-log "$P/log.tsv" "$D/pred.safetensors" "$P/p.ingot"
 check "info names version 3 and predict tensors" sh -c \
     "\"$INGOT\" info \"$P/p.ingot\" | grep -q 'version 3' && \"$INGOT\" info \"$P/p.ingot\" | grep -q predict"
@@ -99,6 +99,17 @@ check "tensor log: one line per entry, 5 predicted below their v2 size" awk -F'\
     "$P/log.tsv"
 check "policy plain predicts nothing" sh -c \
     "! \"$INGOT\" encode -q --measure --policy plain \"$D/pred.safetensors\" | grep -q predict"
+
+# Match (version 4): the same file through the default writer.
+check "encode version 4 (match)" "$INGOT" encode -q --self-check --tensor-log "$P/log4.tsv" \
+    "$D/pred.safetensors" "$P/p4.ingot"
+check "info names version 4 and match tensors" sh -c \
+    "\"$INGOT\" info \"$P/p4.ingot\" | grep -q 'version 4' && \"$INGOT\" info \"$P/p4.ingot\" | grep -q match"
+check "verify a version 4 file against its source" "$INGOT" verify -q "$P/p4.ingot" "$D/pred.safetensors"
+check "decode a version 4 file from stdin" sh -c "\"$INGOT\" decode -q - \"$P/p4.st\" < \"$P/p4.ingot\""
+check "stdin version 4 round trip byte-identical" cmp "$P/p4.st" "$D/pred.safetensors"
+check "version 4 not larger than version 3" sh -c \
+    "[ \$(wc -c < \"$P/p4.ingot\") -le \$(wc -c < \"$P/p.ingot\") ]"
 
 echo "cli: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

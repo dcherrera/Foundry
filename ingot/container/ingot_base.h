@@ -108,6 +108,15 @@ int ingot_base_set_identity(ingot_base_set *b, uint64_t *size, uint8_t sha256[32
 int ingot_base_set_single_size(const ingot_base_set *b, uint64_t *size);
 
 /**
+ * Shape of a found tensor (ndim, and INGOT_MAX_DIMS entries of shape).
+ * @return 0 or -INGOT_EINVAL
+ *
+ * Thread-safe: yes   Reentrant: yes   Signal-safe: yes
+ */
+int ingot_base_set_shape(const ingot_base_set *b, const ingot_base_tensor *t, int *ndim,
+                         uint64_t *shape);
+
+/**
  * Number of opened source files.
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes

@@ -21,6 +21,7 @@
 #include "ingot/container/ingot_header.h"
 #include "ingot/container/ingot_layout.h"
 #include "ingot/container/ingot_predict_rules.h"
+#include "ingot/container/ingot_writer_match.h"
 #include "ingot/container/ingot_writer_tensor.h"
 #include "ingot/core/ingot_error.h"
 #include "ingot/core/ingot_hash.h"
@@ -29,7 +30,8 @@ enum { COPY_CHUNK = 1 << 20 };
 
 /* Scheduling state of one entry (source order). */
 typedef struct {
-    int has_rule;               /* a dependent: predicted from partners */
+    int has_rule;               /* a dependent: predicted from partners (version 3 rules) */
+    int has_match;              /* a match target: waits for its pool entries in this file */
     ingot_predict_geometry geom;
     size_t partner[INGOT_PREDICT_MAX_PARTNERS]; /* entry indices */
     uint32_t dependents;        /* dependents not yet written */
@@ -50,6 +52,8 @@ typedef struct {
     size_t pending;
     size_t *tensor_entry; /* layout tensor index -> entry index */
     int64_t v2_saved; /* padded payload bytes predict saved over the best other modes */
+    ingot_match_writer *match; /* match mode (version 4), or NULL */
+    size_t tail_bytes;         /* reserved for the version 4 directory tail */
 } entry_list;
 
 static ingot_entry *entry_push(entry_list *l) {
@@ -120,6 +124,18 @@ static int plan_entries(const ingot_encode_options *opt, const ingot_layout *lay
     if (!l->plans || !l->order)
         return -INGOT_ENOMEM;
     int predict = !opt->no_predict && opt->policy != INGOT_POLICY_PLAIN;
+    if (predict && opt->max_version != 3) {
+        int rc = ingot_match_writer_create(opt, layout, l->tensor_entry, l->count, &l->match);
+        for (size_t i = 0; !rc && i < l->count; i++) {
+            const size_t *deps = NULL;
+            uint32_t n = ingot_match_writer_deps(l->match, i, &deps);
+            l->plans[i].has_match = ingot_match_writer_is_target(l->match, i);
+            for (uint32_t k = 0; k < n; k++)
+                l->plans[deps[k]].dependents++;
+        }
+        l->tail_bytes = rc ? 0 : ingot_match_writer_tail_reserve(l->match);
+        return rc;
+    }
     for (size_t t = 0; predict && t < ingot_layout_count(layout); t++) {
         size_t partner[INGOT_PREDICT_MAX_PARTNERS] = {0};
         entry_plan *p = &l->plans[l->tensor_entry[t]];
@@ -224,7 +240,19 @@ static int ready(const entry_list *l, size_t i) {
     for (uint32_t j = 0; p->has_rule && j < p->geom.partner_count; j++)
         if (!l->plans[p->partner[j]].emitted)
             return 0;
+    const size_t *deps = NULL;
+    uint32_t n = p->has_match ? ingot_match_writer_deps(l->match, i, &deps) : 0;
+    for (uint32_t k = 0; k < n; k++)
+        if (!l->plans[deps[k]].emitted)
+            return 0;
     return 1;
+}
+
+/* Free a held entry's bytes (and its match caches). */
+static void drop_data(entry_list *l, size_t i) {
+    free(l->plans[i].data);
+    l->plans[i].data = NULL;
+    ingot_match_writer_release_entry(l->match, i);
 }
 
 /* Entry i's payload is written: give it the next directory position, report it, release
@@ -244,16 +272,41 @@ static int finish_emit(const ingot_encode_options *opt, encode_io *io, entry_lis
     l->order[l->emitted++] = i;
     for (uint32_t j = 0; p->has_rule && j < p->geom.partner_count; j++) {
         entry_plan *q = &l->plans[p->partner[j]];
-        if (--q->dependents == 0) {
-            free(q->data);
-            q->data = NULL;
-        }
+        if (--q->dependents == 0)
+            drop_data(l, p->partner[j]);
     }
-    if (!p->dependents) {
-        free(p->data);
-        p->data = NULL;
+    int rc = 0;
+    if (p->has_match) {
+        const size_t *deps = NULL;
+        uint32_t n = ingot_match_writer_deps(l->match, i, &deps);
+        for (uint32_t k = 0; k < n; k++)
+            if (--l->plans[deps[k]].dependents == 0)
+                drop_data(l, deps[k]);
+        rc = ingot_match_writer_note_used(l->match, i, coded ? coded->match_refs : NULL,
+                                          coded && e->mode == INGOT_MODE_MATCH
+                                              ? coded->match_ref_count
+                                              : 0);
     }
-    return ingot_sink_pad(&io->sink, 8);
+    if (!p->dependents)
+        drop_data(l, i);
+    return rc ? rc : ingot_sink_pad(&io->sink, 8);
+}
+
+/* A match target's sources and candidates: every held entry's bytes and position. */
+static int prepare_match(entry_list *l, size_t i, const uint8_t *data, ingot_writer_match *m) {
+    const uint8_t **held = calloc(l->count ? l->count : 1, sizeof(*held));
+    uint32_t *position = calloc(l->count ? l->count : 1, sizeof(*position));
+    int rc = held && position ? 0 : -INGOT_ENOMEM;
+    for (size_t j = 0; !rc && j < l->count; j++) {
+        held[j] = l->plans[j].data;
+        position[j] = l->plans[j].position;
+    }
+    if (!rc)
+        rc = ingot_match_writer_prepare(l->match, i, data, l->items,
+                                        (const uint8_t *const *)held, position, m);
+    free(held);
+    free(position);
+    return rc;
 }
 
 /* Code a buffered tensor (with its partners when it is a dependent) and write the payload. */
@@ -270,10 +323,16 @@ static int emit_tensor(const ingot_encode_options *opt, encode_io *io, entry_lis
     }
     ingot_sink payload = {.fd = INGOT_SINK_MEMORY};
     ingot_writer_coded coded;
+    ingot_writer_match match = {0};
     e->payload_offset = io->sink.pos;
     e->hash = ingot_hash64(data, (size_t)e->source_size);
-    int rc = ingot_writer_code_tensor(opt, e, data, p->has_rule ? &partners : NULL, &payload,
+    int rc = p->has_match ? prepare_match(l, i, data, &match) : 0;
+    partners.match = p->has_match ? &match : NULL;
+    if (!rc)
+        rc = ingot_writer_code_tensor(opt, e, data,
+                                      p->has_rule || p->has_match ? &partners : NULL, &payload,
                                       &coded);
+    ingot_match_writer_done(&match);
     if (!rc)
         rc = ingot_sink_write(&io->sink, payload.mem, (size_t)payload.pos);
     free(payload.mem);
@@ -333,20 +392,34 @@ static int write_directory(ingot_sink *s, const entry_list *l, uint64_t at, uint
     uint64_t used = 0;
     for (size_t k = 0; k < l->count; k++)
         used += ingot_entry_write(&l->items[l->order[k]], dir + used);
-    int rc = used == size ? ingot_sink_write_at(s, at, dir, (size_t)size) : -INGOT_EFORMAT;
+    int rc = used + l->tail_bytes == size ? 0 : -INGOT_EFORMAT;
+    uint32_t *position =
+        l->tail_bytes ? calloc(l->count ? l->count : 1, sizeof(uint32_t)) : NULL;
+    if (!rc && l->tail_bytes && !position)
+        rc = -INGOT_ENOMEM;
+    for (size_t k = 0; !rc && position && k < l->count; k++)
+        position[k] = l->plans[k].position;
+    if (!rc && l->tail_bytes)
+        rc = ingot_match_writer_tail_write(l->match, position, dir + used, l->tail_bytes);
+    free(position);
+    if (!rc)
+        rc = ingot_sink_write_at(s, at, dir, (size_t)size);
     free(dir);
     return rc;
 }
 
 static int uses_base(const entry_list *l) {
     for (size_t i = 0; i < l->count; i++)
-        if (l->items[i].base_hash && l->items[i].mode != INGOT_MODE_PREDICT)
+        if (l->items[i].base_hash && l->items[i].mode != INGOT_MODE_PREDICT &&
+            l->items[i].mode != INGOT_MODE_MATCH)
             return 1;
     return 0;
 }
 
 /* Version 3 only when the file needs it: a predicted tensor or payloads out of source order. */
 static uint32_t file_version(const entry_list *l) {
+    if (l->tail_bytes)
+        return 4; /* match targets: the directory has a tail */
     for (size_t k = 0; k < l->count; k++)
         if (l->order[k] != k || l->items[k].mode == INGOT_MODE_PREDICT)
             return 3;
@@ -383,6 +456,7 @@ static int write_front(const ingot_layout *layout, const entry_list *l, encode_i
     h->source_header_offset = INGOT_HEADER_BYTES;
     for (size_t i = 0; i < l->count; i++)
         h->dir_size += ingot_entry_record_size(&l->items[i]);
+    h->dir_size += l->tail_bytes;
     int rc = ingot_sink_write(&io->sink, zeros, sizeof(zeros));
     if (!rc)
         rc = ingot_sink_write(&io->sink, src_header, (size_t)h->source_header_size);
@@ -449,6 +523,7 @@ static void list_free(entry_list *l) {
     free(l->plans);
     free(l->order);
     free(l->tensor_entry);
+    ingot_match_writer_free(l->match);
 }
 
 int ingot_encode_input(ingot_input *src, const char *dst_path, const ingot_encode_options *opt,

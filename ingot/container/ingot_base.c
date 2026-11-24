@@ -266,4 +266,21 @@ int ingot_base_set_identity(ingot_base_set *b, uint64_t *size, uint8_t sha256[32
     return rc;
 }
 
+int ingot_base_set_shape(const ingot_base_set *b, const ingot_base_tensor *t, int *ndim,
+                         uint64_t *shape) {
+    if (!b || !t || t->file >= b->count)
+        return -INGOT_EINVAL;
+    const base_file *f = &b->files[t->file];
+    if (f->layout) {
+        const ingot_layout_tensor *lt = ingot_layout_tensor_at(f->layout, t->index);
+        *ndim = lt->ndim;
+        memcpy(shape, lt->shape, sizeof(lt->shape));
+    } else {
+        const ingot_entry *e = ingot_reader_entry(f->reader, t->index);
+        *ndim = e->ndim;
+        memcpy(shape, e->shape, sizeof(e->shape));
+    }
+    return 0;
+}
+
 size_t ingot_base_set_files(const ingot_base_set *b) { return b ? b->count : 0; }

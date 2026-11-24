@@ -210,7 +210,7 @@ static int64_t* parse_int_array(const char** pp, int* count) {
     /* Handle empty array */
     if (*p == ']') {
         *pp = p + 1;
-        return malloc(1);  /* Non-null but zero elements */
+        return malloc(sizeof(int64_t)); /* Non-null but zero elements */
     }
 
     /* Re-count properly */

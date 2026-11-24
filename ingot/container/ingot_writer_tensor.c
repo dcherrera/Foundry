@@ -37,8 +37,9 @@ typedef struct {
     ingot_delta_plan *delta;
     ingot_qtensor_plan *quant;
     ingot_predict_plan *predict;
+    ingot_match_plan *match;
     uint64_t plain_bytes;
-    uint64_t predict_bytes;
+    uint64_t predict_bytes; /* the predict or match candidate */
     ingot_mode v2_mode;  /* best choice without predict */
     uint64_t v2_bytes;   /* its estimate */
     uint64_t v2_exact;   /* its exact payload when it was encoded, else 0 */
@@ -52,6 +53,7 @@ static void choice_free(coding_choice *c) {
     ingot_delta_plan_free(c->delta);
     ingot_qtensor_plan_free(c->quant);
     ingot_predict_plan_free(c->predict);
+    ingot_match_plan_free(c->match);
     *c = (coding_choice){0};
 }
 
@@ -91,6 +93,18 @@ static int choose_predict(const ingot_encode_options *opt, const uint8_t *data,
     return 0;
 }
 
+static int choose_match(const ingot_encode_options *opt, const uint8_t *data,
+                        const ingot_writer_match *m, coding_choice *c) {
+    int rc = ingot_match_plan_create(m->axis, m->units, m->unit_len,
+                                     (const uint16_t *)(const void *)data, m->unit_major, m->src,
+                                     m->source_count, &m->cand, opt->threads, &c->match);
+    if (rc)
+        return rc;
+    c->predict_bytes = INGOT_PAYLOAD_FRAME_BYTES + ingot_match_plan_bytes(c->match);
+    consider(c, INGOT_MODE_MATCH, c->predict_bytes, 0);
+    return 0;
+}
+
 static int choose_bf16(const ingot_encode_options *opt, ingot_entry *e, const uint8_t *data,
                        const uint8_t *base, const ingot_writer_partners *partners,
                        coding_choice *c) {
@@ -111,7 +125,9 @@ static int choose_bf16(const ingot_encode_options *opt, ingot_entry *e, const ui
                  opt->policy == INGOT_POLICY_DELTA);
     c->v2_mode = c->mode;
     c->v2_bytes = c->bytes;
-    if (!rc && partners && c->mode != INGOT_MODE_DELTA)
+    if (!rc && partners && partners->match && c->mode != INGOT_MODE_DELTA)
+        rc = choose_match(opt, data, partners->match, c);
+    else if (!rc && partners && c->mode != INGOT_MODE_DELTA)
         rc = choose_predict(opt, data, partners, c);
     return rc;
 }
@@ -172,6 +188,10 @@ static int encode_mode(const ingot_encode_options *opt, const coding_choice *c, 
         rc = write_frame(s, ingot_predict_plan_prefix_bytes(c->predict),
                          ingot_predict_plan_blocks(c->predict));
         return rc ? rc : ingot_predict_encode(c->predict, opt->threads, s);
+    case INGOT_MODE_MATCH:
+        rc = write_frame(s, ingot_match_plan_prefix_bytes(c->match),
+                         ingot_match_plan_blocks(c->match));
+        return rc ? rc : ingot_match_encode(c->match, opt->threads, s);
     case INGOT_MODE_RAW:
         return ingot_sink_write(s, data, (size_t)size);
     default:
@@ -181,17 +201,23 @@ static int encode_mode(const ingot_encode_options *opt, const coding_choice *c, 
     }
 }
 
-/* Plain vs predict within the estimate's error: encode the other one too, keep the smaller. */
+/* The candidate that predicts (predict or match) and its mode, if any. */
+static ingot_mode predicted_mode(const coding_choice *c) {
+    return c->match ? INGOT_MODE_MATCH : c->predict ? INGOT_MODE_PREDICT : INGOT_MODE_RAW;
+}
+
+/* Plain vs predict / match within the estimate's error: encode the other one too, keep the
+ * smaller. */
 static int settle_close_call(const ingot_encode_options *opt, coding_choice *c,
                              const uint8_t *data, uint64_t size, ingot_sink *payload) {
-    if (!c->plain || !c->predict ||
-        (c->mode != INGOT_MODE_PLAIN && c->mode != INGOT_MODE_PREDICT))
+    ingot_mode pm = predicted_mode(c);
+    if (!c->plain || pm == INGOT_MODE_RAW || (c->mode != INGOT_MODE_PLAIN && c->mode != pm))
         return 0;
     uint64_t hi = c->plain_bytes > c->predict_bytes ? c->plain_bytes : c->predict_bytes;
     uint64_t lo = c->plain_bytes > c->predict_bytes ? c->predict_bytes : c->plain_bytes;
     if (hi - lo > hi / CLOSE_CALL)
         return 0;
-    ingot_mode other = c->mode == INGOT_MODE_PLAIN ? INGOT_MODE_PREDICT : INGOT_MODE_PLAIN;
+    ingot_mode other = c->mode == INGOT_MODE_PLAIN ? pm : INGOT_MODE_PLAIN;
     ingot_sink alt = {.fd = INGOT_SINK_MEMORY};
     int rc = encode_mode(opt, c, other, data, size, &alt);
     if (!rc && alt.pos < payload->pos) {
@@ -200,7 +226,7 @@ static int settle_close_call(const ingot_encode_options *opt, coding_choice *c,
         alt = kept;
         c->mode = other;
     }
-    if (!rc && c->mode == INGOT_MODE_PREDICT && c->v2_mode == INGOT_MODE_PLAIN)
+    if (!rc && c->mode == pm && c->v2_mode == INGOT_MODE_PLAIN)
         c->v2_exact = alt.pos; /* the plain payload, encoded either way */
     free(alt.mem);
     return rc;
@@ -209,10 +235,19 @@ static int settle_close_call(const ingot_encode_options *opt, coding_choice *c,
 /* Decode the payload (in memory) and compare it with the source tensor. */
 static int self_check(const ingot_encode_options *opt, const ingot_sink *payload,
                       const ingot_entry *e, const uint8_t *source, const uint8_t *base,
-                      const ingot_writer_partners *p) {
-    ingot_partner_data partners[INGOT_PREDICT_MAX_PARTNERS] = {{0}};
-    for (uint32_t j = 0; p && j < p->geom.partner_count; j++)
+                      const ingot_writer_partners *p, const ingot_match_plan *match) {
+    ingot_partner_data partners[INGOT_MATCH_MAX_SOURCES] = {{0}};
+    for (uint32_t j = 0; p && !match && j < p->geom.partner_count; j++)
         partners[j] = (ingot_partner_data){p->entry[j], p->data[j]};
+    if (match) { /* the plan's sources (unused ones pruned), found by ref in the candidate */
+        const ingot_match_params *q = ingot_match_plan_params(match);
+        for (uint32_t s = 0; s < q->source_count; s++)
+            for (uint32_t k = 0; k < p->match->source_count; k++)
+                if (p->match->src[k].ref == q->source[s].ref)
+                    partners[s] = (ingot_partner_data){p->match->src_entry[k],
+                                                       (const uint8_t *)(const void *)
+                                                           p->match->src[k].data};
+    }
     uint8_t *out = malloc((size_t)e->source_size);
     int rc = out ? 0 : -INGOT_ENOMEM;
     if (!rc)
@@ -225,10 +260,17 @@ static int self_check(const ingot_encode_options *opt, const ingot_sink *payload
 }
 
 static uint64_t base_field(const coding_choice *c, const ingot_entry *e,
-                           const ingot_writer_partners *p) {
+                           const ingot_writer_partners *p, ingot_writer_coded *coded) {
     if (c->mode == INGOT_MODE_DELTA || c->mode == INGOT_MODE_QUANT_DELTA ||
         c->mode == INGOT_MODE_BLOCK_DELTA)
         return e->base_hash;
+    if (c->mode == INGOT_MODE_MATCH) {
+        const ingot_match_params *q = ingot_match_plan_params(c->match);
+        for (uint32_t s = 0; s < q->source_count; s++)
+            coded->match_refs[s] = q->source[s].ref;
+        coded->match_ref_count = q->source_count;
+        return ingot_match_ref_hash(coded->match_refs, q->source_count);
+    }
     if (c->mode != INGOT_MODE_PREDICT)
         return 0;
     uint32_t index[INGOT_PREDICT_MAX_PARTNERS];
@@ -240,7 +282,8 @@ static uint64_t base_field(const coding_choice *c, const ingot_entry *e,
 /* A predicted tensor's best other choice: exact (encoded into nothing) or the estimate. */
 static int v2_size(const ingot_encode_options *opt, const coding_choice *c, const uint8_t *data,
                    uint64_t size, ingot_writer_coded *coded) {
-    coded->prefix_bytes = ingot_predict_plan_prefix_bytes(c->predict);
+    coded->prefix_bytes = c->match ? ingot_match_plan_prefix_bytes(c->match)
+                                   : ingot_predict_plan_prefix_bytes(c->predict);
     coded->v2_bytes = c->v2_exact ? c->v2_exact : c->v2_bytes;
     if (c->v2_exact || !opt->exact_v2)
         return 0;
@@ -261,14 +304,15 @@ int ingot_writer_code_tensor(const ingot_encode_options *opt, ingot_entry *e,
     if (!rc)
         rc = settle_close_call(opt, &c, data, e->source_size, payload);
     e->mode = c.mode;
-    e->base_hash = base_field(&c, e, partners);
+    e->base_hash = base_field(&c, e, partners, coded);
+    int predicted = e->mode == INGOT_MODE_PREDICT || e->mode == INGOT_MODE_MATCH;
     if (!rc && opt->self_check && e->mode != INGOT_MODE_RAW) {
         e->payload_size = payload->pos;
-        rc = self_check(opt, payload, e, data, c.base,
-                        e->mode == INGOT_MODE_PREDICT ? partners : NULL);
+        rc = self_check(opt, payload, e, data, c.base, predicted ? partners : NULL,
+                        e->mode == INGOT_MODE_MATCH ? c.match : NULL);
     }
     coded->v2_bytes = payload->pos;
-    if (!rc && e->mode == INGOT_MODE_PREDICT)
+    if (!rc && predicted)
         rc = v2_size(opt, &c, data, e->source_size, coded);
     choice_free(&c);
     return rc;

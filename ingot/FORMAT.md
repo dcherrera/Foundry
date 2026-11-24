@@ -1,4 +1,4 @@
-# .ingot format, version 3
+# .ingot format, version 4
 
 Exact (lossless) storage of a safetensors or GGUF file. Decoding gives back every tensor
 bit-identical and the whole source file byte-identical (same SHA-256). All integers are
@@ -13,14 +13,17 @@ to back (e.g. straight from a download), and write the source file front to back
 payloads are in source order: the decoder holds only a few blocks. Version 3 payloads are in
 decode order (a predicted tensor after its partners); the decoder holds a tensor decoded ahead of
 its place in the output, and a partner until its last dependent is decoded (about one layer's
-tensors), and still writes the source in order.
+tensors), and still writes the source in order. Version 4 adds match entries (mode 7),
+whose sources may also be tensors of earlier files of the same model (external refs, read from
+the files already rebuilt); the directory tail lists every source, so the decoder knows what to
+hold before it reaches the payloads.
 
 ## File
 
 | Offset | Type | Field |
 |---|---|---|
 | 0 | u8[4] | magic `INGT` |
-| 4 | u32 | format version: 3 if the file has a mode 6 entry or payloads out of source order, else 2 (same layout; readers refuse versions they do not know) |
+| 4 | u32 | format version: 4 if the file has match targets (a directory tail), else 3 if it has a mode 6 entry or payloads out of source order, else 2 (same header; readers refuse versions they do not know) |
 | 8 | u32 | entry count |
 | 12 | u32 | source kind: 1 safetensors, 2 GGUF |
 | 16 | u64 | source header offset (= 144) |
@@ -44,7 +47,7 @@ before the tensor data, alignment padding included), padded to 8; then the direc
 |---|---|
 | u16, u8[n] | name length, name (empty = filler bytes between or after tensors) |
 | u8 | dtype: 0 other, 1 BF16, 2 F16, 3 F32, 4 F64, 5 I8, 6 U8, 7 I16, 8 U16, 9 I32, 10 U32, 11 I64, 12 U64, 13 BOOL; 64 + ggml type for other GGUF types (72 = Q8_0, 75..78 = Q3_K..Q6_K) |
-| u8 | mode: 0 raw, 1 plain, 2 delta, 3 quant, 4 quant delta, 5 block delta, 6 predict (version 3; refused as unsupported in version 2) |
+| u8 | mode: 0 raw, 1 plain, 2 delta, 3 quant, 4 quant delta, 5 block delta, 6 predict (version 3 and later), 7 match (version 4); a mode newer than the file version is refused as unsupported |
 | u8 | ndim (≤ 8), u8 zero |
 | u64[ndim] | shape, row-major (the last dimension is contiguous; GGUF dims are listed reversed) |
 | u64 ×6 | source offset, source size, payload offset, payload size, hash, base hash |
@@ -217,16 +220,71 @@ partner that is not a 2-D BF16 [rows, H] tensor covering every mapped row.
 The encoder fits a, b per unit by least squares and picks C, E, S and width (smallest exact
 coded size, tables included); none of that is part of the format.
 
+## Mode 7: match (BF16, version 4)
+
+A target tensor D coded given up to 8 partner units per unit, each chosen from any earlier
+tensor: another entry of this file, D's own earlier rows, or a tensor of an earlier file of the
+same model (an external ref). It generalises mode 6: the predictor is a per-unit linear sum and
+the contexts and weight coding are mode 6's.
+
+**Units.** As mode 6: D holds U units of length H, row u (axis 0, D is [U, H]) or column u
+(axis 1, D is [H, U]). Source s holds n_s units of length H: rows of a [n_s, H] tensor (axis 0)
+or columns of a [H, n_s] tensor (axis 1). Its ref is a directory index earlier in payload order,
+`entry_count + r` for external ref r (directory tail), or `0xFFFFFFFF` for D itself (self: axis
+0 only, D's axis 0, n = U; unit u uses rows i < u only).
+
+**Side stream** (one block in the prefix, its own static tables; units in order 0 .. U − 1):
+- scale s_u + 128 (context 0, alphabet 256; unit RMS ≈ 2^(s_u/4));
+- K_u, 0..8 (context 1, alphabet 9);
+- per partner k < K_u: link = 2·src + same (context 2, alphabet 2·NS); same = 1 means index u
+  (never for the self source); otherwise the index as `ceil(log2 n_src)` raw bits (< n_src;
+  self: < u); then the coefficient q (|q| ≤ 32767) as the step code in context 3 + src.
+
+**Predictor** (integers only): X = mode 6's fixed point of the partner value with shift
+F = C − E_src; `p = Σ_k q_k · X_k` in int64. |X| ≤ 2^40, |q| < 2^15 and K ≤ 8, so |p| < 2^58: the
+sum is exact, and any order or split (lanes, limbs, RNS) gives the same p. Thresholds, classes,
+context z, the sign-agree bit, the plain symbol in (z, bit) and the 5 raw bits are exactly mode
+6's (K_u = 0: p = 0).
+
+**Block order.** Blocks of 2^18 weights in D's row-major order. With a self source (flag bit 0)
+blocks decode in order, and each row's contexts are computed after the rows before it are
+decoded; otherwise blocks are independent.
+
+Prefix (after the frame): `u32 NS (1..64), u32 axis, u64 U, u64 H, i32 C, u32 block_log2 (18),
+u64 block_count, u32 S (1..8), u32 width (1..16), i32 class_ref, u32 context_count (36·S),
+u64 param_hash, u32 flags (bit 0: a self source), u32 0, u64 side_table_bytes,
+u64 side_block_bytes`; NS × `{u32 ref, u32 axis, u64 n, i32 E, u32 0}`; the side tables, pad to
+8; the side block (block layout above), pad to 8; context_count weight tables, pad to 8.
+`param_hash` is the entry hash of the decoded side values: per unit u8 s_u, u8 K_u, then per
+partner u8 src, u64 index, i16 q (little-endian); a mismatch is refused. The directory entry's
+base hash is the entry hash of the NS refs (u32 each, in record order), and must match the
+directory tail's list for the entry.
+
+The encoder's search (which partners, K, E, C, classes) is not part of the format.
+
+## Directory tail (version 4)
+
+After the directory entries, inside `directory size`:
+`u32 R`, R external refs `{u16 name length, name, u8 dtype, u8 ndim, u16 0, u64 shape[ndim],
+u64 size, u64 hash}`; `u32 L`, L source lists `{u32 entry, u32 n, u32 source[n]}`, one for every
+mode 7 entry (its refs, as in its payload); then zero bytes up to the directory size (the writer
+reserves the space before it knows the lists). A decoder finds an external ref by name in the
+earlier files it is given (`--refs`), checks dtype, size and hash, and holds it until the last
+entry that names it is decoded. The reference encoder only refers to files that sort before the
+file being written, so decoding shards in name order always has every ref.
+
 ## Version 1
 
 Version 1 files (safetensors only, plain / delta / raw) put the directory at the end, have a
 64-byte header (no source kind, digests or base fields) and payloads without the frame.
 Readers still decode them by random access; they cannot be streamed.
 
-## Not in version 3
+## Not in version 4
 
 F16/F32 entropy coding, chained deltas (a delta base must be a model file or a plain/raw/quant
 .ingot entry), a row × column scale context for BF16 (measured: −0.003 to −0.025 bits/weight for
 ~30% slower decode and 8× the tables), the Q8_0 code comb (−0.01 bits/weight, needs per-weight
-tables at decode), prediction across files (a partner in another shard), MoE expert down | own
-gate, up (measured +0.037 bits per expert down weight on Qwen3.6) and q | k.
+tables at decode), MoE expert down | own gate, up (measured +0.037 bits per expert down weight on
+Qwen3.6), residual coding of strongly predicted weights (match contexts condition the symbol on
+|p|; they do not code w − p), and the cross-layer covariance (U5) predictor (floating-point
+eigen/Cholesky, ~2,560 MACs per weight).

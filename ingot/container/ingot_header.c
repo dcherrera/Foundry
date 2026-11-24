@@ -20,7 +20,7 @@
 
 size_t ingot_header_size(uint32_t version) {
     return version == 1 ? INGOT_HEADER_BYTES_V1
-           : version == 2 || version == 3 ? INGOT_HEADER_BYTES : 0;
+           : version >= 2 && version <= 4 ? INGOT_HEADER_BYTES : 0;
 }
 
 static int check_ranges(const ingot_file_header *h) {
@@ -147,7 +147,19 @@ static int parse_entry(const uint8_t *p, uint64_t avail, ingot_entry *e, uint64_
 
 int ingot_directory_parse(const uint8_t *dir, uint64_t size, size_t count,
                           ingot_entry **entries) {
-    if (!dir || !entries)
+    uint64_t used = 0;
+    int rc = ingot_directory_parse_used(dir, size, count, entries, &used);
+    if (!rc && used != size) {
+        ingot_entries_free(*entries, count);
+        *entries = NULL;
+        rc = -INGOT_EFORMAT;
+    }
+    return rc;
+}
+
+int ingot_directory_parse_used(const uint8_t *dir, uint64_t size, size_t count,
+                               ingot_entry **entries, uint64_t *used_bytes) {
+    if (!dir || !entries || !used_bytes)
         return -INGOT_EINVAL;
     ingot_entry *list = calloc(count ? count : 1, sizeof(*list));
     if (!list)
@@ -159,12 +171,11 @@ int ingot_directory_parse(const uint8_t *dir, uint64_t size, size_t count,
         rc = parse_entry(dir + at, size - at, &list[i], &used);
         at += used;
     }
-    if (!rc && at != size)
-        rc = -INGOT_EFORMAT;
     if (rc) {
         ingot_entries_free(list, count);
         return rc;
     }
+    *used_bytes = at;
     *entries = list;
     return 0;
 }
@@ -195,14 +206,19 @@ static int mode_fits(const ingot_entry *e, uint32_t version) {
                e->shape[1] && e->shape[1] <= e->source_size / 2 / e->shape[0] &&
                e->shape[0] * e->shape[1] * 2 == e->source_size &&
                ingot_partner_list(e->base_hash, idx) > 0;
+    case INGOT_MODE_MATCH:
+        return version >= 4 && e->dtype == INGOT_DTYPE_BF16 && e->ndim == 2 && e->shape[0] &&
+               e->shape[1] && e->shape[1] <= e->source_size / 2 / e->shape[0] &&
+               e->shape[0] * e->shape[1] * 2 == e->source_size;
     default:
         return 0;
     }
 }
 
 int ingot_entry_check(const ingot_entry *e, const ingot_file_header *h) {
-    if (e->mode == INGOT_MODE_PREDICT && h->version == 2)
-        return -INGOT_EUNSUPPORTED; /* reserved in version 2 */
+    if ((e->mode == INGOT_MODE_PREDICT && h->version == 2) ||
+        (e->mode == INGOT_MODE_MATCH && h->version < 4))
+        return -INGOT_EUNSUPPORTED; /* reserved in older versions */
     if (e->payload_offset % 8 || e->payload_offset > h->file_size ||
         e->payload_size > h->file_size - e->payload_offset ||
         e->source_offset < h->source_header_size || e->source_offset > h->source_size ||

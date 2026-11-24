@@ -16,16 +16,20 @@ CODEC_SRC := codec/ingot_block.c codec/ingot_plain.c codec/ingot_delta.c codec/i
              codec/ingot_qtensor.c codec/ingot_q8.c codec/ingot_kquant.c \
              codec/ingot_kquant_fields.c \
              codec/ingot_blockdelta.c codec/ingot_predict.c codec/ingot_predict_plan.c \
+             codec/ingot_match.c codec/ingot_match_plan.c codec/ingot_match_search.c \
              codec/ingot_tensor_codec.c
 CONTAINER_SRC := container/ingot_header.c container/ingot_layout.c container/ingot_writer.c \
                  container/ingot_writer_tensor.c container/ingot_predict_rules.c \
+                 container/ingot_writer_match.c container/ingot_match_pools.c \
                  container/ingot_reader.c container/ingot_stream.c container/ingot_base.c \
+                 container/ingot_dirtail.c \
                  $(ROOT)/safetensors/safetensors.c
 LIB_SRC := $(CORE_SRC) $(CODEC_SRC) $(CONTAINER_SRC)
 HEADERS := $(wildcard core/*.h codec/*.h container/*.h)
 TESTS := $(B)/test_ingot_rans $(B)/test_ingot_codec $(B)/test_ingot_container $(B)/test_ingot_red \
          $(B)/test_ingot_quant $(B)/test_ingot_stream $(B)/test_ingot_kquant \
-         $(B)/test_ingot_predict $(B)/test_ingot_predict_O0
+         $(B)/test_ingot_predict $(B)/test_ingot_predict_O0 $(B)/test_ingot_match \
+         $(B)/test_ingot_match_O0
 
 .PHONY: all test clean bench
 bench: $(B)/bench_ingot_qtensor
@@ -46,6 +50,10 @@ $(B)/test_ingot_predict_O0: tests/test_ingot_predict.c tests/ingot_test_files.h 
                             $(HEADERS) | $(B)
 	$(CC) $(subst -O2,-O0,$(CFLAGS)) -o $@ $< $(LIB_SRC) $(LDLIBS)
 
+$(B)/test_ingot_match_O0: tests/test_ingot_match.c tests/ingot_test_files.h $(LIB_SRC) \
+                          $(HEADERS) | $(B)
+	$(CC) $(subst -O2,-O0,$(CFLAGS)) -o $@ $< $(LIB_SRC) $(LDLIBS)
+
 # Coder benchmark on a real GGUF (not part of all / test): build/bench_ingot_qtensor FILE.gguf
 $(B)/bench_ingot_qtensor: tests/bench_ingot_qtensor.c $(LIB_SRC) $(HEADERS) | $(B)
 	$(CC) $(CFLAGS) -o $@ $< $(LIB_SRC) $(LDLIBS)
@@ -60,6 +68,8 @@ test: $(TESTS) $(B)/ingot
 	./$(B)/test_ingot_kquant
 	./$(B)/test_ingot_predict
 	./$(B)/test_ingot_predict_O0 contexts
+	./$(B)/test_ingot_match
+	./$(B)/test_ingot_match_O0 contexts
 	./tests/test_ingot_cli.sh
 
 clean:

@@ -16,7 +16,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include "ingot/codec/ingot_match.h"
 #include "ingot/codec/ingot_predict.h"
+#include "ingot/container/ingot_dirtail.h"
 #include "ingot/codec/ingot_tensor_codec.h"
 #include "ingot/core/ingot_error.h"
 #include "ingot/core/ingot_hash.h"
@@ -47,6 +49,8 @@ typedef struct {
     uint8_t *chunk;
     const ingot_entry *entries;
     held_entry *held; /* [entry_count] */
+    ingot_dir_tail tail; /* version 4 */
+    held_entry *refs;    /* [tail.ref_count]: loaded external refs */
 } stream_state;
 
 static int emit(stream_state *s, const uint8_t *p, size_t n) {
@@ -191,7 +195,8 @@ static int run_batch(stream_state *s, coded_entry *c, size_t first, size_t n) {
     int rc = read_batch(s, c, first, n, in, base, out, views);
     batch_job job = {c->dec, first, in, views, c->has_base ? base : NULL, out};
     if (!rc)
-        rc = ingot_parallel_for(n, s->opt->threads, batch_block, &job);
+        rc = ingot_parallel_for(n, ingot_tensor_decoder_serial(c->dec) ? 1 : s->opt->threads,
+                                batch_block, &job);
     for (size_t i = 0; !rc && i < n; i++) {
         uint64_t lo = 0, hi = 0;
         ingot_tensor_decoder_range(c->dec, first + i, &lo, &hi);
@@ -241,12 +246,49 @@ static int alloc_slots(stream_state *s, coded_entry *c, uint64_t max_block) {
     return 0;
 }
 
-/* A predict payload's partners: earlier entries, held in memory since they were decoded. */
+/* External ref r, read whole from the ref set and checked against its recorded hash. */
+static int load_ref(stream_state *s, uint32_t r) {
+    held_entry *h = &s->refs[r];
+    const ingot_entry *e = &s->tail.refs[r];
+    ingot_base_tensor t;
+    if (h->data)
+        return 0;
+    if (!s->opt->refs || ingot_base_set_find(s->opt->refs, e->name, &t) ||
+        t.size != e->source_size || t.dtype != e->dtype)
+        return -INGOT_EBASE;
+    h->data = malloc((size_t)(e->source_size ? e->source_size : 1));
+    if (!h->data)
+        return -INGOT_ENOMEM;
+    int rc = ingot_base_set_read(s->opt->refs, &t, 0, h->data, (size_t)e->source_size);
+    if (!rc && ingot_hash64(h->data, (size_t)e->source_size) != e->hash)
+        rc = -INGOT_EBASE;
+    if (rc) {
+        free(h->data);
+        h->data = NULL;
+    }
+    return rc == -INGOT_EUNSUPPORTED ? -INGOT_EBASE : rc;
+}
+
+/* A predict or match payload's sources: earlier entries (held since they were decoded),
+ * external refs (loaded on first use), or the tensor itself. */
 static int bind_partners(stream_state *s, coded_entry *c) {
-    uint32_t index[INGOT_PREDICT_MAX_PARTNERS];
+    uint32_t index[INGOT_MATCH_MAX_SOURCES];
     uint32_t n = ingot_tensor_decoder_partners(c->dec, index);
+    uint32_t count = s->header.entry_count;
     int rc = 0;
     for (uint32_t j = 0; !rc && j < n; j++) {
+        if (index[j] == INGOT_MATCH_SELF_REF && c->e->mode == INGOT_MODE_MATCH) {
+            rc = ingot_tensor_decoder_bind(c->dec, j, NULL, NULL);
+            continue;
+        }
+        if (index[j] >= count && index[j] - count < s->tail.ref_count &&
+            c->e->mode == INGOT_MODE_MATCH) {
+            rc = load_ref(s, index[j] - count);
+            if (!rc)
+                rc = ingot_tensor_decoder_bind(c->dec, j, &s->tail.refs[index[j] - count],
+                                               s->refs[index[j] - count].data);
+            continue;
+        }
         const held_entry *h = index[j] < c->index ? &s->held[index[j]] : NULL;
         rc = h && h->data && h->verified
                  ? ingot_tensor_decoder_bind(c->dec, j, &s->entries[index[j]], h->data)
@@ -325,25 +367,55 @@ static int read_directory(stream_state *s, ingot_entry **entries) {
         rc = -INGOT_ENOMEM;
     if (!rc)
         rc = ingot_input_read(s->in, dir, (size_t)h->dir_size);
+    uint64_t used = h->dir_size;
     if (!rc)
-        rc = ingot_directory_parse(dir, h->dir_size, h->entry_count, entries);
+        rc = h->version >= 4
+                 ? ingot_directory_parse_used(dir, h->dir_size, h->entry_count, entries, &used)
+                 : ingot_directory_parse(dir, h->dir_size, h->entry_count, entries);
+    for (size_t i = 0; !rc && i < h->entry_count; i++)
+        rc = ingot_entry_check(&(*entries)[i], h);
+    if (!rc && h->version >= 4)
+        rc = ingot_dir_tail_parse(dir + used, (size_t)(h->dir_size - used), *entries,
+                                  h->entry_count, &s->tail);
     free(dir);
     if (!rc && !(s->held = calloc(h->entry_count ? h->entry_count : 1, sizeof(*s->held))))
+        rc = -INGOT_ENOMEM;
+    if (!rc && !(s->refs = calloc(s->tail.ref_count ? s->tail.ref_count : 1, sizeof(*s->refs))))
         rc = -INGOT_ENOMEM;
     for (size_t i = 0; !rc && i < h->entry_count; i++) {
         const ingot_entry *e = &(*entries)[i];
         uint32_t index[2] = {0}, n = 0;
-        rc = ingot_entry_check(e, h);
-        if (!rc && e->mode == INGOT_MODE_PREDICT)
+        const uint32_t *list = NULL;
+        if (e->mode == INGOT_MODE_PREDICT)
             n = ingot_partner_list(e->base_hash, index);
         for (uint32_t j = 0; !rc && j < n; j++) {
             rc = index[j] < i ? 0 : -INGOT_EFORMAT; /* partners come first */
             if (!rc)
                 s->held[index[j]].dependents++;
         }
+        uint32_t m = ingot_dir_tail_sources(&s->tail, i, &list);
+        for (uint32_t j = 0; j < m; j++) {
+            if (list[j] < i)
+                s->held[list[j]].dependents++;
+            else if (list[j] != INGOT_MATCH_SELF_REF)
+                s->refs[list[j] - h->entry_count].dependents++;
+        }
     }
     return rc;
 }
+
+/* Does entry i read itself (a match self source)? Then it decodes into memory, in order. */
+static int reads_itself(const stream_state *s, size_t i) {
+    const uint32_t *list = NULL;
+    uint32_t m = ingot_dir_tail_sources(&s->tail, i, &list);
+    for (uint32_t j = 0; j < m; j++)
+        if (list[j] == INGOT_MATCH_SELF_REF)
+            return 1;
+    return 0;
+}
+
+/* Entry i is decoded: its sources have one dependent fewer (freed after the last). */
+static void release_sources(stream_state *s, size_t i);
 
 /* The header names a base file: one must be given, and of the recorded size when known. */
 static int check_base_present(stream_state *s) {
@@ -378,6 +450,23 @@ static void release_if_done(held_entry *h) {
     }
 }
 
+static void release_sources(stream_state *s, size_t i) {
+    const uint32_t *list = NULL;
+    uint32_t m = ingot_dir_tail_sources(&s->tail, i, &list);
+    for (uint32_t j = 0; j < m; j++) {
+        if (list[j] < i) {
+            s->held[list[j]].dependents--;
+            release_if_done(&s->held[list[j]]);
+        } else if (list[j] != INGOT_MATCH_SELF_REF) {
+            held_entry *r = &s->refs[list[j] - s->header.entry_count];
+            if (--r->dependents == 0) {
+                free(r->data);
+                r->data = NULL;
+            }
+        }
+    }
+}
+
 /* Emit held entries that now continue the output, in source order. */
 static int flush_held(stream_state *s) {
     int found = 1, rc = 0;
@@ -401,7 +490,7 @@ static int flush_held(stream_state *s) {
 static int decode_entry(stream_state *s, size_t i) {
     const ingot_entry *e = &s->entries[i];
     held_entry *h = &s->held[i];
-    int direct = e->source_offset == s->out_pos && !h->dependents;
+    int direct = e->source_offset == s->out_pos && !h->dependents && !reads_itself(s, i);
     uint64_t hash = 0;
     if (e->source_offset < s->out_pos || (!direct && s->header.version < 3))
         return -INGOT_EFORMAT; /* overlaps, or out of order in a version 2 file */
@@ -421,6 +510,8 @@ static int decode_entry(stream_state *s, size_t i) {
         s->held[index[j]].dependents--;
         release_if_done(&s->held[index[j]]);
     }
+    if (!rc)
+        release_sources(s, i);
     h->verified = !rc;
     h->emitted = direct;
     return rc ? rc : flush_held(s);
@@ -451,6 +542,10 @@ static int stream_run(stream_state *s, ingot_stream_result *result) {
     for (size_t i = 0; s->held && i < s->header.entry_count; i++)
         free(s->held[i].data);
     free(s->held);
+    for (uint32_t r = 0; s->refs && r < s->tail.ref_count; r++)
+        free(s->refs[r].data);
+    free(s->refs);
+    ingot_dir_tail_release(&s->tail);
     ingot_entries_free(entries, s->header.entry_count);
     if (!rc && s->out_pos != s->header.source_size)
         rc = -INGOT_EFORMAT;
