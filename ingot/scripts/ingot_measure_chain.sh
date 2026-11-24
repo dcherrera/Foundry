@@ -17,7 +17,9 @@
 # the logs and the rebuilt shards (deleted at the end); <ingot-dir> (default <work-dir>/ingot)
 # keeps the .ingot files.
 # Options: -j N threads (default 8); --only REGEX shards to encode (refs still use all earlier
-# shards); --keep-rebuilt; --self-check; -- ARGS... extra `ingot encode` arguments (e.g.
+# shards); --keep-rebuilt; --self-check; --enc-ref PATH / --dec-ref PATH (repeatable): one more
+# ref for every encode / decode (a dictionary in a later shard: its source for the encoder, its
+# .ingot for the decoder); -- ARGS... extra `ingot encode` arguments (e.g.
 # -- --twin-offset 12288 --search-layers 1).
 # Output: <work-dir>/chain.tsv (one line per shard), <shard>.tensors.tsv, <shard>.log, TOTAL.
 # Resumable: shards already in chain.tsv are skipped (their rebuilt shard must still exist).
@@ -29,6 +31,8 @@ INGOT=${INGOT_BIN:-$HERE/build/ingot} # INGOT_BIN: another build (e.g. a search 
 THREADS=8 ONLY=. KEEP=0
 SELF_CHECK=()
 EXTRA=()
+ENC_EXTRA=()
+DEC_EXTRA=()
 ARGS=()
 while [ $# -gt 0 ]; do
     case $1 in
@@ -36,12 +40,14 @@ while [ $# -gt 0 ]; do
         --only) ONLY=$2; shift 2 ;;
         --keep-rebuilt) KEEP=1; shift ;;
         --self-check) SELF_CHECK=(--self-check); shift ;;
+        --enc-ref) ENC_EXTRA+=(--refs "$2"); shift 2 ;;
+        --dec-ref) DEC_EXTRA+=(--refs "$2"); shift 2 ;;
         --) shift; EXTRA=("$@"); break ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) ARGS+=("$1"); shift ;;
     esac
 done
-[ ${#ARGS[@]} -ge 3 ] || { sed -n '4,20p' "$0" >&2; exit 2; }
+[ ${#ARGS[@]} -ge 3 ] || { sed -n '4,22p' "$0" >&2; exit 2; }
 SRC=${ARGS[0]} SHAS=${ARGS[1]} WORK=${ARGS[2]}
 INGOTS=${ARGS[3]:-$WORK/ingot}
 mkdir -p "$WORK/rebuilt" "$INGOTS"
@@ -66,7 +72,7 @@ for k in "${!SHARDS[@]}"; do
     size=$(file_size "$SRC/$name")
     [ "$(free_gb "$WORK")" -ge $((MIN_FREE_GB + 2 * (size >> 30) + 1)) ] ||
         { echo "refusing $stem: free disk $(free_gb "$WORK") GB" >&2; exit 4; }
-    enc_refs=() dec_refs=()
+    enc_refs=("${ENC_EXTRA[@]+"${ENC_EXTRA[@]}"}") dec_refs=("${DEC_EXTRA[@]+"${DEC_EXTRA[@]}"}")
     for ((j = 0; j < k; j++)); do
         enc_refs+=(--refs "$SRC/${SHARDS[$j]}")
         dec_refs+=(--refs "$WORK/rebuilt/${SHARDS[$j]}")
