@@ -445,6 +445,7 @@ struct fc_cuda_ctx {
     CUfunction kern_ssm_conv1d_silu_seq;/* ssm_gated_delta.ptx */
     CUfunction kern_ssm_recurrence_seq;
     CUfunction kern_ssm_recurrence_seq_warp; /* warp-shuffle variant (bit-exact) */
+    CUfunction kern_ssm_recurrence_seq_warp8; /* 8-lane layout of it (bit-exact) */
     CUfunction kern_ssm_recurrence_seq_unroll128; /* S==128 unrolled-tree variant */
     CUfunction kern_ssm_decay_gate_nx;
     CUfunction kern_ssm_qknorm_gqa_nx;
@@ -454,6 +455,7 @@ struct fc_cuda_ctx {
     CUfunction kern_ssm_recurrence_slots;
     CUfunction kern_ssm_recurrence_slots_2pass; /* T4 fused-reduction variant */
     CUfunction kern_ssm_gdn_step_slots_warp;    /* fused sigmoid+gate+recur */
+    CUfunction kern_ssm_gdn_step_slots_warp8;   /* 8-lane layout of it */
     CUfunction kern_moe_shexp_gate_combine_nx;  /* dot gate + 2 adds, fused */
     CUfunction kern_rope_pos;               /* rope.ptx */
 
@@ -1065,7 +1067,9 @@ static void fc_ctx_load_kernels(fc_cuda_ctx *ctx)
                                     "fc_ssm_recurrence_slots_2pass",
                                     "fc_ssm_recurrence_seq_warp",
                                     "fc_ssm_recurrence_seq_unroll128",
-                                    "fc_ssm_gdn_step_slots_warp" };
+                                    "fc_ssm_gdn_step_slots_warp",
+                                    "fc_ssm_recurrence_seq_warp8",
+                                    "fc_ssm_gdn_step_slots_warp8" };
         CUfunction *ssm_funcs[] = {
             &ctx->kern_ssm_recurrence, &ctx->kern_ssm_conv1d_silu,
             &ctx->kern_ssm_gated_norm, &ctx->kern_sigmoid,
@@ -1076,10 +1080,12 @@ static void fc_ctx_load_kernels(fc_cuda_ctx *ctx)
             &ctx->kern_ssm_recurrence_slots_2pass,
             &ctx->kern_ssm_recurrence_seq_warp,
             &ctx->kern_ssm_recurrence_seq_unroll128,
-            &ctx->kern_ssm_gdn_step_slots_warp
+            &ctx->kern_ssm_gdn_step_slots_warp,
+            &ctx->kern_ssm_recurrence_seq_warp8,
+            &ctx->kern_ssm_gdn_step_slots_warp8
         };
         if (fc_load_ptx_module(FC_PTX_SSM_GATED_DELTA, &ctx->mod_ssm,
-                               ssm_names, ssm_funcs, 16) != 0)
+                               ssm_names, ssm_funcs, 18) != 0)
             fprintf(stderr, "[fc_cuda] SSM gated-delta PTX load failed "
                     "(kernels unavailable)\n");
     }
@@ -4926,6 +4932,26 @@ void fc_ssm_conv1d_silu_seq_ctx(fc_cuda_ctx *ctx, fc_buffer *qkv,
     fc_ctx_leave();
 }
 
+/* The 8-lane layout of the S == 128 warp kernels (fc_ssm_recurrence_seq_warp8,
+ * fc_ssm_gdn_step_slots_warp8): 16 columns a 128-thread block, state / k / q
+ * (and snaps) as 16-B float4 accesses. Same bits as the 32-lane kernels;
+ * 1.26-1.65x on a K80 die. DEFAULT ON; FC_SSM_WARP8=0 keeps the 32-lane ones.
+ * Taken only when the kernel loaded and every float4 pointer is 16-B aligned. */
+#define FC_SSM_W8_COLS_HOST 16
+
+static int fc_ssm_warp8_usable(CUfunction kern8, const fc_buffer *s,
+                               const fc_buffer *q, const fc_buffer *k,
+                               const fc_buffer *snaps)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("FC_SSM_WARP8");
+        on = (e && e[0] == '0') ? 0 : 1;
+    }
+    const CUdeviceptr any = s->dptr | q->dptr | k->dptr | (snaps ? snaps->dptr : 0);
+    return on && kern8 && (any & 15) == 0;
+}
+
 void fc_ssm_recurrence_seq_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
                                fc_buffer *k, fc_buffer *v, fc_buffer *g,
                                fc_buffer *beta, fc_buffer *y,
@@ -4979,6 +5005,11 @@ void fc_ssm_recurrence_seq_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
         grid_x = (unsigned int)(state_size / warp_cols);
         block_x = (unsigned int)(warp_cols * 32);
         shared_bytes = (unsigned int)((size_t)2 * npos * sizeof(float));
+        if (fc_ssm_warp8_usable(ctx->kern_ssm_recurrence_seq_warp8, s, q, k,
+                                snaps)) {
+            kern = ctx->kern_ssm_recurrence_seq_warp8;
+            grid_x = (unsigned int)(state_size / FC_SSM_W8_COLS_HOST);
+        }
     } else if (use_unroll && ctx->kern_ssm_recurrence_seq_unroll128 &&
                state_size == 128) {
         kern = ctx->kern_ssm_recurrence_seq_unroll128;
@@ -4992,9 +5023,12 @@ void fc_ssm_recurrence_seq_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
     static int announced = 0;
     if (!announced) {
         announced = 1;
-        if (kern == ctx->kern_ssm_recurrence_seq_warp)
+        if (kern == ctx->kern_ssm_recurrence_seq_warp ||
+            kern == ctx->kern_ssm_recurrence_seq_warp8)
             fprintf(stderr, "[fc_cuda] QWEN35_SSM_WARP ACTIVE: warp-shuffle "
-                    "SSM recurrence, %u B shared, %u thr — BIT-EXACT\n",
+                    "SSM recurrence (%d lanes a column), %u B shared, %u thr "
+                    "— BIT-EXACT\n",
+                    kern == ctx->kern_ssm_recurrence_seq_warp8 ? 8 : 32,
                     shared_bytes, block_x);
         else if (kern == ctx->kern_ssm_recurrence_seq_unroll128)
             fprintf(stderr, "[fc_cuda] QWEN35_SSM_UNROLL=1 ACTIVE: unrolled-tree "
@@ -5174,7 +5208,7 @@ int fc_ssm_gdn_step_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
                               int n_v_heads, int state_size, int nslots,
                               float scale, fc_buffer *rows)
 {
-    /* The kernel's warp layout is specialised to S == 128 (4 elems/lane). */
+    /* The kernels' warp layouts are specialised to S == 128. */
     const int warp_cols = 4;
     if (!fc_cuda_ctx_available(ctx) || !ctx->kern_ssm_gdn_step_slots_warp ||
         state_size != 128 || !s || !q || !k || !v || !alpha || !ssm_dt ||
@@ -5188,9 +5222,12 @@ int fc_ssm_gdn_step_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
         &ssm_a->dptr, &beta_raw->dptr, &y->dptr, &state_size, &n_v_heads,
         &scale, &rows_d
     };
+    const int w8 = fc_ssm_warp8_usable(ctx->kern_ssm_gdn_step_slots_warp8, s, q, k,
+                                       NULL);
     CUresult err = p_cuLaunchKernel(
-        ctx->kern_ssm_gdn_step_slots_warp,
-        (unsigned int)(state_size / warp_cols), (unsigned int)n_v_heads,
+        w8 ? ctx->kern_ssm_gdn_step_slots_warp8 : ctx->kern_ssm_gdn_step_slots_warp,
+        (unsigned int)(state_size / (w8 ? FC_SSM_W8_COLS_HOST : warp_cols)),
+        (unsigned int)n_v_heads,
         (unsigned int)nslots,
         (unsigned int)(warp_cols * 32), 1, 1,
         0, ctx->stream, args, NULL

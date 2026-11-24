@@ -1030,6 +1030,197 @@ __global__ void fc_ssm_gdn_step_slots_warp(float *s, const float *q,
         y[vec + j] = __fmul_rn(out, scale);
 }
 
+/* ================================================================
+ * 8-LANE LAYOUT of the two warp kernels above (fc_ssm_recurrence_seq_warp8,
+ * fc_ssm_gdn_step_slots_warp8). Measured on one K80 die against the 32-lane
+ * kernels: seq 1.28x at n = 1, 1.37-1.42x at n = 2, 1.59-1.65x at n = 4;
+ * slots 1.26-1.30x at K = 1-4 (16 and 32 heads).
+ *
+ * 8 lanes per state column, so a warp steps 4 columns and a 128-thread block
+ * 16. Lane l (= lane & 7) of a column holds the 16 elements i = 4l + c + 32e
+ * (c, e = 0..3) as 4 float4s, so state, k and q move as 128-bit accesses (the
+ * host checks the pointers are 16-B aligned). The dot keeps the baseline tree
+ * exactly: strides 64 and 32 are e pairs inside the lane, 16 / 8 / 4 the lane
+ * bits (a __shfl_xor butterfly inside the column's 8 lanes), 2 and 1 the
+ * float4 components. Same tree, same operand order, same contraction-barrier
+ * intrinsics and expf, so the same bits as the 32-lane kernels.
+ * FC_SSM_W8_RED is a gate-only red build: the state update rounded twice.
+ * ================================================================ */
+#define FC_SSM_W8_LANES 8   /* lanes per state column */
+#define FC_SSM_W8_COLS  16  /* state columns per 128-thread block */
+
+__device__ __forceinline__ float4 fc_ssm_f4_mul(float4 a, float4 b) {
+    return make_float4(__fmul_rn(a.x, b.x), __fmul_rn(a.y, b.y),
+                       __fmul_rn(a.z, b.z), __fmul_rn(a.w, b.w));
+}
+
+__device__ __forceinline__ float4 fc_ssm_f4_add(float4 a, float4 b) {
+    return make_float4(__fadd_rn(a.x, b.x), __fadd_rn(a.y, b.y),
+                       __fadd_rn(a.z, b.z), __fadd_rn(a.w, b.w));
+}
+
+__device__ __forceinline__ float4 fc_ssm_f4_scale(float4 a, float s) {
+    return make_float4(__fmul_rn(a.x, s), __fmul_rn(a.y, s),
+                       __fmul_rn(a.z, s), __fmul_rn(a.w, s));
+}
+
+/* r += k * delta, one rounding (the red build rounds the product first). */
+__device__ __forceinline__ float4 fc_ssm_f4_update(float4 k, float delta,
+                                                   float4 r) {
+#ifdef FC_SSM_W8_RED
+    return fc_ssm_f4_add(fc_ssm_f4_scale(k, delta), r);
+#else
+    return make_float4(__fmaf_rn(k.x, delta, r.x), __fmaf_rn(k.y, delta, r.y),
+                       __fmaf_rn(k.z, delta, r.z), __fmaf_rn(k.w, delta, r.w));
+#endif
+}
+
+/* fc_ssm_warp_tree_dot in the 8-lane layout: the same binary tree over
+ * i = 4l + c + 32e. Returns the identical fp32 bits in the column's 8 lanes. */
+__device__ __forceinline__ float fc_ssm_w8_tree_dot(const float4 (&r)[4],
+                                                    const float4 (&x)[4]) {
+    float4 p0 = fc_ssm_f4_mul(r[0], x[0]), p1 = fc_ssm_f4_mul(r[1], x[1]);
+    const float4 p2 = fc_ssm_f4_mul(r[2], x[2]), p3 = fc_ssm_f4_mul(r[3], x[3]);
+    p0 = fc_ssm_f4_add(p0, p2);          /* stride 64 */
+    p1 = fc_ssm_f4_add(p1, p3);
+    p0 = fc_ssm_f4_add(p0, p1);          /* stride 32 */
+#pragma unroll
+    for (int st = 4; st > 0; st >>= 1) { /* strides 16, 8, 4 */
+        p0.x = __fadd_rn(p0.x, __shfl_xor(p0.x, st));
+        p0.y = __fadd_rn(p0.y, __shfl_xor(p0.y, st));
+        p0.z = __fadd_rn(p0.z, __shfl_xor(p0.z, st));
+        p0.w = __fadd_rn(p0.w, __shfl_xor(p0.w, st));
+    }
+    return __fadd_rn(__fadd_rn(p0.x, p0.z), __fadd_rn(p0.y, p0.w)); /* 2, 1 */
+}
+
+__device__ __forceinline__ void fc_ssm_w8_load(float4 (&dst)[4], const float *p) {
+#pragma unroll
+    for (int e = 0; e < 4; e++)
+        dst[e] = *(const float4 *)(p + 32 * e);
+}
+
+__device__ __forceinline__ void fc_ssm_w8_store(float *p, const float4 (&src)[4]) {
+#pragma unroll
+    for (int e = 0; e < 4; e++)
+        *(float4 *)(p + 32 * e) = src[e];
+}
+
+/* fc_ssm_recurrence_seq_warp in the 8-lane layout. Same arguments and shared
+ * staging. Grid (state_size / FC_SSM_W8_COLS, n_v_heads), block 128. */
+__global__ void fc_ssm_recurrence_seq_warp8(float *s, const float *q,
+                                            const float *k, const float *v,
+                                            const float *g, const float *beta,
+                                            float *y, int state_size,
+                                            int n_v_heads, int n, float scale,
+                                            float *snaps) {
+    extern __shared__ float sh[];        /* [2*n]: decay[n] | beta[n] */
+
+    if (state_size != FC_SSM_WARP_S)     /* block-uniform */
+        return;
+
+    const int S = FC_SSM_WARP_S;
+    const int lane = (int)(threadIdx.x & 31u);
+    const int l = lane & (FC_SSM_W8_LANES - 1);
+    const int j = (blockIdx.x * 4 + (int)(threadIdx.x >> 5)) * 4 + (lane >> 3);
+    const int h = blockIdx.y;
+
+    float *sh_decay = sh;
+    float *sh_beta = sh + n;
+    for (int t = (int)threadIdx.x; t < n; t += 128) {
+        sh_decay[t] = expf(g[(size_t)t * n_v_heads + h]);
+        sh_beta[t] = beta[(size_t)t * n_v_heads + h];
+    }
+    __syncthreads();
+
+    if (j >= S)
+        return;
+
+    const size_t row_off = ((size_t)h * S + j) * S;
+    const size_t state_total = (size_t)n_v_heads * S * S;
+    const size_t pos_stride = (size_t)n_v_heads * S;
+    float *row = s + row_off + 4 * l;
+    const float *kh = k + (size_t)h * S + 4 * l;
+    const float *qh = q + (size_t)h * S + 4 * l;
+
+    float4 r[4];
+    fc_ssm_w8_load(r, row);
+    for (int t = 0; t < n; t++) {
+        const size_t toff = (size_t)t * pos_stride;
+        const float decay = sh_decay[t];
+        const float beta_h = sh_beta[t];
+        const float vj = v[toff + (size_t)h * S + j];
+        float4 kv[4], qv[4];
+        fc_ssm_w8_load(kv, kh + toff);
+        fc_ssm_w8_load(qv, qh + toff);
+#pragma unroll
+        for (int e = 0; e < 4; e++)
+            r[e] = fc_ssm_f4_scale(r[e], decay);
+        const float pred = fc_ssm_w8_tree_dot(r, kv);
+        const float delta = __fmul_rn(__fsub_rn(vj, pred), beta_h);
+#pragma unroll
+        for (int e = 0; e < 4; e++)
+            r[e] = fc_ssm_f4_update(kv[e], delta, r[e]);
+        if (snaps)
+            fc_ssm_w8_store(snaps + (size_t)t * state_total + row_off + 4 * l, r);
+        const float out = fc_ssm_w8_tree_dot(r, qv);
+        if (l == 0)
+            y[toff + (size_t)h * S + j] = __fmul_rn(out, scale);
+    }
+    fc_ssm_w8_store(row, r);
+}
+
+/* fc_ssm_gdn_step_slots_warp in the 8-lane layout: the per-slot gates are
+ * computed once per thread for its column instead of once per 32 lanes.
+ * Grid (state_size / FC_SSM_W8_COLS, n_v_heads, nslots), block 128. */
+__global__ void fc_ssm_gdn_step_slots_warp8(float *s, const float *q,
+                                            const float *k, const float *v,
+                                            const float *alpha,
+                                            const float *ssm_dt,
+                                            const float *ssm_a,
+                                            const float *beta_raw, float *y,
+                                            int state_size, int n_v_heads,
+                                            float scale, const int *rows) {
+    if (state_size != FC_SSM_WARP_S)
+        return;
+
+    const int S = FC_SSM_WARP_S;
+    const int lane = (int)(threadIdx.x & 31u);
+    const int l = lane & (FC_SSM_W8_LANES - 1);
+    const int j = (blockIdx.x * 4 + (int)(threadIdx.x >> 5)) * 4 + (lane >> 3);
+    const int h = blockIdx.y;
+    const int u = blockIdx.z;
+    const size_t hu = (size_t)u * n_v_heads + h;
+
+    const float braw = beta_raw[hu];
+    const float beta_h = 1.0f / (1.0f + expf(-braw));
+    const float gv = alpha[hu] + ssm_dt[h];
+    const float sp = (gv > 20.0f) ? gv : log1pf(expf(gv));
+    const float decay = expf(ssm_a[h] * sp);
+
+    const int sr = rows ? rows[u] : u;  /* the slot's state row */
+    float *row = s + (size_t)sr * n_v_heads * S * S + ((size_t)h * S + j) * S
+                 + 4 * l;
+    const size_t vec = hu * S;
+
+    float4 r[4], kv[4], qv[4];
+    fc_ssm_w8_load(r, row);
+    fc_ssm_w8_load(kv, k + vec + 4 * l);
+    fc_ssm_w8_load(qv, q + vec + 4 * l);
+#pragma unroll
+    for (int e = 0; e < 4; e++)
+        r[e] = fc_ssm_f4_scale(r[e], decay);
+    const float pred = fc_ssm_w8_tree_dot(r, kv);
+    const float delta = __fmul_rn(__fsub_rn(v[vec + j], pred), beta_h);
+#pragma unroll
+    for (int e = 0; e < 4; e++)
+        r[e] = fc_ssm_f4_update(kv[e], delta, r[e]);
+    fc_ssm_w8_store(row, r);
+    const float out = fc_ssm_w8_tree_dot(r, qv);
+    if (l == 0)
+        y[vec + j] = __fmul_rn(out, scale);
+}
+
 /* Decay gate over n positions: g[t][h] = ssm_a[h] * softplus(alpha[t][h] +
  * ssm_dt[h]). One thread per (t, h); n_heads gives the per-position head
  * count for the broadcast vectors. total = n * n_heads. */
