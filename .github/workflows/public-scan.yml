@@ -1,0 +1,40 @@
+name: public-scan
+
+# Content scan of every pull request for private paths, internal names and
+# credentials: added lines, the full text of each changed file, and commit
+# messages. The rules come from the PUBLIC_PATTERNS repository secret, which
+# fork pull requests cannot read; there the check fails and a maintainer runs
+# scripts/check-public.sh locally.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  public-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch base branch
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: git fetch --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+
+      - name: Content scan
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          PUBLIC_PATTERNS: ${{ secrets.PUBLIC_PATTERNS }}
+        run: |
+          if [ -z "$PUBLIC_PATTERNS" ]; then
+            echo "::error::PUBLIC_PATTERNS is not available to this run; a maintainer runs scripts/check-public.sh"
+            exit 1
+          fi
+          printf '%s\n' "$PUBLIC_PATTERNS" >"$RUNNER_TEMP/public_patterns"
+          ./scripts/check-public.sh -p "$RUNNER_TEMP/public_patterns" range "$(git merge-base "origin/$BASE" HEAD)" HEAD
