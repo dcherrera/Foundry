@@ -111,6 +111,14 @@ int ingot_reader_decode(const ingot_reader *r, size_t i, ingot_base_set *base, i
                         uint8_t *out);
 
 /**
+ * The ref set match entries read their external refs from (version 4; NULL: none). A match
+ * entry decodes its sources first (each once per ingot_reader_decode call).
+ *
+ * Thread-safe: no   Reentrant: yes   Signal-safe: yes
+ */
+void ingot_reader_set_refs(ingot_reader *r, ingot_base_set *refs);
+
+/**
  * Write the source file back, byte-identical, to dst_path. Peak memory is the largest tensor
  * (use ingot_stream for bounded memory).
  *

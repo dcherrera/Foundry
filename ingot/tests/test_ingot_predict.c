@@ -315,7 +315,7 @@ static int write_qwen_like(const char *path, int shuffled) {
 
 static int encode(const char *src, const char *dst, int no_predict, ingot_encode_stats *st) {
     ingot_encode_options opt = {.threads = 3, .no_predict = no_predict, .self_check = 1,
-                                .exact_v2 = 1};
+                                .exact_v2 = 1, .max_version = 3}; /* version 3 writer */
     return ingot_encode_file(src, dst, &opt, st);
 }
 

@@ -177,6 +177,15 @@ void ingot_predict_code(ingot_fcoder *c, const ingot_predict_model *m, const uin
                         const uint16_t *src, uint16_t *dst, size_t n);
 
 /**
+ * ingot_predict_code with the context count given directly (zcount = classes * 12): the weight
+ * coder shared by predict and match (ingot_match.h) payloads.
+ *
+ * Thread-safe: yes (caller-owned coder)   Reentrant: yes   Signal-safe: yes
+ */
+void ingot_predict_code_z(ingot_fcoder *c, uint32_t zcount, const uint8_t *ctx,
+                          const uint16_t *src, uint16_t *dst, size_t n);
+
+/**
  * Bytes of the prefix up to the tables (header, scales, coefficients, pads).
  *
  * Thread-safe: yes   Reentrant: yes   Signal-safe: yes

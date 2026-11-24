@@ -15,7 +15,7 @@ cat "$1"/*.tensors.tsv | awk -F'\t' '
         t = $1; sub(/^(model\.)?(language_model\.)?(mtp\.)?layers\.[0-9]+\./, "", t)
         sub(/^model\.(language_model\.)?/, "", t)
         if ($1 ~ /^mtp\./) t = "mtp." t
-        T[t]++; W[t] += w; P[t] += $5; V[t] += $6; if ($4 == "predict") K[t]++
+        T[t]++; W[t] += w; P[t] += $5; V[t] += $6; if ($4 == "predict" || $4 == "match") K[t]++
         all += w
     }
     END {

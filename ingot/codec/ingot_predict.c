@@ -275,7 +275,11 @@ static void decode_local(ingot_fcoder *c, uint32_t zcount, const uint8_t *ctx, u
 
 void ingot_predict_code(ingot_fcoder *c, const ingot_predict_model *m, const uint8_t *ctx,
                         const uint16_t *src, uint16_t *dst, size_t n) {
-    uint32_t zcount = m->zcount;
+    ingot_predict_code_z(c, m->zcount, ctx, src, dst, n);
+}
+
+void ingot_predict_code_z(ingot_fcoder *c, uint32_t zcount, const uint8_t *ctx,
+                          const uint16_t *src, uint16_t *dst, size_t n) {
     if (c->mode == INGOT_FC_DECODE && !c->err && dst) {
         decode_local(c, zcount, ctx, dst, n);
         return;

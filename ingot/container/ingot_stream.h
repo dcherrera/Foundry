@@ -41,6 +41,8 @@ typedef struct {
     ingot_base_set *base;        /* required when the file has delta tensors */
     int check_base_sha256;       /* also hash the base file and compare it to the header
                                     (always done for a forward-only base) */
+    ingot_base_set *refs;        /* required when the file has external refs (version 4): the
+                                    earlier files of the model, e.g. the shards already rebuilt */
     ingot_progress_fn progress;  /* optional: output bytes so far, source size */
     void *progress_ctx;
 } ingot_stream_options;

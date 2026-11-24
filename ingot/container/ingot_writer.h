@@ -62,6 +62,20 @@ typedef struct {
                                     INGOT_POLICY_PLAIN implies it */
     int exact_v2;                /* also encode a predicted tensor's best other mode (into
                                     nothing) so v2 sizes are exact, not estimates */
+    int max_version;             /* newest format version to write: 0 or 4 = match mode (version
+                                    4) for layer roles; 3 = same-unit predict mode only */
+    ingot_base_set *refs;        /* earlier files of the same model (match sources outside this
+                                    file); must not hold this file's own tensors; NULL: none */
+    const int *pool_layers;      /* match pool layer offsets (NULL: 1 and 16) */
+    int pool_layer_count;
+    int match_candidates;        /* search candidates per unit (0: 32) */
+    long match_twin_offset;      /* also try units u -+ this offset (grown models copy neurons;
+                                    Qwen3.5-27B lineage: 12288); 0: none */
+    long match_search_layers;    /* sketch-search pool layers up to this offset only (farther
+                                    ones, e.g. siblings L-16, get exact aligned candidates only);
+                                    0: all */
+    int match_no_self;           /* no self sources: every match tensor decodes its blocks in
+                                    parallel (a self source makes them decode in order) */
     ingot_entry_fn entry_done;   /* optional */
     void *entry_ctx;
     ingot_progress_fn progress;  /* optional */

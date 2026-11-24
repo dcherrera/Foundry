@@ -59,7 +59,7 @@ sha256_of() {
     if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1
     else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
-file_size() { stat -f %z "$1" 2>/dev/null || stat -c %s "$1"; }
+file_size() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; } # GNU first: GNU stat -f is filesystem info
 need_disk() {  # bytes about to land on disk
     local need=$(( ($1 >> 30) + MIN_FREE_GB + 1 ))
     [ "$(free_gb)" -ge "$need" ] || { echo "refusing: free disk $(free_gb) GB < $need GB" >&2; exit 3; }
