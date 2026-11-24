@@ -51,6 +51,10 @@ Both checks run in CI on every pull request, and you can run them yourself first
 ./scripts/check-headers.sh # every source file you ADD has SPDX + the @file block
 ```
 
+CI also runs `public-scan`, a content check for private paths, internal names and
+credentials. Its rules are not published, so on a fork pull request a maintainer
+runs it instead.
+
 ### License header on new files
 
 Every source file starts with:
