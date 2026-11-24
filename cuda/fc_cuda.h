@@ -677,7 +677,7 @@ void fc_moe_router_topk(fc_buffer *logits, fc_buffer *top_idx,
  * back to a full-logits D2H copy). A row with fewer than k values above
  * -inf (all-NaN logits, say) is a failure: no pair is written through the
  * kernels' no-winner index and the call returns -1. */
-#define FC_TOPK_MAX 256
+#define FC_TOPK_MAX 512
 int fc_topk_logits_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int n, int k,
                        int *out_idx, float *out_val);
 int fc_topk_logits(fc_buffer *logits, int n, int k,
@@ -692,6 +692,16 @@ int fc_topk_logits(fc_buffer *logits, int n, int k,
  * values above -inf (caller falls back to the per-slot path). */
 int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
                              int n, int k, int *out_idx, float *out_val);
+
+/* As fc_topk_logits_slots_ctx, plus a per-row NaN check: out_nan[u] = 1 when
+ * row u holds a NaN, 0 when it holds none, -1 when unknown (the fallback tree
+ * ran; it does not check). The selection skips NaN, so the pairs alone cannot
+ * show one; a caller that must reproduce a host scan of the whole row (where a
+ * NaN changes the result) needs this. Same cost as the plain call: the check
+ * rides on the filter pass. */
+int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                                 int n, int k, int *out_idx, float *out_val,
+                                 int *out_nan);
 
 /* MoE weighted accumulate: moe_out[i] += weight * expert_out[i].
  * Both buffers are [n_embd] float32. */

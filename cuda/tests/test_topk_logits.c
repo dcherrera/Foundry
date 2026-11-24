@@ -18,6 +18,10 @@
  * usable for a normal call afterwards. One context for the whole run on
  * purpose: a fault in one test must fail the tests after it.
  *
+ * NaN flag (fc_topk_logits_slots_nan_ctx): 1 exactly for the rows holding a
+ * NaN on the fast path, -1 only when the tree ran, never stale from a previous
+ * call.
+ *
  * Build: make USE_CUDA=1 test-topk-logits
  */
 
@@ -112,6 +116,18 @@ static int pair_cmp(const void *a, const void *b)
     return (x->i > y->i) - (x->i < y->i);
 }
 
+/* Does the row hold a NaN (bitwise; fast-math compares are not trusted)? */
+static int host_has_nan(const float *row, int n)
+{
+    for (int i = 0; i < n; i++) {
+        uint32_t u;
+        memcpy(&u, &row[i], sizeof(u));
+        if ((u & 0x7f800000u) == 0x7f800000u && (u & 0x007fffffu))
+            return 1;
+    }
+    return 0;
+}
+
 /* Reference top-k of one row. Returns the number of values above -inf found
  * (the device must reject the row when that is < k). */
 static int host_topk(const float *row, int n, int k, int *ids, float *vals)
@@ -163,15 +179,16 @@ static int exact_on_shape(int n, int k, int nslots)
     float *vals = malloc((size_t)nslots * k * sizeof(float));
     int *rids = malloc((size_t)k * sizeof(int));
     float *rvals = malloc((size_t)k * sizeof(float));
-    int ok = rows && back && ids && vals && rids && rvals;
+    int nan_flag[4];
+    int ok = rows && back && ids && vals && rids && rvals && nslots <= 4;
     int short_row = 0;
 
     if (ok) {
         for (int u = 0; u < nslots; u++)
             fill_tied_row(rows + (size_t)u * n, n);
         fc_buffer *buf = fc_buffer_from_ptr(rows, total * sizeof(float));
-        int rc = buf ? fc_topk_logits_slots_ctx(fc_default_ctx(), buf, nslots,
-                                                n, k, ids, vals) : -2;
+        int rc = buf ? fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, nslots,
+                                                    n, k, ids, vals, nan_flag) : -2;
         if (buf)
             fc_buffer_to_cpu(buf, back);
         ok = buf && memcmp(back, rows, total * sizeof(float)) == 0;
@@ -179,6 +196,12 @@ static int exact_on_shape(int n, int k, int nslots)
             int m = host_topk(rows + (size_t)u * n, n, k, rids, rvals);
             if (m < k) { short_row = 1; continue; }
             if (rc != 0) continue;
+            if (nan_flag[u] != -1 && nan_flag[u] != host_has_nan(rows + (size_t)u * n, n)) {
+                printf("    n=%d k=%d slots=%d row %d: nan flag %d\n", n, k, nslots, u,
+                       nan_flag[u]);
+                ok = 0;
+                break;
+            }
             for (int r = 0; r < k; r++) {
                 if (ids[u * k + r] != rids[r] ||
                     memcmp(&vals[u * k + r], &rvals[r], sizeof(float)) != 0) {
@@ -204,7 +227,7 @@ static int exact_on_shape(int n, int k, int nslots)
 static void test_exact_vs_host_reference(void)
 {
     static const int ns[] = { 1, 7, 255, 256, 257, 4097, 65812, 248320, 600001 };
-    static const int ks[] = { 1, 8, 40, 256 };
+    static const int ks[] = { 1, 8, 40, 256, 257, 512 };
     for (size_t a = 0; a < sizeof(ns) / sizeof(ns[0]); a++)
         for (size_t b = 0; b < sizeof(ks) / sizeof(ks[0]); b++) {
             if (ks[b] > ns[a])
@@ -263,6 +286,79 @@ static void test_all_equal_row_overflow_exact(void)
     }
 }
 
+/* Distinct values (fast path): one NaN anywhere flags exactly its row, and
+ * the next call on clean rows reports 0 (the flag is not left over). The
+ * pairs are the same as the plain call's. */
+static void test_nan_flag_exact_and_not_stale(void)
+{
+    const int nslots = 3, n = 248320, k = 257;
+    float *rows = malloc((size_t)nslots * n * sizeof(float));
+    int *ids = malloc((size_t)nslots * k * sizeof(int));
+    int *ids2 = malloc((size_t)nslots * k * sizeof(int));
+    float *vals = malloc((size_t)nslots * k * sizeof(float));
+    float *vals2 = malloc((size_t)nslots * k * sizeof(float));
+    int flag[3], rc;
+    ASSERT_NOT_NULL(rows);
+    ASSERT_NOT_NULL(ids);
+    ASSERT_NOT_NULL(ids2);
+    ASSERT_NOT_NULL(vals);
+    ASSERT_NOT_NULL(vals2);
+    for (size_t i = 0; i < (size_t)nslots * n; i++)
+        rows[i] = (float)(int)(rng() % 2000000) * 1e-4f;
+    rows[(size_t)1 * n + 123457] = NAN;          /* row 1 only, far from the top */
+    fc_buffer *buf = fc_buffer_from_ptr(rows, (size_t)nslots * n * sizeof(float));
+    ASSERT_NOT_NULL(buf);
+    rc = fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, nslots, n, k, ids, vals, flag);
+    ASSERT_INT_EQ(rc, 0);
+    ASSERT_INT_EQ(flag[0], 0);
+    ASSERT_INT_EQ(flag[1], 1);
+    ASSERT_INT_EQ(flag[2], 0);
+    rc = fc_topk_logits_slots_ctx(fc_default_ctx(), buf, nslots, n, k, ids2, vals2);
+    ASSERT_INT_EQ(rc, 0);
+    ASSERT_TRUE(memcmp(ids, ids2, (size_t)nslots * k * sizeof(int)) == 0);
+    ASSERT_TRUE(memcmp(vals, vals2, (size_t)nslots * k * sizeof(float)) == 0);
+    fc_buffer_free(buf);
+    rows[(size_t)1 * n + 123457] = 0.5f;
+    buf = fc_buffer_from_ptr(rows, (size_t)nslots * n * sizeof(float));
+    ASSERT_NOT_NULL(buf);
+    flag[0] = flag[1] = flag[2] = 7;
+    rc = fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, nslots, n, k, ids, vals, flag);
+    fc_buffer_free(buf);
+    ASSERT_INT_EQ(rc, 0);
+    ASSERT_INT_EQ(flag[0], 0);
+    ASSERT_INT_EQ(flag[1], 0);
+    ASSERT_INT_EQ(flag[2], 0);
+    free(rows); free(ids); free(ids2); free(vals); free(vals2);
+}
+
+/* LM-head rows cluster their high logits by token id (a script's or a language's block
+ * of the vocabulary). Such a row at k = 257 must stay on the fast path (the NaN flag is
+ * -1 only when the tree ran) and match the reference. One chunk per k-th overflowed. */
+static void test_clustered_row_fast_path(void)
+{
+    const int n = 248320, k = 257;
+    float *row = malloc((size_t)n * sizeof(float));
+    int ids[257], rids[257], flag = 7;
+    float vals[257], rvals[257];
+    ASSERT_NOT_NULL(row);
+    for (int i = 0; i < n; i++) {
+        float g = 0.0f;
+        for (int j = 0; j < 4; j++) g += (float)(rng() % 1000000) * 1e-6f;
+        row[i] = (g - 2.0f) * 4.3f;                       /* sd ~2.5 */
+    }
+    for (int i = 100000; i < 104000; i++) row[i] += 6.0f; /* the hot block */
+    fc_buffer *buf = fc_buffer_from_ptr(row, (size_t)n * sizeof(float));
+    ASSERT_NOT_NULL(buf);
+    int rc = fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, 1, n, k, ids, vals, &flag);
+    fc_buffer_free(buf);
+    host_topk(row, n, k, rids, rvals);
+    free(row);
+    ASSERT_INT_EQ(rc, 0);
+    ASSERT_INT_EQ(flag, 0);
+    ASSERT_TRUE(memcmp(ids, rids, sizeof(rids)) == 0);
+    ASSERT_TRUE(memcmp(vals, rvals, sizeof(rvals)) == 0);
+}
+
 /* ---- speed ---- */
 
 #define TOPK_BUDGET_US 400.0   /* old k-round path: 1841 us */
@@ -282,34 +378,53 @@ static int dbl_cmp(const void *a, const void *b)
 
 /* Median wall time per call (incl. launches, sync, D2H): the median keeps a
  * busy host's scheduling hiccups out of the number. */
-static void test_lm_head_shape_under_budget(void)
+static double median_call_us(int nslots, int k, int with_nan)
 {
     enum { ITERS = 31 };
-    const int n = 248320, k = 40;
-    float *row = malloc((size_t)n * sizeof(float));
-    int ids[40];
-    float vals[40];
+    const int n = 248320;
+    float *rows = malloc((size_t)nslots * n * sizeof(float));
+    int *ids = malloc((size_t)nslots * k * sizeof(int));
+    float *vals = malloc((size_t)nslots * k * sizeof(float));
+    int flag[4];
     double us[ITERS];
-    ASSERT_NOT_NULL(row);
-    for (int i = 0; i < n; i++)
-        row[i] = (float)(int)(rng() % 2000000) * 1e-4f;
-    fc_buffer *buf = fc_buffer_from_ptr(row, (size_t)n * sizeof(float));
-    free(row);
-    ASSERT_NOT_NULL(buf);
-    int rc = 0;
-    for (int i = 0; i < 3; i++)
-        rc |= fc_topk_logits_slots_ctx(fc_default_ctx(), buf, 1, n, k, ids, vals);
-    for (int i = 0; i < ITERS; i++) {
+    int rc = rows && ids && vals && nslots <= 4 ? 0 : -1;
+    fc_buffer *buf = NULL;
+    if (rc == 0) {
+        for (size_t i = 0; i < (size_t)nslots * n; i++)
+            rows[i] = (float)(int)(rng() % 2000000) * 1e-4f;
+        buf = fc_buffer_from_ptr(rows, (size_t)nslots * n * sizeof(float));
+        rc = buf ? 0 : -1;
+    }
+    for (int i = 0; rc == 0 && i < 3 + ITERS; i++) {
         double t0 = now_us();
-        rc |= fc_topk_logits_slots_ctx(fc_default_ctx(), buf, 1, n, k, ids, vals);
-        us[i] = now_us() - t0;
+        rc |= with_nan ? fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, nslots, n, k,
+                                                      ids, vals, flag)
+                       : fc_topk_logits_slots_ctx(fc_default_ctx(), buf, nslots, n, k,
+                                                  ids, vals);
+        if (i >= 3)
+            us[i - 3] = now_us() - t0;
     }
     fc_buffer_free(buf);
+    free(rows); free(ids); free(vals);
+    if (rc != 0)
+        return -1.0;
     qsort(us, ITERS, sizeof(us[0]), dbl_cmp);
-    printf("    top-k k=%d over %d: median %.1f us/call (budget %.0f)\n", k, n,
-           us[ITERS / 2], TOPK_BUDGET_US);
-    ASSERT_INT_EQ(rc, 0);
-    ASSERT_TRUE(us[ITERS / 2] < TOPK_BUDGET_US);
+    return us[ITERS / 2];
+}
+
+static void test_lm_head_shape_under_budget(void)
+{
+    double us = median_call_us(1, 40, 0);
+    printf("    top-k k=40 over 248320: median %.1f us/call (budget %.0f)\n", us,
+           TOPK_BUDGET_US);
+    ASSERT_TRUE(us >= 0.0 && us < TOPK_BUDGET_US);
+    /* The short logits row: k = 257 with the NaN check, 1 and 4 rows. */
+    for (int ns = 1; ns <= 4; ns *= 2) {
+        us = median_call_us(ns, 257, 1);
+        printf("    top-k k=257 + NaN check, %d row(s) over 248320: median %.1f us/call\n",
+               ns, us);
+        ASSERT_TRUE(us >= 0.0 && us < 2.0 * TOPK_BUDGET_US * ns);
+    }
 }
 
 static void test_finite_row_baseline(void)
@@ -386,6 +501,8 @@ int main(void)
     RUN_TEST(exact_vs_host_reference);
     RUN_TEST(exact_distinct_slots);
     RUN_TEST(all_equal_row_overflow_exact);
+    RUN_TEST(nan_flag_exact_and_not_stale);
+    RUN_TEST(clustered_row_fast_path);
     RUN_TEST(lm_head_shape_under_budget);
     fc_free();
     TEST_REPORT();

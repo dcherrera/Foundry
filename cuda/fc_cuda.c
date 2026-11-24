@@ -525,6 +525,7 @@ struct fc_cuda_ctx {
     CUfunction kern_fused_multi;        /* from mod_fused (fused_layer.ptx) */
     CUfunction kern_attn_qknorm_rope;
     CUfunction kern_topk_blockmax;      /* from mod_topk (topk_logits.ptx) */
+    CUfunction kern_topk_thresh;
     CUfunction kern_topk_filter;
     CUfunction kern_topk_rank_select;
     CUfunction kern_topk_select;
@@ -1212,14 +1213,14 @@ static void fc_ctx_load_kernels(fc_cuda_ctx *ctx)
                     "(kernels unavailable)\n");
     }
     {
-        const char *tk_names[] = { "fc_topk_blockmax", "fc_topk_filter",
+        const char *tk_names[] = { "fc_topk_blockmax", "fc_topk_thresh", "fc_topk_filter",
                                    "fc_topk_rank_select", "fc_topk_select" };
         CUfunction *tk_funcs[] = {
-            &ctx->kern_topk_blockmax, &ctx->kern_topk_filter,
+            &ctx->kern_topk_blockmax, &ctx->kern_topk_thresh, &ctx->kern_topk_filter,
             &ctx->kern_topk_rank_select, &ctx->kern_topk_select
         };
         if (fc_load_ptx_module(FC_PTX_TOPK_LOGITS, &ctx->mod_topk,
-                               tk_names, tk_funcs, 4) != 0)
+                               tk_names, tk_funcs, 5) != 0)
             fprintf(stderr, "[fc_cuda] Top-k logits PTX load failed "
                     "(kernels unavailable)\n");
     }
@@ -3644,9 +3645,9 @@ static int fc_topk_check_rows(const int *idx, int nrows, int k, int n)
 }
 
 /* Device-side exact top-k over the rows of a [nslots][n] logits matrix
- * (topk_logits.cu). Fast path, three launches and no selection rounds:
- * chunk maxima, a per-row threshold (the k-th best chunk maximum) that
- * filters each row to a short candidate list, and a rank-select of that list.
+ * (topk_logits.cu). Fast path, four launches and no selection rounds:
+ * chunk maxima, a per-row threshold (the k-th best chunk maximum), a filter
+ * of each row to the short candidate list, and a rank-select of that list.
  * A row whose list overflows FC_TOPK_CAND_CAP (mass ties at the threshold)
  * sends the call down the fallback: a tree of fc_topk_select launches (each
  * block emits its chunk's top-k by k rounds of block argmax; later levels
@@ -3662,7 +3663,12 @@ static int fc_topk_check_rows(const int *idx, int nrows, int k, int n)
  * on the host when it returns. Returns 0 on success, -1 on failure. */
 #define FC_TOPK_SEL_E       16   /* topk_logits.cu FC_TOPK_SEL_E */
 #define FC_TOPK_FAST_MAXBLK 1024 /* topk_logits.cu FC_TOPK_FAST_MAXBLK */
-#define FC_TOPK_CAND_CAP    2048 /* topk_logits.cu FC_TOPK_CAND_CAP */
+#define FC_TOPK_CAND_CAP    4096 /* topk_logits.cu FC_TOPK_CAND_CAP */
+/* Fast-path chunks per k: the threshold is the k-th best chunk maximum, so more chunks
+ * raise it and shorten the candidate list. Real LM-head rows cluster their high logits
+ * by token id; at one chunk per k-th (k = 257: 324 chunks) about half of them overflowed
+ * the candidate cap and took the tree. */
+#define FC_TOPK_CHUNKS_PER_K 4
 #define FC_TOPK_THREADS0    256
 #define FC_TOPK_BLOCKS0     104  /* 13 SMX x 8 resident 256-thread blocks */
 #define FC_TOPK_THREADS1    512
@@ -3698,8 +3704,9 @@ static CUresult fc_topk_fetch(fc_cuda_ctx *ctx, CUdeviceptr d_oval,
     return err;
 }
 
-int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
-                             int n, int k, int *out_idx, float *out_val)
+int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                                 int n, int k, int *out_idx, float *out_val,
+                                 int *out_nan)
 {
     if (!fc_cuda_ctx_available(ctx) || !ctx->kern_topk_select ||
         !logits || !out_idx || !out_val ||
@@ -3709,26 +3716,32 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     /* Tree chunks: about one wave per row. */
     int e0 = fc_topk_level_e(n, FC_TOPK_THREADS0, FC_TOPK_BLOCKS0);
     int nblk0 = fc_topk_div_up(n, FC_TOPK_THREADS0 * e0);
-    /* Fast-path chunks: the same, but at least k of them when n allows, so
-     * the threshold (k-th best chunk maximum) exists. */
-    int ef = e0, ek = n / (FC_TOPK_THREADS0 * k);
+    /* Fast-path chunks: the same, but about FC_TOPK_CHUNKS_PER_K * k of them
+     * when n allows (at least k: the threshold, the k-th best chunk maximum,
+     * must exist), within FC_TOPK_FAST_MAXBLK. */
+    int ef = e0, ek = n / (FC_TOPK_THREADS0 * k * FC_TOPK_CHUNKS_PER_K);
+    if (ek < 1 && n / FC_TOPK_THREADS0 >= k)
+        ek = 1;
     if (ek >= 1 && ek < ef)
         ef = ek;
+    while (ef < FC_TOPK_SEL_E && fc_topk_div_up(n, FC_TOPK_THREADS0 * ef) > FC_TOPK_FAST_MAXBLK)
+        ef++;
     int nblkf = fc_topk_div_up(n, FC_TOPK_THREADS0 * ef);
-    int fast = ctx->kern_topk_blockmax && ctx->kern_topk_filter &&
+    int fast = ctx->kern_topk_blockmax && ctx->kern_topk_thresh && ctx->kern_topk_filter &&
                ctx->kern_topk_rank_select && nblkf <= FC_TOPK_FAST_MAXBLK;
 
     /* Scratch, int32/f32 words: tree levels 2 x [nslots][nblk0*k] (val|idx)
      * | fast maxima [nslots][nblkf] (val|idx) | candidates [nslots][CAP]
      * (val|idx) | count [nslots] | out [nslots][k] val | idx | status
-     * [nslots]. Later tree levels only shrink. */
+     * [nslots] | nan [nslots] | threshold [nslots] (val|idx). Later tree
+     * levels only shrink. */
     size_t lvl = (size_t)nslots * nblk0 * k;
     size_t mxn = (size_t)nslots * nblkf;
     size_t cnd = (size_t)nslots * FC_TOPK_CAND_CAP;
     size_t outn = (size_t)nslots * k;
-    size_t words = 4 * lvl + 2 * mxn + 2 * cnd + nslots + 2 * outn + nslots;
+    size_t words = 4 * lvl + 2 * mxn + 2 * cnd + nslots + 2 * outn + 4 * nslots;
     size_t bytes = words * sizeof(int32_t);
-    int32_t *tmp = malloc((2 * outn + nslots) * sizeof(int32_t));
+    int32_t *tmp = malloc((2 * outn + 2 * (size_t)nslots) * sizeof(int32_t));
     if (!tmp)
         return -1;
 
@@ -3764,18 +3777,27 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     CUdeviceptr d_oval = d_cnt + (size_t)nslots * W;
     CUdeviceptr d_oidx = d_oval + outn * W;
     CUdeviceptr d_stat = d_oidx + outn * W;
+    CUdeviceptr d_nan = out_nan ? d_stat + (size_t)nslots * W : 0;
+    CUdeviceptr d_tv = d_stat + 2 * (size_t)nslots * W;
+    CUdeviceptr d_ti = d_tv + (size_t)nslots * W;
 
     CUresult err = CUDA_SUCCESS;
     int done = 0;
     if (fast) {
         int threads = FC_TOPK_THREADS0;
-        void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt };
+        void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt, &d_nan };
         err = fcw_cuLaunchKernel(ctx->kern_topk_blockmax,
                                (unsigned int)nblkf, (unsigned int)nslots, 1,
                                (unsigned int)threads, 1, 1,
                                0, ctx->stream, margs, NULL);
-        void *fargs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &k,
-                          &d_cv, &d_ci, &d_cnt };
+        void *targs[] = { &d_bv, &d_bi, &nblkf, &k, &d_tv, &d_ti };
+        if (err == CUDA_SUCCESS)
+            err = fcw_cuLaunchKernel(ctx->kern_topk_thresh,
+                                   1, (unsigned int)nslots, 1,
+                                   (unsigned int)threads, 1, 1,
+                                   0, ctx->stream, targs, NULL);
+        void *fargs[] = { &logits->dptr, &n, &ef, &d_tv, &d_ti,
+                          &d_cv, &d_ci, &d_cnt, &d_nan };
         if (err == CUDA_SUCCESS)
             err = fcw_cuLaunchKernel(ctx->kern_topk_filter,
                                    (unsigned int)nblkf, (unsigned int)nslots, 1,
@@ -3789,12 +3811,14 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
                                    (unsigned int)threads, 1, 1,
                                    0, ctx->stream, rargs, NULL);
         if (err == CUDA_SUCCESS)
-            err = fc_topk_fetch(ctx, d_oval, outn, (size_t)nslots, tmp);
+            err = fc_topk_fetch(ctx, d_oval, outn,
+                                (size_t)nslots * (out_nan ? 2 : 1), tmp);
         done = err == CUDA_SUCCESS;
         for (int u = 0; done && u < nslots; u++)
             if (tmp[2 * outn + u] != 0)
                 done = 0;               /* a row overflowed: take the tree */
     }
+    const int fast_done = done;
 
     CUdeviceptr in_val = logits->dptr, in_idx = 0;
     int m = n, e = e0, threads = FC_TOPK_THREADS0, nblk = nblk0;
@@ -3824,6 +3848,9 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     if (err == CUDA_SUCCESS) {
         memcpy(out_val, tmp, outn * sizeof(float));
         memcpy(out_idx, tmp + outn, outn * sizeof(int));
+        /* The tree does not check for NaN: -1 = unknown. */
+        for (int u = 0; out_nan && u < nslots; u++)
+            out_nan[u] = fast_done ? tmp[2 * outn + nslots + u] : -1;
     }
     free(tmp);
     if (err != CUDA_SUCCESS) {
@@ -3831,6 +3858,13 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
         return -1;
     }
     return fc_topk_check_rows(out_idx, nslots, k, n);
+}
+
+int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                             int n, int k, int *out_idx, float *out_val)
+{
+    return fc_topk_logits_slots_nan_ctx(ctx, logits, nslots, n, k, out_idx, out_val,
+                                        NULL);
 }
 
 int fc_topk_logits_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int n, int k,
