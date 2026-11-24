@@ -3,7 +3,8 @@
 /**
  * @file   test_ingot_cuda_gpu.c
  * @brief  GPU decode on a K80 die: every synthetic case (plain, plain groups, small plain, delta,
- *         predict rows / columns / grouped heads, match rows with a self source, match columns)
+ *         predict rows / columns / grouped heads, match rows with a self source, match columns,
+ *         match strips, Q8_0)
  *         decoded on the GPU and compared bit for bit with the codec's CPU decoder; the matvec
  *         (alone and with the store) compared bit for bit with the CPU reference of the kernels;
  *         every block's status clean. A large plain tensor reports decode throughput.

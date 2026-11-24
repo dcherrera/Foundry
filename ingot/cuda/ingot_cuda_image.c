@@ -446,7 +446,7 @@ int ingot_cuda_image_build(const ingot_entry *e, const uint8_t *payload, uint64_
     const int bf16 = e->dtype == INGOT_DTYPE_BF16 &&
                      (e->mode == INGOT_MODE_PLAIN || e->mode == INGOT_MODE_DELTA ||
                       e->mode == INGOT_MODE_PREDICT || e->mode == INGOT_MODE_MATCH);
-    const int q8 = e->dtype == DTYPE_Q8_0 && e->mode == INGOT_MODE_QUANT;
+    const int q8 = (int)e->dtype == DTYPE_Q8_0 && e->mode == INGOT_MODE_QUANT;
     if ((!bf16 && !q8) || rows * cols >= ((uint64_t)1 << 32))
         return -INGOT_EUNSUPPORTED;
     int rc = validate_with_codec(e, payload, size);
