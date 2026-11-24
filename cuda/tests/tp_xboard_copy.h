@@ -4,7 +4,7 @@
  * @file tp_xboard_copy.h
  * @brief Cross-board die-to-die copies for the TP benches (no P2P across K80 boards).
  *
- * Bank-1's boards each sit behind a PCIe gen2 x1 root port, and cross-board peer copies
+ * On the reference host each board sits behind a PCIe gen2 x1 root port, and cross-board peer copies
  * arrive corrupt, so every cross-board byte is staged through host memory. This prices
  * the ways to do that, each ordered by device events only (no host sync):
  *

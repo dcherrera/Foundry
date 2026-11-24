@@ -253,7 +253,7 @@ static int dies_init(size_t arena_bytes)
         }
     }
     free(h);
-    /* P2P only between the two dies of one board (PCI order: 2k, 2k+1). Bank-1's
+    /* P2P only between the two dies of one board (PCI order: 2k, 2k+1). The reference host's
      * driver also grants cross-board access (through the host bridge), but those
      * copies arrive CORRUPT at ~0.3 GB/s (mode peer with TP_PEER_ALL=1 shows it), so
      * cross-board pairs stay unpeered and cuMemcpyPeerAsync stages through host. */
