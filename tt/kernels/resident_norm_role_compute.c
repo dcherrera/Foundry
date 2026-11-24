@@ -34,7 +34,7 @@
  * Compile-time args: 0 wait mode (1 stoppable, ships). CB indices are the protocol's.
  * Runtime args: the ten of resident_queue_protocol.h.
  *
- * @status P0 (Nex-n2 qwen38_tt_persistent_plan.md P0.2). Card gate pending.
+ * @status P0 (P0.2). Card gate pending.
  * @issues None
  * @todo None
  */

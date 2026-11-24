@@ -115,7 +115,7 @@ FTQ_STATIC_ASSERT(FT_CB_ANY_32BIT_UNPACK == 0,
 
 enum { dst_register = 0, dst_previous = 1 };
 
-/* P0 TIMING PROBE (Nex-n2 qwen38_tt_prefill_spec.md §6). Undefined in every shipped build, so
+/* P0 TIMING PROBE. Undefined in every shipped build, so
  * the preprocessed source -- and every shipped image -- is unchanged. A probe image computes a
  * WRONG answer by design; only its ms-per-descriptor slope is read. Bits: 1 no QK matmul issue,
  * 2 no PV matmul issue, 4 no sub-bcast + exp, 8 no row reduces, 16 LoFi matmuls (now also the

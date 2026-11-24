@@ -57,7 +57,7 @@
  *
  * WIRE CONTRACT FORM: one-line anonymous enums, as resident_queue_protocol.h.
  *
- * @status P0 (Nex-n2 qwen38_tt_persistent_plan.md P0.1/P0.2). Host test tests/test_norm_role.c.
+ * @status P0 (P0.1/P0.2). Host test tests/test_norm_role.c.
  *         Card gate pending.
  * @issues None
  * @todo None

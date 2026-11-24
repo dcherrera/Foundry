@@ -118,8 +118,8 @@
  * AND Bfp4_b weights, chosen per descriptor by word 13 bit 30 (kMatmulWeightBfp4). CB_IN1
  * keeps its 1,088 B pages for the whole residency; a Bfp4 descriptor's chunk holds its
  * `depth * NB` tiles at a 576 B stride in the front of the same `depth * NB` pages, so the
- * page counts pushed, the chunk grid and `fifo_page_size` never change (Nex-n2
- * qwen38_tt_mixw_spec.md 6.1). Every B byte count and stride below goes through
+ * page counts pushed, the chunk grid and `fifo_page_size` never change.
+ * Every B byte count and stride below goes through
  * B_TILE_BYTES, which every other build resolves to IN1_TILE_BYTES, token for token.
  * ========================================================================= */
 #if defined(FT_RTRIAD_MIXW) && FT_RTRIAD_MIXW

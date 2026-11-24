@@ -33,7 +33,7 @@
  *   datacopy -> SFPU silu (fp32 DST) -> pack bf16 to the STAGE CB -> MUL at HiFi4 -> pack bf16.
  *   Every rounding point of gate -> ffn_gate, up -> ffn_up, silu_mul is reproduced in order.
  *
- * @status Added 2026-11-17 (Nex-n2 qwen38_tt_chain_fusion_plan.md 3.3, S3b).
+ * @status Added 2026-11-17 (S3b).
  * @issues None
  * @todo None
  */

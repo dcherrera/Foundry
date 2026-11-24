@@ -14,7 +14,7 @@
 #   cb 0/1/16 and the three settings are matmul_bfp8_b.cbtable's, so a Bfp8 descriptor
 #   unpacks, multiplies and packs exactly as `rtriad_bfp8` does. The settings' measured
 #   reasons (HiFi4, fp32 accumulate) are recorded there and in matmul_bfp4_b.cbtable, which
-#   measured both on Bfp4_b. Nex-n2 qwen38_tt_mixw_spec.md 6.1 is the design.
+#   measured both on Bfp4_b.
 
 math_fidelity  4
 approx         0

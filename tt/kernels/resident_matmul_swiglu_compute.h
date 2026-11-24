@@ -25,7 +25,7 @@
  *   and back once; the matmul MOPs are re-initialised after (ftsw_matmul_restore lives in the
  *   compute .c beside matmul_select_in0_shape, which it mirrors).
  *
- * @status Added 2026-11-17 (Nex-n2 qwen38_tt_chain_fusion_plan.md 3.3, S3b).
+ * @status Added 2026-11-17 (S3b).
  * @issues None
  * @todo None
  */

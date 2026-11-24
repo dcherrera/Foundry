@@ -33,7 +33,7 @@
  * Compile-time args: 0 tile bytes (2048), 1 wait mode (1 stoppable, ships).
  * Runtime args: the ten of resident_queue_protocol.h.
  *
- * @status P0 (Nex-n2 qwen38_tt_persistent_plan.md P0.2), exchange levers 1-2 (spec §11.11),
+ * @status P0 (P0.2), exchange levers 1-2 (spec §11.11),
  *         faces / stagger modes (§11.13). Card gate pending for the modes.
  * @issues None
  * @todo None
