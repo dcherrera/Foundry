@@ -24,10 +24,12 @@
  * Fast path (driven by fc_topk_logits_slots_ctx in fc_cuda.c), no rounds:
  *   1. fc_topk_blockmax — each block takes one chunk of a row and emits the
  *      chunk's best (val, idx).
- *   2. fc_topk_filter — every block ranks the row's chunk maxima and takes
- *      the k-th best as a threshold T (at least k elements are >= T, so the
- *      row's top-k all are), then appends each element >= T to a per-row
- *      candidate list (warp-aggregated atomics, any order).
+ *   2. fc_topk_thresh — one block per row ranks the row's chunk maxima and
+ *      takes the k-th best as a threshold T (at least k elements are >= T, so
+ *      the row's top-k all are). fc_topk_filter then appends each element >= T
+ *      to a per-row candidate list (warp-aggregated atomics, any order).
+ *      (Every filter block used to rank the maxima itself: O(nblk^2) per block,
+ *      0.43 ms of a k = 257 call over 248320 on a K80.)
  *   3. fc_topk_rank_select — one block per row ranks the candidates (rank =
  *      how many candidates beat it; distinct under the total order) and
  *      writes rank r < k to slot r. A row whose candidates overflow
@@ -45,7 +47,8 @@
  *
  * PTX symbols emitted (for embedding into ../cuda/fc_cuda_ptx.h):
  *   FC_PTX_TOPK_LOGITS -> kernels
- *     fc_topk_blockmax, fc_topk_filter, fc_topk_rank_select, fc_topk_select
+ *     fc_topk_blockmax, fc_topk_thresh, fc_topk_filter, fc_topk_rank_select,
+ *     fc_topk_select
  *
  * Kepler notes: pure fp32, __shfl_down (the non-.sync variant) warp
  * reductions, two __syncthreads per selection round.
@@ -67,7 +70,7 @@ extern "C" {
 /* Fast-path limits (mirrored in fc_cuda.c): chunk maxima ranked per row in
  * shared memory, and candidates per row. */
 #define FC_TOPK_FAST_MAXBLK 1024
-#define FC_TOPK_CAND_CAP    2048
+#define FC_TOPK_CAND_CAP    4096
 
 /* Comparator: does candidate (av, ai) beat incumbent (bv, bi)?
  * Strictly greater value wins; equal value -> lower index wins. */
@@ -153,32 +156,24 @@ __global__ void fc_topk_blockmax(const float *x, int n, int e,
 }
 
 /*
- * Fast path 2: threshold T = k-th best chunk maximum, then append every
- * element of the chunk that T does not beat to the row's candidate list.
- * If fewer than k chunks have a value above -inf, T is (-inf, NO_WINNER) and
- * every value above -inf is appended (stage 3 then overflows or pads).
+ * Fast path 2a: per row, the threshold T = the k-th best chunk maximum, or
+ * (-inf, NO_WINNER) when fewer than k chunks have a value above -inf (then
+ * every value above -inf is a candidate; stage 3 overflows or pads).
  *
- * x, n, e:  as fc_topk_blockmax (same grid, same chunks)
- * bv/bi:    [nslots][gridDim.x] chunk maxima from stage 1
- * cv/ci:    [nslots][FC_TOPK_CAND_CAP] candidates (output, any order)
- * count:    [nslots] appended count (may exceed the cap: overflow)
- * nan:      [nslots] set to 1 when the row holds a NaN, or NULL
+ * bv/bi:  [nslots][nblk] chunk maxima from stage 1
+ * tv/ti:  [nslots] threshold (output)
  *
- * Shared memory: gridDim.x <= FC_TOPK_FAST_MAXBLK maxima.
+ * Grid (1, nslots); any blockDim.x. Shared memory: nblk <= FC_TOPK_FAST_MAXBLK.
  */
-__global__ void fc_topk_filter(const float *x, int n, int e, const float *bv,
-                               const int *bi, int k, float *cv, int *ci,
-                               int *count, int *nan)
+__global__ void fc_topk_thresh(const float *bv, const int *bi, int nblk, int k,
+                               float *tv, int *ti)
 {
     __shared__ float s_bv[FC_TOPK_FAST_MAXBLK];
     __shared__ int   s_bi[FC_TOPK_FAST_MAXBLK];
-    __shared__ float s_tv;
-    __shared__ int   s_ti;
-    const int u = blockIdx.y, nblk = gridDim.x;
-    const float *row = x + (size_t)u * n;
-    int tid = threadIdx.x, lane = tid & 31;
+    const int u = blockIdx.y;
+    int tid = threadIdx.x;
 
-    if (tid == 0) { s_tv = FC_TOPK_NEG_INF; s_ti = FC_TOPK_NO_WINNER; }
+    if (tid == 0) { tv[u] = FC_TOPK_NEG_INF; ti[u] = FC_TOPK_NO_WINNER; }
     for (int t = tid; t < nblk; t += blockDim.x) {
         s_bv[t] = bv[(size_t)u * nblk + t];
         s_bi[t] = bi[(size_t)u * nblk + t];
@@ -192,11 +187,29 @@ __global__ void fc_topk_filter(const float *x, int n, int e, const float *bv,
         int rank = 0;
         for (int j = 0; j < nblk; j++)
             rank += fc_topk_beats(s_bv[j], s_bi[j], mv, mi);
-        if (rank == k - 1) { s_tv = mv; s_ti = mi; }
+        if (rank == k - 1) { tv[u] = mv; ti[u] = mi; }   /* ranks are distinct */
     }
-    __syncthreads();
-    const float tv = s_tv;
-    const int ti = s_ti;
+}
+
+/*
+ * Fast path 2b: append every element of the chunk that T does not beat to the
+ * row's candidate list.
+ *
+ * x, n, e:  as fc_topk_blockmax (same grid, same chunks)
+ * tv/ti:    [nslots] thresholds from stage 2a
+ * cv/ci:    [nslots][FC_TOPK_CAND_CAP] candidates (output, any order)
+ * count:    [nslots] appended count (may exceed the cap: overflow)
+ * nan:      [nslots] set to 1 when the row holds a NaN, or NULL
+ */
+__global__ void fc_topk_filter(const float *x, int n, int e, const float *tvs,
+                               const int *tis, float *cv, int *ci, int *count,
+                               int *nan)
+{
+    const int u = blockIdx.y;
+    const float *row = x + (size_t)u * n;
+    int tid = threadIdx.x, lane = tid & 31;
+    const float tv = tvs[u];
+    const int ti = tis[u];
 
     int base = blockIdx.x * blockDim.x * e + tid;
     float *cvr = cv + (size_t)u * FC_TOPK_CAND_CAP;

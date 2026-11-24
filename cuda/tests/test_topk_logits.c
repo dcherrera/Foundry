@@ -331,6 +331,34 @@ static void test_nan_flag_exact_and_not_stale(void)
     free(rows); free(ids); free(ids2); free(vals); free(vals2);
 }
 
+/* LM-head rows cluster their high logits by token id (a script's or a language's block
+ * of the vocabulary). Such a row at k = 257 must stay on the fast path (the NaN flag is
+ * -1 only when the tree ran) and match the reference. One chunk per k-th overflowed. */
+static void test_clustered_row_fast_path(void)
+{
+    const int n = 248320, k = 257;
+    float *row = malloc((size_t)n * sizeof(float));
+    int ids[257], rids[257], flag = 7;
+    float vals[257], rvals[257];
+    ASSERT_NOT_NULL(row);
+    for (int i = 0; i < n; i++) {
+        float g = 0.0f;
+        for (int j = 0; j < 4; j++) g += (float)(rng() % 1000000) * 1e-6f;
+        row[i] = (g - 2.0f) * 4.3f;                       /* sd ~2.5 */
+    }
+    for (int i = 100000; i < 104000; i++) row[i] += 6.0f; /* the hot block */
+    fc_buffer *buf = fc_buffer_from_ptr(row, (size_t)n * sizeof(float));
+    ASSERT_NOT_NULL(buf);
+    int rc = fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, 1, n, k, ids, vals, &flag);
+    fc_buffer_free(buf);
+    host_topk(row, n, k, rids, rvals);
+    free(row);
+    ASSERT_INT_EQ(rc, 0);
+    ASSERT_INT_EQ(flag, 0);
+    ASSERT_TRUE(memcmp(ids, rids, sizeof(rids)) == 0);
+    ASSERT_TRUE(memcmp(vals, rvals, sizeof(rvals)) == 0);
+}
+
 /* ---- speed ---- */
 
 #define TOPK_BUDGET_US 400.0   /* old k-round path: 1841 us */
@@ -474,6 +502,7 @@ int main(void)
     RUN_TEST(exact_distinct_slots);
     RUN_TEST(all_equal_row_overflow_exact);
     RUN_TEST(nan_flag_exact_and_not_stale);
+    RUN_TEST(clustered_row_fast_path);
     RUN_TEST(lm_head_shape_under_budget);
     fc_free();
     TEST_REPORT();
