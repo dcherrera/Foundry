@@ -59,6 +59,7 @@ typedef unsigned long long CUdeviceptr;
 #define CUDA_ERROR_INVALID_VALUE 1
 #define CUDA_ERROR_NOT_READY 600
 #define CU_EVENT_DISABLE_TIMING 0x2
+#define FC_CU_MEMHOSTALLOC_PORTABLE 0x01u   /* CU_MEMHOSTALLOC_PORTABLE */
 
 /* CUstreamCaptureMode — see fc_graph_begin_ctx for why we do not use GLOBAL. */
 #define CU_STREAM_CAPTURE_MODE_GLOBAL       0
@@ -95,6 +96,8 @@ typedef CUresult (*pfn_cuCtxPushCurrent)(CUcontext);
 typedef CUresult (*pfn_cuCtxPopCurrent)(CUcontext *);
 typedef CUresult (*pfn_cuMemAlloc)(CUdeviceptr *, size_t);
 typedef CUresult (*pfn_cuMemFree)(CUdeviceptr);
+typedef CUresult (*pfn_cuMemHostAlloc)(void **, size_t, unsigned int);
+typedef CUresult (*pfn_cuMemFreeHost)(void *);
 typedef CUresult (*pfn_cuMemGetInfo)(size_t *, size_t *);
 typedef CUresult (*pfn_cuMemcpyHtoD)(CUdeviceptr, const void *, size_t);
 typedef CUresult (*pfn_cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
@@ -211,6 +214,8 @@ static pfn_cuCtxPushCurrent    p_cuCtxPushCurrent    = NULL;
 static pfn_cuCtxPopCurrent     p_cuCtxPopCurrent     = NULL;
 static pfn_cuMemAlloc          p_cuMemAlloc          = NULL;
 static pfn_cuMemFree           p_cuMemFree           = NULL;
+static pfn_cuMemHostAlloc      p_cuMemHostAlloc      = NULL;   /* optional: pinned host memory */
+static pfn_cuMemFreeHost       p_cuMemFreeHost       = NULL;
 static pfn_cuMemGetInfo        p_cuMemGetInfo        = NULL;
 static pfn_cuMemcpyHtoD        p_cuMemcpyHtoD        = NULL;
 static pfn_cuMemcpyDtoH        p_cuMemcpyDtoH        = NULL;
@@ -740,6 +745,9 @@ static int fc_load_cuda_symbols(void)
         (pfn_cuDeviceCanAccessPeer)dlsym(_fc_libcuda, "cuDeviceCanAccessPeer");
     p_cuCtxEnablePeerAccess =
         (pfn_cuCtxEnablePeerAccess)dlsym(_fc_libcuda, "cuCtxEnablePeerAccess");
+    /* Optional pinned host memory — absent symbols make fc_host_alloc return NULL. */
+    p_cuMemHostAlloc = (pfn_cuMemHostAlloc)dlsym(_fc_libcuda, "cuMemHostAlloc");
+    p_cuMemFreeHost = (pfn_cuMemFreeHost)dlsym(_fc_libcuda, "cuMemFreeHost");
     LOAD(cuModuleUnload);
     LOAD(cuModuleGetFunction);
     LOAD(cuLaunchKernel);
@@ -1852,6 +1860,34 @@ int fc_buffer_to_cpu_n_async(fc_buffer *buf, void *dst, size_t bytes)
         return -1;
     }
     return 0;
+}
+
+/* Page-locked host memory (cuMemHostAlloc, PORTABLE so every context's DMA can use it).
+ * A copy to or from it skips the driver's pageable staging copy. */
+void *fc_host_alloc(fc_cuda_ctx *ctx, size_t bytes)
+{
+    if (!bytes || !p_cuMemHostAlloc || !p_cuMemFreeHost || !fc_cuda_ctx_available(ctx))
+        return NULL;
+    if (fc_ctx_enter(ctx) != 0)
+        return NULL;
+    void *p = NULL;
+    CUresult err = p_cuMemHostAlloc(&p, bytes, FC_CU_MEMHOSTALLOC_PORTABLE);
+    fc_ctx_leave();
+    if (err != CUDA_SUCCESS) {
+        fprintf(stderr, "[fc_cuda] cuMemHostAlloc(%zu) failed: %d\n", bytes, err);
+        return NULL;
+    }
+    return p;
+}
+
+void fc_host_free(fc_cuda_ctx *ctx, void *p)
+{
+    if (!p || !p_cuMemFreeHost || !fc_cuda_ctx_available(ctx) || fc_ctx_enter(ctx) != 0)
+        return;
+    CUresult err = p_cuMemFreeHost(p);
+    fc_ctx_leave();
+    if (err != CUDA_SUCCESS)
+        fprintf(stderr, "[fc_cuda] cuMemFreeHost failed: %d\n", err);
 }
 
 void fc_buffer_to_cpu_at(fc_buffer *buf, void *dst, size_t src_off,

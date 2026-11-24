@@ -256,6 +256,25 @@ int fc_buffer_from_cpu_n_async(fc_buffer *buf, const void *src, size_t bytes);
  * DtoH is unavailable (caller should fall back to the blocking variant). */
 int fc_buffer_to_cpu_n_async(fc_buffer *buf, void *dst, size_t bytes);
 
+/**
+ * Allocates page-locked (pinned) host memory usable by every context's DMA
+ * (cuMemHostAlloc, PORTABLE). Copies to or from it skip the driver's pageable
+ * staging copy, and async copies from it are truly async: the DMA reads the
+ * memory when the stream reaches the copy, so the caller must not rewrite it
+ * until that copy has completed (an event recorded after it, or a sync).
+ *
+ * @param ctx    Any live context (the allocation needs one current)
+ * @param bytes  Bytes to allocate
+ * @return       Pointer, or NULL (no driver symbol, no context, or the
+ *               allocation failed): the caller falls back to malloc.
+ *
+ * Thread-safe: yes (enters/leaves ctx)
+ */
+void *fc_host_alloc(fc_cuda_ctx *ctx, size_t bytes);
+
+/** Frees memory from fc_host_alloc (NULL is a no-op). Never pass malloc'd memory. */
+void fc_host_free(fc_cuda_ctx *ctx, void *p);
+
 /* Host-to-device copy into a byte offset of the buffer (bounds-checked
  * no-op on overflow). Used to re-sync a row range of the GPU KV cache
  * from the host mirror. */
