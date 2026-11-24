@@ -56,6 +56,43 @@
 #define FC_ATTN_KVF_BOUNDS
 #endif
 
+/* q4 code c (0..15) to (c - 8) * d without a conversion: c is inserted under exponent 0x4B
+ * (the float 2^23 + c) and 2^23 + 8 is subtracted, exactly; the value and the +0 at c = 8
+ * are those of (float)(c - 8) * d for every code, f16 scale and shift: 3 instructions for a
+ * low nibble, 4 for a high one or V's shifted nibble, against 4-5 with I2F.
+ * FC_ATTN_KVF_RED is a gate-only red build (the codes offset by 7). */
+#ifdef FC_ATTN_KVF_RED
+#define FC_KVF_MINUS_BIAS (-8388615.0f)
+#else
+#define FC_KVF_MINUS_BIAS (-8388616.0f)   /* -(2^23 + 8) */
+#endif
+
+/* base with its low 4 bits replaced by those of src. */
+__device__ __forceinline__ unsigned fc_kvf_bfi4(unsigned src, unsigned base) {
+    unsigned r;
+    asm("bfi.b32 %0, %1, %2, 0, 4;" : "=r"(r) : "r"(src), "r"(base));
+    return r;
+}
+
+__device__ __forceinline__ float fc_kvf_q4_scaled(unsigned magic, float d) {
+    return __fmul_rn(__fadd_rn(__uint_as_float(magic), FC_KVF_MINUS_BIAS), d);
+}
+
+__device__ __forceinline__ float fc_kvf_dec_k_lo(unsigned codes, float d) {
+    return fc_kvf_q4_scaled(fc_kvf_bfi4(codes, 0x4b000000u), d);
+}
+
+__device__ __forceinline__ float fc_kvf_dec_k_hi(unsigned codes, float d) {
+    unsigned hi;
+    asm("bfe.u32 %0, %1, 4, 4;" : "=r"(hi) : "r"(codes));
+    return fc_kvf_q4_scaled(hi | 0x4b000000u, d);
+}
+
+/* V: the nibble at the thread's runtime shift of its byte. */
+__device__ __forceinline__ float fc_kvf_dec_v(unsigned byte, int shift, float d) {
+    return fc_kvf_q4_scaled(fc_kvf_bfi4((unsigned)((int)byte >> shift), 0x4b000000u), d);
+}
+
 /* One q4 block's scale: the fp16 at the block's (even) byte offset. */
 __device__ __forceinline__ float fc_attn_kvf_scale_g(const unsigned char *bp) {
     return __half2float(__ushort_as_half(__ldg((const unsigned short *)bp)));
@@ -70,8 +107,8 @@ __device__ __forceinline__ void fc_attn_kvf_dequant_k(const unsigned char *row,
         const unsigned char *bp = row + b * FC_KVQ4_BLK_BYTES;
         const float d = fc_attn_kvf_scale_g(bp);
         const unsigned int codes = __ldg(bp + 2 + lane);
-        kreg[2 * b] = (float)((int)(codes & 0xF) - 8) * d;
-        kreg[2 * b + 1] = (float)((int)((codes >> 4) & 0xF) - 8) * d;
+        kreg[2 * b] = fc_kvf_dec_k_lo(codes, d);
+        kreg[2 * b + 1] = fc_kvf_dec_k_hi(codes, d);
     }
 }
 
@@ -280,9 +317,8 @@ extern "C" __global__ void FC_ATTN_KVF_BOUNDS fc_attn_flash_decode_slots_q4_kvf(
             for (int j = 0; j < FC_ATTN_TILE_KEYS; j++) {
                 const unsigned char *bp = vb + j * row_bytes;
                 const float d = __half2float(__ushort_as_half(*(const unsigned short *)bp));
-                const int code = (bp[vbyte] >> vshift) & 0xF;
-                fc_attn_kvf_pv(acc, p_s + (size_t)j * G, (float)(code - 8) * d, j == 0,
-                               corr_s);
+                fc_attn_kvf_pv(acc, p_s + (size_t)j * G, fc_kvf_dec_v(bp[vbyte], vshift, d),
+                               j == 0, corr_s);
             }
         } else {
             for (int j = 0; j < tk; j++) {
@@ -295,8 +331,7 @@ extern "C" __global__ void FC_ATTN_KVF_BOUNDS fc_attn_flash_decode_slots_q4_kvf(
                 } else {
                     const unsigned char *bp = vb + j * row_bytes;
                     const float d = __half2float(__ushort_as_half(*(const unsigned short *)bp));
-                    const int code = (bp[vbyte] >> vshift) & 0xF;
-                    vv = (float)(code - 8) * d;
+                    vv = fc_kvf_dec_v(bp[vbyte], vshift, d);
                 }
                 fc_attn_kvf_pv(acc, p_s + (size_t)j * G, vv, j == 0, corr_s);
             }
