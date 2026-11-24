@@ -63,6 +63,7 @@ typedef unsigned long long CUdeviceptr;
 /* CUstreamCaptureMode — see fc_graph_begin_ctx for why we do not use GLOBAL. */
 #define CU_STREAM_CAPTURE_MODE_GLOBAL       0
 #define CU_STREAM_CAPTURE_MODE_THREAD_LOCAL 1
+#define CU_EVENT_RECORD_EXTERNAL 0x1
 #define CU_STREAM_CAPTURE_MODE_RELAXED      2
 
 /* cuBLAS types */
@@ -160,6 +161,13 @@ typedef CUresult (*pfn_cuEventSynchronize)(CUevent);
 typedef CUresult (*pfn_cuEventDestroy)(CUevent);
 typedef CUresult (*pfn_cuStreamWaitEvent)(CUstream, CUevent, unsigned int);
 
+/* Timing events and graph node census (optional symbols). */
+typedef CUresult (*pfn_cuEventRecordWithFlags)(CUevent, CUstream, unsigned int);
+typedef CUresult (*pfn_cuEventElapsedTime)(float *, CUevent, CUevent);
+typedef CUresult (*pfn_cuStreamIsCapturing)(CUstream, int *);
+typedef CUresult (*pfn_cuGraphGetNodes)(CUgraph, CUgraphNode *, size_t *);
+typedef CUresult (*pfn_cuGraphNodeGetType)(CUgraphNode, int *);
+
 /* cuBLAS */
 typedef cublasStatus_t (*pfn_cublasCreate)(cublasHandle_t *);
 typedef cublasStatus_t (*pfn_cublasDestroy)(cublasHandle_t);
@@ -256,6 +264,105 @@ static pfn_cuEventQuery   p_cuEventQuery   = NULL;
 static pfn_cuEventSynchronize p_cuEventSynchronize = NULL;
 static pfn_cuEventDestroy p_cuEventDestroy = NULL;
 static pfn_cuStreamWaitEvent  p_cuStreamWaitEvent  = NULL;
+static pfn_cuEventRecordWithFlags p_cuEventRecordWithFlags = NULL;
+static pfn_cuEventElapsedTime p_cuEventElapsedTime = NULL;
+static pfn_cuStreamIsCapturing p_cuStreamIsCapturing = NULL;
+static pfn_cuGraphGetNodes p_cuGraphGetNodes = NULL;
+static pfn_cuGraphNodeGetType p_cuGraphNodeGetType = NULL;
+
+/* Call census (fc_call_census_enable): counts of the driver calls that cost host time, taken
+ * only while fc_call_census_enable(1) is in force. Off, each wrapper is one branch. */
+static int fc_census_on;
+static fc_call_census fc_census;
+#define FC_CENSUS_ADD(field, v) \
+    do { if (fc_census_on) __atomic_fetch_add(&fc_census.field, (unsigned long long)(v), \
+                                              __ATOMIC_RELAXED); } while (0)
+static CUresult fcw_cuLaunchKernel(CUfunction f, unsigned int gx, unsigned int gy, unsigned int gz,
+                                   unsigned int bx, unsigned int by, unsigned int bz,
+                                   unsigned int shm, CUstream st, void **args, void **extra)
+{
+    FC_CENSUS_ADD(launches, 1);
+    return p_cuLaunchKernel(f, gx, gy, gz, bx, by, bz, shm, st, args, extra);
+}
+static CUresult fcw_cuMemcpyHtoD(CUdeviceptr d, const void *h, size_t n)
+{
+    FC_CENSUS_ADD(h2d_sync, 1);
+    FC_CENSUS_ADD(h2d_bytes, n);
+    return p_cuMemcpyHtoD(d, h, n);
+}
+static CUresult fcw_cuMemcpyDtoH(void *h, CUdeviceptr d, size_t n)
+{
+    FC_CENSUS_ADD(d2h_sync, 1);
+    FC_CENSUS_ADD(d2h_bytes, n);
+    return p_cuMemcpyDtoH(h, d, n);
+}
+static CUresult fcw_cuMemcpyHtoDAsync(CUdeviceptr d, const void *h, size_t n, CUstream st)
+{
+    FC_CENSUS_ADD(h2d_async, 1);
+    FC_CENSUS_ADD(h2d_bytes, n);
+    return p_cuMemcpyHtoDAsync(d, h, n, st);
+}
+static CUresult fcw_cuMemcpyDtoHAsync(void *h, CUdeviceptr d, size_t n, CUstream st)
+{
+    FC_CENSUS_ADD(d2h_async, 1);
+    FC_CENSUS_ADD(d2h_bytes, n);
+    return p_cuMemcpyDtoHAsync(h, d, n, st);
+}
+static CUresult fcw_cuMemcpyDtoDAsync(CUdeviceptr d, CUdeviceptr s, size_t n, CUstream st)
+{
+    FC_CENSUS_ADD(d2d, 1);
+    FC_CENSUS_ADD(d2d_bytes, n);
+    return p_cuMemcpyDtoDAsync(d, s, n, st);
+}
+static CUresult fcw_cuMemcpyPeer(CUdeviceptr d, CUcontext dc, CUdeviceptr s, CUcontext sc,
+                                 size_t n)
+{
+    FC_CENSUS_ADD(peer, 1);
+    FC_CENSUS_ADD(peer_bytes, n);
+    return p_cuMemcpyPeer(d, dc, s, sc, n);
+}
+static CUresult fcw_cuMemcpyPeerAsync(CUdeviceptr d, CUcontext dc, CUdeviceptr s, CUcontext sc,
+                                      size_t n, CUstream st)
+{
+    FC_CENSUS_ADD(peer, 1);
+    FC_CENSUS_ADD(peer_bytes, n);
+    return p_cuMemcpyPeerAsync(d, dc, s, sc, n, st);
+}
+static CUresult fcw_cuStreamSynchronize(CUstream st)
+{
+    FC_CENSUS_ADD(syncs, 1);
+    return p_cuStreamSynchronize(st);
+}
+static CUresult fcw_cuCtxSynchronize(void)
+{
+    FC_CENSUS_ADD(syncs, 1);
+    return p_cuCtxSynchronize();
+}
+static CUresult fcw_cuEventSynchronize(CUevent e)
+{
+    FC_CENSUS_ADD(syncs, 1);
+    return p_cuEventSynchronize(e);
+}
+static CUresult fcw_cuGraphLaunch(CUgraphExec x, CUstream st)
+{
+    FC_CENSUS_ADD(graph_launches, 1);
+    return p_cuGraphLaunch(x, st);
+}
+
+void fc_call_census_enable(int on)
+{
+    fc_census_on = on != 0;
+}
+
+void fc_call_census_read(fc_call_census *out)
+{
+    if (!out)
+        return;
+    unsigned long long *dst = (unsigned long long *)out;
+    unsigned long long *src = (unsigned long long *)&fc_census;
+    for (size_t i = 0; i < sizeof(*out) / sizeof(*dst); i++)
+        dst[i] = __atomic_load_n(&src[i], __ATOMIC_RELAXED);
+}
 
 /* cuBLAS function pointers */
 static pfn_cublasCreate    p_cublasCreate    = NULL;
@@ -660,6 +767,11 @@ static int fc_load_cuda_symbols(void)
     LOAD_OPT_V2(cuEventSynchronize);
     LOAD_OPT_V2(cuEventDestroy);
     LOAD_OPT_V2(cuStreamWaitEvent);
+    LOAD_OPT_V2(cuEventRecordWithFlags);
+    LOAD_OPT_V2(cuEventElapsedTime);
+    LOAD_OPT_V2(cuStreamIsCapturing);
+    LOAD_OPT_V2(cuGraphGetNodes);
+    LOAD_OPT_V2(cuGraphNodeGetType);
 
     #undef LOAD_OPT_V2
     #undef LOAD_V2
@@ -1286,7 +1398,7 @@ void fc_cuda_ctx_free(fc_cuda_ctx *ctx)
                     fc_ctx_enter(ctx) == 0);
 
     if (ctx->stream && p_cuStreamSynchronize)
-        p_cuStreamSynchronize(ctx->stream);
+        fcw_cuStreamSynchronize(ctx->stream);
 
     if (ctx->mod_elem && p_cuModuleUnload) p_cuModuleUnload(ctx->mod_elem);
     if (ctx->mod_norm && p_cuModuleUnload) p_cuModuleUnload(ctx->mod_norm);
@@ -1429,7 +1541,7 @@ void fc_cuda_emergency_teardown(void)
             continue;
         if (p_cuCtxPushCurrent && fc_ctx_enter(ctx) == 0) {
             if (p_cuCtxSynchronize)
-                p_cuCtxSynchronize();
+                fcw_cuCtxSynchronize();
             fc_ctx_leave();
         }
         if (p_cuCtxDestroy)
@@ -1524,7 +1636,7 @@ fc_buffer *fc_buffer_from_ptr_ctx(fc_cuda_ctx *ctx, const void *cpu, size_t byte
         goto fail;
     }
 
-    err = p_cuMemcpyHtoD(buf->dptr, cpu, bytes);
+    err = fcw_cuMemcpyHtoD(buf->dptr, cpu, bytes);
     if (err != CUDA_SUCCESS) {
         fprintf(stderr, "[fc_cuda] cuMemcpyHtoD failed: %d\n", err);
         p_cuMemFree(buf->dptr);
@@ -1632,7 +1744,7 @@ void fc_buffer_to_cpu(fc_buffer *buf, void *dst)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyDtoH(dst, buf->dptr, buf->size);
+    CUresult err = fcw_cuMemcpyDtoH(dst, buf->dptr, buf->size);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyDtoH failed: %d\n", err);
@@ -1645,7 +1757,7 @@ void fc_buffer_from_cpu(fc_buffer *buf, const void *src)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyHtoD(buf->dptr, src, buf->size);
+    CUresult err = fcw_cuMemcpyHtoD(buf->dptr, src, buf->size);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyHtoD failed: %d\n", err);
@@ -1668,7 +1780,7 @@ void fc_buffer_to_cpu_n(fc_buffer *buf, void *dst, size_t bytes)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyDtoH(dst, buf->dptr, bytes);
+    CUresult err = fcw_cuMemcpyDtoH(dst, buf->dptr, bytes);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyDtoH(n) failed: %d\n", err);
@@ -1683,7 +1795,7 @@ void fc_buffer_from_cpu_n(fc_buffer *buf, const void *src, size_t bytes)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyHtoD(buf->dptr, src, bytes);
+    CUresult err = fcw_cuMemcpyHtoD(buf->dptr, src, bytes);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyHtoD(n) failed: %d\n", err);
@@ -1705,7 +1817,7 @@ int fc_buffer_from_cpu_n_async(fc_buffer *buf, const void *src, size_t bytes)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return -1;
-    CUresult err = p_cuMemcpyHtoDAsync(buf->dptr, src, bytes, buf->owner->stream);
+    CUresult err = fcw_cuMemcpyHtoDAsync(buf->dptr, src, bytes, buf->owner->stream);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
         fprintf(stderr, "[fc_cuda] cuMemcpyHtoDAsync failed: %d\n", err);
@@ -1732,7 +1844,7 @@ int fc_buffer_to_cpu_n_async(fc_buffer *buf, void *dst, size_t bytes)
 
     if (fc_ctx_enter(buf->owner) != 0)
         return -1;
-    CUresult err = p_cuMemcpyDtoHAsync(dst, buf->dptr, bytes,
+    CUresult err = fcw_cuMemcpyDtoHAsync(dst, buf->dptr, bytes,
                                        buf->owner->stream);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
@@ -1752,7 +1864,7 @@ void fc_buffer_to_cpu_at(fc_buffer *buf, void *dst, size_t src_off,
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyDtoH(dst, buf->dptr + src_off, bytes);
+    CUresult err = fcw_cuMemcpyDtoH(dst, buf->dptr + src_off, bytes);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyDtoH(at) failed: %d\n", err);
@@ -1768,7 +1880,7 @@ void fc_buffer_from_cpu_at(fc_buffer *buf, size_t dst_off, const void *src,
 
     if (fc_ctx_enter(buf->owner) != 0)
         return;
-    CUresult err = p_cuMemcpyHtoD(buf->dptr + dst_off, src, bytes);
+    CUresult err = fcw_cuMemcpyHtoD(buf->dptr + dst_off, src, bytes);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS)
         fprintf(stderr, "[fc_cuda] cuMemcpyHtoD(at) failed: %d\n", err);
@@ -1788,7 +1900,7 @@ void fc_buffer_copy_d2d_ctx(fc_cuda_ctx *ctx, fc_buffer *dst, size_t dst_off,
 
     if (fc_ctx_enter(ctx) != 0)
         return;
-    CUresult err = p_cuMemcpyDtoDAsync(dst->dptr + dst_off,
+    CUresult err = fcw_cuMemcpyDtoDAsync(dst->dptr + dst_off,
                                        src->dptr + src_off, bytes,
                                        ctx->stream);
     fc_ctx_leave();
@@ -1875,7 +1987,7 @@ int fc_buffer_copy_peer(fc_buffer *dst, fc_buffer *src, size_t bytes)
      * current context, but we push src's to be safe on all drivers. */
     if (fc_ctx_enter(src->owner) != 0)
         return -1;
-    CUresult err = p_cuMemcpyPeer(dst->dptr, dst->owner->context,
+    CUresult err = fcw_cuMemcpyPeer(dst->dptr, dst->owner->context,
                                   src->dptr, src->owner->context, bytes);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
@@ -1908,7 +2020,7 @@ int fc_buffer_copy_peer_async(fc_buffer *dst, fc_buffer *src, size_t bytes,
         return -1;
     if (fc_ctx_enter(stream_ctx) != 0)
         return -1;
-    CUresult err = p_cuMemcpyPeerAsync(dst->dptr, dst->owner->context,
+    CUresult err = fcw_cuMemcpyPeerAsync(dst->dptr, dst->owner->context,
                                        src->dptr, src->owner->context, bytes,
                                        stream_ctx->stream);
     fc_ctx_leave();
@@ -1982,7 +2094,7 @@ int fc_buffer_copy_2d_kernel_async(fc_buffer *dst, size_t dst_off, size_t dst_pi
     if (fc_ctx_enter(stream_ctx) != 0)
         return -1;
     void *args[] = { &s, &d, &w16, &sp16, &dp16 };
-    CUresult err = p_cuLaunchKernel(stream_ctx->kern_copy_2d, gx, (unsigned int)height, 1,
+    CUresult err = fcw_cuLaunchKernel(stream_ctx->kern_copy_2d, gx, (unsigned int)height, 1,
                                     threads, 1, 1, 0, stream_ctx->stream, args, NULL);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
@@ -2025,7 +2137,7 @@ int fc_xchg_2d_async(fc_buffer *dst, size_t own_off, size_t peer_off, size_t dst
     if (fc_ctx_enter(stream_ctx) != 0)
         return -1;
     void *args[] = { &o, &p, &d, &w16, &sp16, &dp16, &oo16, &po16, &sy, &ps };
-    CUresult err = p_cuLaunchKernel(stream_ctx->kern_xchg_2d, gx, (unsigned int)height, 2,
+    CUresult err = fcw_cuLaunchKernel(stream_ctx->kern_xchg_2d, gx, (unsigned int)height, 2,
                                     threads, 1, 1, 0, stream_ctx->stream, args, NULL);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
@@ -2488,7 +2600,7 @@ static void fc_dispatch_1d(const fc_cuda_ctx *ctx, CUfunction func,
         threads_per_block = total_threads;
     int num_blocks = (total_threads + threads_per_block - 1) / threads_per_block;
 
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         func,
         (unsigned int)num_blocks, 1, 1,            /* grid */
         (unsigned int)threads_per_block, 1, 1,      /* block */
@@ -2556,7 +2668,7 @@ void fc_rms_norm_ctx(fc_cuda_ctx *ctx, fc_buffer *x, fc_buffer *weight,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &x->dptr, &w_ptr, &out->dptr, &n, &eps };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_rms_norm,
         1, 1, 1,                                /* 1 block */
         (unsigned int)threads, 1, 1,
@@ -2583,7 +2695,7 @@ void fc_softmax_ctx(fc_cuda_ctx *ctx, fc_buffer *x, fc_buffer *out,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &x->dptr, &out->dptr, &rows, &cols };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_softmax,
         (unsigned int)rows, 1, 1,               /* one block per row */
         (unsigned int)threads, 1, 1,
@@ -2615,7 +2727,7 @@ void fc_matvec_q8_ctx(fc_cuda_ctx *ctx, fc_buffer *x_q, fc_buffer *w,
         &x_q->dptr, &w->dptr, &w_scales->dptr, &out->dptr,
         &x_scale, &rows, &cols
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_matvec_q8,
         (unsigned int)rows, 1, 1,               /* one block per row */
         (unsigned int)threads, 1, 1,
@@ -2652,7 +2764,7 @@ void fc_matvec_q3k_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_matvec_q3k,
         (unsigned int)((rows + 15) / 16), 1, 1, /* row pair per warp */
         (unsigned int)threads, 1, 1,
@@ -2704,7 +2816,7 @@ int fc_matvec_q3k_ps_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
         void *args[] = {
             &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
         };
-        err = p_cuLaunchKernel(
+        err = fcw_cuLaunchKernel(
             kern,
             (unsigned int)((rows + rpb - 1) / rpb), 1, 1,
             (unsigned int)threads, 1, 1,
@@ -2751,7 +2863,7 @@ static void fc_matvec_kq_launch(fc_cuda_ctx *ctx, CUfunction kern,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((rows + rows_per_block - 1) / rows_per_block), 1, 1,
         (unsigned int)threads, 1, 1,
@@ -2822,7 +2934,7 @@ void fc_matvec_f32_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_matvec_f32,
         (unsigned int)rows, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -2854,7 +2966,7 @@ void fc_matvec_f16_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_matvec_f16,
         (unsigned int)rows, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -2888,7 +3000,7 @@ void fc_matvec_bf16_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_matvec_bf16,
         (unsigned int)rows, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -3058,7 +3170,7 @@ static void fc_matvec_nx_launch(fc_cuda_ctx *ctx, CUfunction kern,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride, &n
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((rows + rows_per_block - 1) / rows_per_block), grid_y, 1,
         256, 1, 1,
@@ -3198,7 +3310,7 @@ static int fc_matvec_q80_tile_launch(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *
     };
     /* Column c is staged at c * FC_NX_CHUNK floats: a full chunk per column. */
     const int sh_floats = nc > 1 || cols >= FC_NX_CHUNK_HOST ? FC_NX_CHUNK_HOST : cols;
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((rows + FC_Q80_TILE_ROWS_HOST - 1) / FC_Q80_TILE_ROWS_HOST),
         (unsigned int)((n + nc - 1) / nc), 1,
@@ -3249,7 +3361,7 @@ int fc_matvec_q80_par_tile_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     if (fc_ctx_enter(ctx) != 0)
         return -1;
     void *args[] = { &w->dptr, &x->dptr, &out->dptr, &rows, &kh, &row_stride, &n };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_q80p[t], (unsigned int)((rows + rows_per_block - 1) / rows_per_block),
         (unsigned int)((n + nc - 1) / nc), 1, 256, 1, 1,
         (unsigned int)(nc * fc_q80p_tiles[t].chunk * sizeof(float)), ctx->stream, args, NULL);
@@ -3305,7 +3417,7 @@ void fc_matvec_f32_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride, &n
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)rows, grid_y, 1,
         (unsigned int)threads, 1, 1,
@@ -3348,7 +3460,7 @@ void fc_matvec_f16_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride, &n
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)rows, grid_y, 1,
         (unsigned int)threads, 1, 1,
@@ -3391,7 +3503,7 @@ void fc_matvec_bf16_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *w, fc_buffer *x,
     void *args[] = {
         &w->dptr, &x->dptr, &out->dptr, &rows, &cols, &row_stride, &n
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)rows, grid_y, 1,
         (unsigned int)threads, 1, 1,
@@ -3424,7 +3536,7 @@ void fc_rope_neox_partial_ctx(fc_cuda_ctx *ctx, fc_buffer *data,
     void *args[] = {
         &data->dptr, &n_heads, &head_dim, &rope_dim, &pos, &theta_base
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_rope_neox_partial,
         (unsigned int)n_heads, 1, 1,            /* one block per head */
         (unsigned int)threads, 1, 1,
@@ -3452,7 +3564,7 @@ void fc_qk_rms_norm_ctx(fc_cuda_ctx *ctx, fc_buffer *data, fc_buffer *weight,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &data->dptr, &w_ptr, &n_heads, &head_dim, &eps };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_qk_rms_norm,
         (unsigned int)n_heads, 1, 1,            /* one block per head */
         (unsigned int)threads, 1, 1,
@@ -3499,7 +3611,7 @@ void fc_moe_router_topk_ctx(fc_cuda_ctx *ctx, fc_buffer *logits,
         &logits->dptr, &top_idx->dptr, &top_wt->dptr,
         &n_expert, &k, &expert_weights_scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_router_topk,
         1, 1, 1,                                /* single block */
         (unsigned int)threads, 1, 1,
@@ -3574,14 +3686,14 @@ static CUresult fc_topk_fetch(fc_cuda_ctx *ctx, CUdeviceptr d_oval,
     size_t bytes = (2 * outn + extra) * sizeof(int32_t);
     CUresult err;
     if (p_cuMemcpyDtoHAsync) {
-        err = p_cuMemcpyDtoHAsync(tmp, d_oval, bytes, ctx->stream);
+        err = fcw_cuMemcpyDtoHAsync(tmp, d_oval, bytes, ctx->stream);
         if (err == CUDA_SUCCESS && p_cuStreamSynchronize)
-            err = p_cuStreamSynchronize(ctx->stream);
+            err = fcw_cuStreamSynchronize(ctx->stream);
     } else {
-        err = p_cuStreamSynchronize ? p_cuStreamSynchronize(ctx->stream)
+        err = p_cuStreamSynchronize ? fcw_cuStreamSynchronize(ctx->stream)
                                     : CUDA_SUCCESS;
         if (err == CUDA_SUCCESS)
-            err = p_cuMemcpyDtoH(tmp, d_oval, bytes);
+            err = fcw_cuMemcpyDtoH(tmp, d_oval, bytes);
     }
     return err;
 }
@@ -3658,21 +3770,21 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
     if (fast) {
         int threads = FC_TOPK_THREADS0;
         void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt };
-        err = p_cuLaunchKernel(ctx->kern_topk_blockmax,
+        err = fcw_cuLaunchKernel(ctx->kern_topk_blockmax,
                                (unsigned int)nblkf, (unsigned int)nslots, 1,
                                (unsigned int)threads, 1, 1,
                                0, ctx->stream, margs, NULL);
         void *fargs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &k,
                           &d_cv, &d_ci, &d_cnt };
         if (err == CUDA_SUCCESS)
-            err = p_cuLaunchKernel(ctx->kern_topk_filter,
+            err = fcw_cuLaunchKernel(ctx->kern_topk_filter,
                                    (unsigned int)nblkf, (unsigned int)nslots, 1,
                                    (unsigned int)threads, 1, 1,
                                    0, ctx->stream, fargs, NULL);
         void *rargs[] = { &d_cv, &d_ci, &d_cnt, &k, &d_oval, &d_oidx,
                           &d_stat };
         if (err == CUDA_SUCCESS)
-            err = p_cuLaunchKernel(ctx->kern_topk_rank_select,
+            err = fcw_cuLaunchKernel(ctx->kern_topk_rank_select,
                                    1, (unsigned int)nslots, 1,
                                    (unsigned int)threads, 1, 1,
                                    0, ctx->stream, rargs, NULL);
@@ -3691,7 +3803,7 @@ int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
         CUdeviceptr o_val = last ? d_oval : lv_val[level & 1];
         CUdeviceptr o_idx = last ? d_oidx : lv_idx[level & 1];
         void *args[] = { &in_val, &in_idx, &m, &e, &k, &o_val, &o_idx };
-        err = p_cuLaunchKernel(ctx->kern_topk_select,
+        err = fcw_cuLaunchKernel(ctx->kern_topk_select,
                                (unsigned int)nblk, (unsigned int)nslots, 1,
                                (unsigned int)threads, 1, 1,
                                0, ctx->stream, args, NULL);
@@ -3897,7 +4009,7 @@ int fc_moe_gateup_ctx(fc_cuda_ctx *ctx, int gguf_quant, fc_buffer *gate_all,
         &gate_all->dptr, &up_all->dptr, &x->dptr, &top_idx->dptr, &hid->dptr,
         &ff, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((ff + 7) / 8), (unsigned int)k, 1,
         (unsigned int)threads, 1, 1,
@@ -3991,7 +4103,7 @@ void fc_moe_down_accum_ctx(fc_cuda_ctx *ctx, int gguf_quant, fc_buffer *down_all
         &down_all->dptr, &hid->dptr, &top_idx->dptr, &top_wt->dptr, &out->dptr,
         &k, &rows, &ff, &row_stride, &wpp
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((rows + rows_per_block - 1) / rows_per_block), 1, 1,
         (unsigned int)threads, 1, 1,
@@ -4033,7 +4145,7 @@ void fc_moe_shexp_dot_gate_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_w,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &gate_w->dptr, &x->dptr, &shexp->dptr, &n };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_shexp_dot_gate,
         1, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -4145,7 +4257,7 @@ void fc_fused_multi_ctx(fc_cuda_ctx *ctx, fc_buffer *desc, int nseg,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &desc->dptr, &nseg, &x->dptr };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_fused_multi,
         (unsigned int)total_blocks, 1, 1,
         256, 1, 1,
@@ -4179,7 +4291,7 @@ int fc_attn_qknorm_rope_ctx(fc_cuda_ctx *ctx, fc_buffer *q, fc_buffer *k,
         &q->dptr, &k->dptr, &qw_ptr, &kw_ptr, &n_head, &n_head_kv, &head_dim,
         &eps, &rope_dim, &pos, &theta_base
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_qknorm_rope,
         (unsigned int)(n_head + n_head_kv), 1, 1,
         (unsigned int)threads, 1, 1,
@@ -4221,7 +4333,7 @@ void fc_ssm_recurrence_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
         &s->dptr, &q->dptr, &k->dptr, &v->dptr, &g->dptr, &beta->dptr,
         &y->dptr, &state_size, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_ssm_recurrence,
         (unsigned int)state_size, (unsigned int)n_v_heads, 1,   /* grid (j, h) */
         (unsigned int)state_size, 1, 1,                          /* block = S */
@@ -4273,7 +4385,7 @@ void fc_ssm_gated_norm_ctx(fc_cuda_ctx *ctx, fc_buffer *y, fc_buffer *weight,
     void *args[] = {
         &y->dptr, &weight->dptr, &z->dptr, &gated->dptr, &state_size, &eps
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_ssm_gated_norm,
         (unsigned int)n_v_heads, 1, 1,          /* one block per head */
         (unsigned int)threads, 1, 1,
@@ -4330,7 +4442,7 @@ void fc_ssm_qknorm_gqa_ctx(fc_cuda_ctx *ctx, fc_buffer *conv_out, fc_buffer *qg,
         &conv_out->dptr, &qg->dptr, &kg->dptr, &n_k_heads, &kv_groups,
         &state_size, &key_dim, &eps
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_ssm_qknorm_gqa,
         (unsigned int)n_k_heads, 1, 1,          /* grid: one block per K-head */
         (unsigned int)state_size, 1, 1,         /* block: S threads */
@@ -4338,7 +4450,7 @@ void fc_ssm_qknorm_gqa_ctx(fc_cuda_ctx *ctx, fc_buffer *conv_out, fc_buffer *qg,
     );
     /* v passthrough: async DtoD (stream-ordered after conv1d + this kernel). */
     if (err == CUDA_SUCCESS && p_cuMemcpyDtoDAsync)
-        err = p_cuMemcpyDtoDAsync(vg->dptr,
+        err = fcw_cuMemcpyDtoDAsync(vg->dptr,
                                   conv_out->dptr + (size_t)2 * key_dim * sizeof(float),
                                   (size_t)val_dim * sizeof(float), ctx->stream);
     fc_ctx_leave();
@@ -4370,7 +4482,7 @@ void fc_rms_norm_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *x, fc_buffer *weight,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &x->dptr, &w_ptr, &out->dptr, &n, &eps, &rows };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_rms_norm_nx,
         (unsigned int)rows, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -4400,7 +4512,7 @@ void fc_rope_neox_partial_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *data,
     void *args[] = {
         &data->dptr, &n_heads, &head_dim, &rope_dim, &pos0, &theta_base
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_rope_nx,
         (unsigned int)n_heads, (unsigned int)npos, 1,
         (unsigned int)threads, 1, 1,
@@ -4435,7 +4547,7 @@ void fc_moe_router_topk_nx_block_ctx(fc_cuda_ctx *ctx, fc_buffer *logits,
         &logits->dptr, &top_idx->dptr, &top_wt->dptr,
         &n_expert, &k, &expert_weights_scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_router_topk_nx,
         (unsigned int)ntok, 1, 1,               /* one block per token */
         (unsigned int)threads, 1, 1,
@@ -4468,7 +4580,7 @@ void fc_moe_router_topk_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *logits,
         &n_expert, &k, &expert_weights_scale
     };
     unsigned int threads = n_expert < 32 ? 32u : (unsigned int)n_expert;
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_router_topk_rank,
         (unsigned int)ntok, 1, 1,               /* one block per token */
         threads, 1, 1,
@@ -4537,7 +4649,7 @@ int fc_moe_gateup_nx_ctx(fc_cuda_ctx *ctx, int gguf_quant, fc_buffer *gate_all,
         &gate_all->dptr, &up_all->dptr, &x->dptr, &top_idx->dptr, &hid->dptr,
         &k, &ff, &cols, &row_stride
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((ff + 7) / 8), (unsigned int)k, (unsigned int)ntok,
         (unsigned int)threads, 1, 1,
@@ -4589,7 +4701,7 @@ void fc_moe_dedup_build_ctx(fc_cuda_ctx *ctx, fc_buffer *top_idx,
         &top_idx->dptr, &ecount->dptr, &ereq->dptr,
         &n_expert, &k, &ntok, &maxr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_dedup_build,
         1, 1, 1,                                /* single block */
         (unsigned int)threads, 1, 1,
@@ -4632,7 +4744,7 @@ int fc_moe_gateup_q80_dedup_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_all,
         &gate_all->dptr, &up_all->dptr, &x->dptr, &ereq->dptr, &wlist->dptr,
         &hid->dptr, &k, &ff, &cols, &row_stride, &maxr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_gateup_q80_dedup,
         (unsigned int)((ff + 7) / 8), (unsigned int)wmax, 1,
         256, 1, 1, 0, ctx->stream, args, NULL);
@@ -4679,7 +4791,7 @@ void fc_moe_gateup_q3k_dedup_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_all,
         &gate_all->dptr, &up_all->dptr, &x->dptr, &ecount->dptr, &ereq->dptr,
         &hid->dptr, &k, &ff, &cols, &row_stride, &maxr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((ff + 7) / 8), (unsigned int)n_expert, zt,
         (unsigned int)threads, 1, 1,
@@ -4747,7 +4859,7 @@ void fc_moe_dedup_build_wl_ctx(fc_cuda_ctx *ctx, fc_buffer *ecount,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &ecount->dptr, &wlist->dptr, &n_expert, &wmax };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_dedup_build_wl,
         1, 1, 1,                                /* single block */
         (unsigned int)threads, 1, 1,
@@ -4782,7 +4894,7 @@ void fc_moe_gateup_q3k_dedup_compact_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_all,
         &gate_all->dptr, &up_all->dptr, &x->dptr, &ereq->dptr, &wlist->dptr,
         &hid->dptr, &k, &ff, &cols, &row_stride, &maxr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_gateup_q3k_dedup_shxc,
         (unsigned int)((ff + 7) / 8), (unsigned int)wmax, 1,
         (unsigned int)threads, 1, 1,
@@ -4838,7 +4950,7 @@ void fc_moe_down_accum_nx_ctx(fc_cuda_ctx *ctx, int gguf_quant,
         &down_all->dptr, &hid->dptr, &top_idx->dptr, &top_wt->dptr, &out->dptr,
         &k, &rows, &ff, &row_stride, &wpp
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)((rows + rows_per_block - 1) / rows_per_block),
         (unsigned int)ntok, 1,
@@ -4865,7 +4977,7 @@ void fc_moe_shexp_dot_gate_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_w,
     if (fc_ctx_enter(ctx) != 0)
         return;
     void *args[] = { &gate_w->dptr, &x->dptr, &shexp->dptr, &n };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_shexp_dot_gate_nx,
         (unsigned int)ntok, 1, 1,               /* one block per token */
         (unsigned int)threads, 1, 1,
@@ -4895,7 +5007,7 @@ int fc_moe_shexp_gate_combine_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *gate_w,
         return -1;
     void *args[] = { &gate_w->dptr, &x->dptr, &shexp->dptr, &moe_out->dptr,
                      &block_out->dptr, &hidden->dptr, &n };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_moe_shexp_gate_combine_nx,
         (unsigned int)ntok, 1, 1,
         (unsigned int)threads, 1, 1,
@@ -5047,7 +5159,7 @@ void fc_ssm_recurrence_seq_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
         &s->dptr, &q->dptr, &k->dptr, &v->dptr, &g->dptr, &beta->dptr,
         &y->dptr, &state_size, &n_v_heads, &npos, &scale, &snaps_ptr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         grid_x, (unsigned int)n_v_heads, 1,
         block_x, 1, 1,
@@ -5094,7 +5206,7 @@ void fc_ssm_qknorm_gqa_nx_ctx(fc_cuda_ctx *ctx, fc_buffer *conv_out,
         &conv_out->dptr, &qg->dptr, &kg->dptr, &vg->dptr, &n_k_heads,
         &kv_groups, &state_size, &key_dim, &val_dim, &eps
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_ssm_qknorm_gqa_nx,
         (unsigned int)n_k_heads, (unsigned int)npos, 1,
         (unsigned int)state_size, 1, 1,
@@ -5143,7 +5255,7 @@ void fc_ssm_conv1d_silu_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *qkv,
         &qkv->dptr, &weight->dptr, &conv_state->dptr, &out->dptr,
         &conv_dim, &conv_kernel, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_ssm_conv1d_silu_slots,
         blocks_x, (unsigned int)nslots, 1,
         (unsigned int)threads, 1, 1,
@@ -5188,7 +5300,7 @@ void fc_ssm_recurrence_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
         &s->dptr, &q->dptr, &k->dptr, &v->dptr, &g->dptr, &beta->dptr,
         &y->dptr, &state_size, &n_v_heads, &scale, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)state_size, (unsigned int)n_v_heads,
         (unsigned int)nslots,
@@ -5224,7 +5336,7 @@ int fc_ssm_gdn_step_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *s, fc_buffer *q,
     };
     const int w8 = fc_ssm_warp8_usable(ctx->kern_ssm_gdn_step_slots_warp8, s, q, k,
                                        NULL);
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         w8 ? ctx->kern_ssm_gdn_step_slots_warp8 : ctx->kern_ssm_gdn_step_slots_warp,
         (unsigned int)(state_size / (w8 ? FC_SSM_W8_COLS_HOST : warp_cols)),
         (unsigned int)n_v_heads,
@@ -5261,7 +5373,7 @@ void fc_rope_neox_partial_pos_ctx(fc_cuda_ctx *ctx, fc_buffer *data,
     void *args[] = {
         &data->dptr, &n_heads, &head_dim, &rope_dim, &pos->dptr, &theta_base
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_rope_pos,
         (unsigned int)n_heads, (unsigned int)nrows, 1,
         (unsigned int)threads, 1, 1,
@@ -5506,7 +5618,7 @@ void fc_attn_kv_append_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_new->dptr, &v_new->dptr, &k_cache->dptr, &v_cache->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos0
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append,
         (unsigned int)npos, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5546,7 +5658,7 @@ int fc_attn_flash_prefill_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &q->dptr, &k_cache->dptr, &v_cache->dptr, &out->dptr,
         &kv_groups, &head_dim, &max_seq, &pos0, &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_prefill,
         (unsigned int)npos, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5587,7 +5699,7 @@ void fc_attn_kv_append_q4_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_sink->dptr, &v_sink->dptr, &k_win->dptr, &v_win->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos0, &sink, &win
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append_q4,
         (unsigned int)npos, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5750,7 +5862,7 @@ int fc_attn_flash_prefill_q4_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos0, &sink, &win,
         &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)npos, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5811,7 +5923,7 @@ static int fc_attn_decode_combine_launch(fc_cuda_ctx *ctx, fc_buffer *m_scr,
         &m_scr->dptr, &l_scr->dptr, &acc_scr->dptr, &out->dptr,
         &head_dim, &n_splits
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_combine,
         (unsigned int)n_head, 1, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5853,7 +5965,7 @@ int fc_attn_flash_decode_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &seq_len, &n_splits, &split_len,
         &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode,
         (unsigned int)n_splits, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5903,7 +6015,7 @@ int fc_attn_flash_decode_q4_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &seq_len, &n_splits, &split_len,
         &sink, &win, &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_q4,
         (unsigned int)n_splits, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5965,7 +6077,7 @@ void fc_attn_kv_append_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_new->dptr, &v_new->dptr, &k_cache->dptr, &v_cache->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos->dptr, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append_slots,
         (unsigned int)nslots, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -5999,7 +6111,7 @@ void fc_attn_kv_append_slots_q4_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_sink->dptr, &v_sink->dptr, &k_win->dptr, &v_win->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos->dptr, &sink, &win, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append_slots_q4,
         (unsigned int)nslots, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6043,7 +6155,7 @@ int fc_attn_flash_decode_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos->dptr, &kps, &splits_cap,
         &attn_sink, &attn_win, &scale, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_slots,
         (unsigned int)launch_splits, (unsigned int)n_head_kv,
         (unsigned int)nslots,
@@ -6121,7 +6233,7 @@ static int fc_attn_decode_combine_gated_launch(fc_cuda_ctx *ctx,
         &m_scr->dptr, &l_scr->dptr, &acc_scr->dptr, &z->dptr, &out->dptr,
         &head_dim, &n_splits
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_combine_gated,
         (unsigned int)n_head, 1, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6188,7 +6300,7 @@ static int fc_attn_flash_decode_slots_q4_impl(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos->dptr, &kps, &splits_cap,
         &sink, &win, &attn_sink, &attn_win, &scale, &rows_d
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         kern,
         (unsigned int)launch_splits, (unsigned int)n_head_kv,
         (unsigned int)nslots,
@@ -6341,7 +6453,7 @@ static int fc_attn_rows_launch(fc_cuda_ctx *ctx, void **bufs, int kv_groups,
         &kv_groups, &head_dim, &max_seq, &pos_lo, &r_lo, &nrows,
         &split_len, &sink, &win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_rows_q4_kvs[rpb - 1],
         (unsigned int)launch_splits, (unsigned int)n_head_kv,
         (unsigned int)((nrows + rpb - 1) / rpb),
@@ -6469,7 +6581,7 @@ int fc_attn_flash_decode_rows_q4_dev_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos->dptr, &kps, &splits_cap, &sink,
         &win, &scale
     };
-    CUresult err = p_cuLaunchKernel(kern,
+    CUresult err = fcw_cuLaunchKernel(kern,
                                     (unsigned int)launch_splits, (unsigned int)n_head_kv,
                                     (unsigned int)nrows, (unsigned int)head_dim, 1, 1,
                                     shared, ctx->stream, args, NULL);
@@ -6526,7 +6638,7 @@ void fc_attn_kv_append_dev_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_new->dptr, &v_new->dptr, &k_cache->dptr, &v_cache->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos->dptr
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append_dev,
         1u, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6558,7 +6670,7 @@ void fc_attn_kv_append_q4_dev_ctx(fc_cuda_ctx *ctx, fc_buffer *k_new,
         &k_sink->dptr, &v_sink->dptr, &k_win->dptr, &v_win->dptr,
         &n_head_kv, &head_dim, &max_seq, &pos->dptr, &sink, &win
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_kv_append_q4_dev,
         1u, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6584,7 +6696,7 @@ static int fc_attn_decode_combine_dev_launch(fc_cuda_ctx *ctx,
         &m_scr->dptr, &l_scr->dptr, &acc_scr->dptr, &out->dptr,
         &head_dim, &pos->dptr, &kps, &splits_cap
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_combine_dev,
         (unsigned int)n_head, 1, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6629,7 +6741,7 @@ int fc_attn_flash_decode_dev_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos->dptr, &kps, &splits_cap,
         &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_dev,
         (unsigned int)splits_cap, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6681,7 +6793,7 @@ int fc_attn_flash_decode_q4_dev_ctx(fc_cuda_ctx *ctx, fc_buffer *q,
         &kv_groups, &head_dim, &max_seq, &pos->dptr, &kps, &splits_cap,
         &sink, &win, &attn_sink, &attn_win, &scale
     };
-    CUresult err = p_cuLaunchKernel(
+    CUresult err = fcw_cuLaunchKernel(
         ctx->kern_attn_flash_decode_q4_dev,
         (unsigned int)splits_cap, (unsigned int)n_head_kv, 1,
         (unsigned int)head_dim, 1, 1,
@@ -6805,7 +6917,27 @@ void fc_ssm_gated_norm(fc_buffer *y, fc_buffer *weight, fc_buffer *z,
 struct fc_graph {
     CUgraphExec  exec;
     fc_cuda_ctx *owner;
+    size_t       nodes_by_type[FC_GRAPH_NODE_TYPES];   /* census taken at instantiation */
 };
+
+/* Count the template's nodes by CUgraphNodeType (0 kernel, 1 memcpy, 2 memset,
+ * 3 host, 4 child graph, 5 empty, 6 event wait, 7 event record); best-effort. */
+static void fc_graph_census(CUgraph graph, size_t *by_type)
+{
+    size_t n = 0;
+    if (!p_cuGraphGetNodes || !p_cuGraphNodeGetType ||
+        p_cuGraphGetNodes(graph, NULL, &n) != CUDA_SUCCESS || n == 0)
+        return;
+    CUgraphNode *nodes = malloc(n * sizeof(*nodes));
+    if (nodes && p_cuGraphGetNodes(graph, nodes, &n) == CUDA_SUCCESS) {
+        for (size_t i = 0; i < n; i++) {
+            int t = -1;
+            if (p_cuGraphNodeGetType(nodes[i], &t) == CUDA_SUCCESS)
+                by_type[t >= 0 && t < FC_GRAPH_NODE_TYPES ? t : FC_GRAPH_NODE_TYPES - 1]++;
+        }
+    }
+    free(nodes);
+}
 
 int fc_graph_begin_ctx(fc_cuda_ctx *ctx)
 {
@@ -6870,6 +7002,8 @@ fc_graph *fc_graph_end_ctx(fc_cuda_ctx *ctx)
         fprintf(stderr, "[fc_cuda] cuStreamEndCapture failed: %d\n", err);
         goto out;
     }
+    size_t census[FC_GRAPH_NODE_TYPES] = { 0 };
+    fc_graph_census(graph, census);
     err = p_cuGraphInstantiate(&exec, graph, NULL, NULL, 0);
     p_cuGraphDestroy(graph);
     if (err != CUDA_SUCCESS || !exec) {
@@ -6883,6 +7017,7 @@ fc_graph *fc_graph_end_ctx(fc_cuda_ctx *ctx)
     }
     g->exec = exec;
     g->owner = ctx;
+    memcpy(g->nodes_by_type, census, sizeof(census));
 out:
     fc_ctx_leave();
     return g;
@@ -6895,13 +7030,25 @@ int fc_graph_launch(fc_graph *g)
 
     if (fc_ctx_enter(g->owner) != 0)
         return -1;
-    CUresult err = p_cuGraphLaunch(g->exec, g->owner->stream);
+    CUresult err = fcw_cuGraphLaunch(g->exec, g->owner->stream);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
         fprintf(stderr, "[fc_cuda] cuGraphLaunch failed: %d\n", err);
         return -1;
     }
     return 0;
+}
+
+size_t fc_graph_node_count(const fc_graph *g, int type)
+{
+    size_t n = 0;
+    if (!g)
+        return 0;
+    if (type >= 0 && type < FC_GRAPH_NODE_TYPES)
+        return g->nodes_by_type[type];
+    for (int t = 0; t < FC_GRAPH_NODE_TYPES; t++)
+        n += g->nodes_by_type[t];
+    return n;
 }
 
 void fc_graph_free(fc_graph *g)
@@ -6996,7 +7143,7 @@ int fc_event_sync(fc_event *ev)
         return -1;
     if (fc_ctx_enter(ev->owner) != 0)
         return -1;
-    CUresult err = p_cuEventSynchronize(ev->ev);
+    CUresult err = fcw_cuEventSynchronize(ev->ev);
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
         fprintf(stderr, "[fc_cuda] cuEventSynchronize failed: %d\n", err);
@@ -7038,6 +7185,68 @@ void fc_event_free(fc_event *ev)
 }
 
 /* ================================================================
+ * Timing events
+ *
+ * Same handle as fc_event but created WITH timing. Recorded inside a stream
+ * capture they become event-record nodes (CU_EVENT_RECORD_EXTERNAL), so every
+ * replay of the graph re-records them at that point.
+ * ================================================================ */
+
+fc_event *fc_tevent_create_ctx(fc_cuda_ctx *ctx)
+{
+    if (!fc_cuda_ctx_available(ctx) || !p_cuEventCreate || !p_cuEventRecord ||
+        !p_cuEventElapsedTime || !p_cuEventDestroy)
+        return NULL;
+    fc_event *e = calloc(1, sizeof(*e));
+    if (!e)
+        return NULL;
+    if (fc_ctx_enter(ctx) != 0) {
+        free(e);
+        return NULL;
+    }
+    CUresult err = p_cuEventCreate(&e->ev, 0);
+    fc_ctx_leave();
+    if (err != CUDA_SUCCESS) {
+        free(e);
+        return NULL;
+    }
+    e->owner = ctx;
+    return e;
+}
+
+int fc_tevent_record_ctx(fc_cuda_ctx *ctx, fc_event *ev)
+{
+    if (!ev || !ev->ev || ev->owner != ctx || !fc_cuda_ctx_available(ctx))
+        return -1;
+    if (fc_ctx_enter(ctx) != 0)
+        return -1;
+    int capturing = 0;
+    if (p_cuStreamIsCapturing)
+        p_cuStreamIsCapturing(ctx->stream, &capturing);
+    CUresult err;
+    if (capturing && p_cuEventRecordWithFlags)
+        err = p_cuEventRecordWithFlags(ev->ev, ctx->stream, CU_EVENT_RECORD_EXTERNAL);
+    else if (capturing)
+        err = CUDA_ERROR_INVALID_VALUE;
+    else
+        err = p_cuEventRecord(ev->ev, ctx->stream);
+    fc_ctx_leave();
+    return err == CUDA_SUCCESS ? 0 : -1;
+}
+
+int fc_tevent_elapsed_ms(fc_event *from, fc_event *to, float *ms)
+{
+    if (!from || !to || !ms || from->owner != to->owner || !p_cuEventElapsedTime ||
+        !fc_cuda_ctx_available(from->owner))
+        return -1;
+    if (fc_ctx_enter(from->owner) != 0)
+        return -1;
+    CUresult err = p_cuEventElapsedTime(ms, from->ev, to->ev);
+    fc_ctx_leave();
+    return err == CUDA_SUCCESS ? 0 : -1;
+}
+
+/* ================================================================
  * Synchronization (per-context)
  * ================================================================ */
 
@@ -7048,8 +7257,8 @@ void fc_sync_ctx(fc_cuda_ctx *ctx)
 
     if (fc_ctx_enter(ctx) != 0)
         return;
-    CUresult err = ctx->stream ? p_cuStreamSynchronize(ctx->stream)
-                               : p_cuCtxSynchronize();
+    CUresult err = ctx->stream ? fcw_cuStreamSynchronize(ctx->stream)
+                               : fcw_cuCtxSynchronize();
     fc_ctx_leave();
     /* A sync that did NOT wait is a correctness problem, not a slow path:
      * every caller's next line reads a host buffer it believes the device has

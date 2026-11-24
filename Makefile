@@ -654,6 +654,12 @@ cuda/tests/test_copy_2d_graph: cuda/tests/test_copy_2d_graph.c cuda/fc_cuda.c cu
 	$(CC) $(CFLAGS) -o $@ cuda/tests/test_copy_2d_graph.c cuda/fc_cuda.c -lm -ldl
 
 # Two-die exchange ordered by device counters, direct and in a two-die graph (TP gathers).
+test-call-census: cuda/tests/test_call_census
+	./cuda/tests/test_call_census
+
+cuda/tests/test_call_census: cuda/tests/test_call_census.c cuda/fc_cuda.c cuda/fc_cuda.h cuda/fc_cuda_ptx.h
+	$(CC) $(CFLAGS) -o $@ cuda/tests/test_call_census.c cuda/fc_cuda.c -lm -ldl
+
 test-xchg-2d: cuda/tests/test_xchg_2d
 	./cuda/tests/test_xchg_2d
 
