@@ -1649,7 +1649,13 @@ void fc_call_census_read(fc_call_census *out);
  * is mainly for explicit fence points.
  * ================================================================ */
 
-/* Wait for all pending GPU operations on ctx's stream to complete. */
+/* Wait for all pending GPU operations on ctx's stream to complete. How the
+ * thread waits (here and in fc_event_sync) follows FC_CUDA_WAIT, read once:
+ * unset or "driver" = the driver's wait (the context's scheduling flag);
+ * "spin" = poll the completion point; "yield" = poll with sched_yield;
+ * "hybrid[:us]" = spin up to us microseconds (default 200), then the driver
+ * wait; "sleep[:us]" = poll with a us microsecond sleep (default 20). Every
+ * mode waits for the same point, so results are identical. */
 void fc_sync_ctx(fc_cuda_ctx *ctx);
 
 /* Wait for all pending GPU operations on the process-default context. */

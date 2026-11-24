@@ -37,9 +37,11 @@
 #include "cuda/fc_cuda.h"
 #include "cuda/fc_cuda_ptx.h"
 
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <dlfcn.h>
 
 /* ================================================================
@@ -397,6 +399,7 @@ struct fc_cuda_ctx {
     CUdevice   device;
     CUcontext  context;
     CUstream   stream;
+    CUevent    sync_ev;     /* fc_sync_ctx's completion point under FC_CUDA_WAIT; NULL = none */
 
     cublasHandle_t cublas;  /* NULL if cuBLAS unavailable */
 
@@ -1375,6 +1378,10 @@ fc_cuda_ctx *fc_cuda_init_device(int device_id)
         goto cleanup;
     }
 
+    if (p_cuEventCreate && p_cuEventRecord && p_cuEventQuery &&
+        p_cuEventCreate(&ctx->sync_ev, CU_EVENT_DISABLE_TIMING) != CUDA_SUCCESS)
+        ctx->sync_ev = NULL;
+
     fc_ctx_init_cublas(ctx);
     fc_ctx_load_kernels(ctx);
 
@@ -1426,6 +1433,9 @@ void fc_cuda_ctx_free(fc_cuda_ctx *ctx)
 
     if (ctx->cublas && p_cublasDestroy)
         p_cublasDestroy(ctx->cublas);
+
+    if (ctx->sync_ev && p_cuEventDestroy)
+        p_cuEventDestroy(ctx->sync_ev);
 
     if (ctx->stream && p_cuStreamDestroy)
         p_cuStreamDestroy(ctx->stream);
@@ -7099,6 +7109,84 @@ void fc_graph_free(fc_graph *g)
     free(g);
 }
 
+/* How a host thread waits for the GPU (FC_CUDA_WAIT, read once):
+ *   unset / "driver": cuStreamSynchronize / cuEventSynchronize, which follow the context's
+ *                     scheduling flag (blocking sync by default: the thread sleeps until the
+ *                     device interrupt, ~0.1 ms wake on INTx hosts);
+ *   "spin":           poll cuEventQuery without pause (lowest latency, holds a core);
+ *   "yield":          poll with sched_yield between queries;
+ *   "hybrid[:us]":    spin up to `us` microseconds (default 200), then the driver wait;
+ *   "sleep[:us]":     poll with a `us` microsecond sleep between queries (default 20).
+ * Scheduling only: every mode waits for the same completion point, so results are
+ * identical. */
+typedef enum { FC_WAIT_DRIVER, FC_WAIT_SPIN, FC_WAIT_YIELD, FC_WAIT_HYBRID, FC_WAIT_SLEEP } fc_wait_kind;
+
+typedef struct {
+    fc_wait_kind kind;
+    unsigned int us;   /* hybrid: spin budget; sleep: pause between polls */
+} fc_wait_mode;
+
+static fc_wait_mode fc_wait_mode_parse(const char *e)
+{
+    fc_wait_mode m = { FC_WAIT_DRIVER, 0 };
+    if (!e || !e[0] || strcmp(e, "driver") == 0)
+        return m;
+    if (strcmp(e, "spin") == 0) {
+        m.kind = FC_WAIT_SPIN;
+    } else if (strcmp(e, "yield") == 0) {
+        m.kind = FC_WAIT_YIELD;
+    } else if (strncmp(e, "hybrid", 6) == 0 && (e[6] == 0 || e[6] == ':')) {
+        m.kind = FC_WAIT_HYBRID;
+        m.us = e[6] == ':' ? (unsigned int)strtoul(e + 7, NULL, 10) : 200u;
+    } else if (strncmp(e, "sleep", 5) == 0 && (e[5] == 0 || e[5] == ':')) {
+        m.kind = FC_WAIT_SLEEP;
+        m.us = e[5] == ':' ? (unsigned int)strtoul(e + 6, NULL, 10) : 20u;
+        if (m.us == 0)
+            m.us = 1;
+    } else {
+        fprintf(stderr, "[fc_cuda] FC_CUDA_WAIT=%s not known; using the driver wait\n", e);
+    }
+    return m;
+}
+
+static fc_wait_mode fc_wait_mode_get(void)
+{
+    static int latched;
+    static fc_wait_mode mode;
+    if (!__atomic_load_n(&latched, __ATOMIC_ACQUIRE)) {
+        mode = fc_wait_mode_parse(getenv("FC_CUDA_WAIT"));
+        __atomic_store_n(&latched, 1, __ATOMIC_RELEASE);
+    }
+    return mode;
+}
+
+static double fc_wait_now_us(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1e6 + (double)t.tv_nsec * 1e-3;
+}
+
+/* Wait for `ev` (current context entered) by polling, per `m`. Returns the driver status:
+ * CUDA_SUCCESS once complete, or the first error cuEventQuery reports. */
+static CUresult fc_wait_event_polled(CUevent ev, fc_wait_mode m)
+{
+    const double t0 = m.kind == FC_WAIT_HYBRID ? fc_wait_now_us() : 0.0;
+    for (;;) {
+        CUresult err = p_cuEventQuery(ev);
+        if (err != CUDA_ERROR_NOT_READY)
+            return err;
+        if (m.kind == FC_WAIT_YIELD) {
+            sched_yield();
+        } else if (m.kind == FC_WAIT_SLEEP) {
+            struct timespec d = { 0, (long)m.us * 1000L };
+            nanosleep(&d, NULL);
+        } else if (m.kind == FC_WAIT_HYBRID && fc_wait_now_us() - t0 >= (double)m.us) {
+            return p_cuEventSynchronize ? p_cuEventSynchronize(ev) : CUDA_ERROR_NOT_READY;
+        }
+    }
+}
+
 /* ================================================================
  * CUDA events — non-blocking completion (per-context)
  *
@@ -7179,7 +7267,14 @@ int fc_event_sync(fc_event *ev)
         return -1;
     if (fc_ctx_enter(ev->owner) != 0)
         return -1;
-    CUresult err = fcw_cuEventSynchronize(ev->ev);
+    const fc_wait_mode m = fc_wait_mode_get();
+    CUresult err;
+    if (m.kind != FC_WAIT_DRIVER) {
+        FC_CENSUS_ADD(syncs, 1);
+        err = fc_wait_event_polled(ev->ev, m);
+    } else {
+        err = fcw_cuEventSynchronize(ev->ev);
+    }
     fc_ctx_leave();
     if (err != CUDA_SUCCESS) {
         fprintf(stderr, "[fc_cuda] cuEventSynchronize failed: %d\n", err);
@@ -7291,10 +7386,18 @@ void fc_sync_ctx(fc_cuda_ctx *ctx)
     if (!fc_cuda_ctx_available(ctx))
         return;
 
+    const fc_wait_mode m = fc_wait_mode_get();
     if (fc_ctx_enter(ctx) != 0)
         return;
-    CUresult err = ctx->stream ? fcw_cuStreamSynchronize(ctx->stream)
-                               : fcw_cuCtxSynchronize();
+    CUresult err;
+    if (m.kind != FC_WAIT_DRIVER && ctx->stream && ctx->sync_ev) {
+        FC_CENSUS_ADD(syncs, 1);
+        err = p_cuEventRecord(ctx->sync_ev, ctx->stream);
+        if (err == CUDA_SUCCESS)
+            err = fc_wait_event_polled(ctx->sync_ev, m);
+    } else {
+        err = ctx->stream ? fcw_cuStreamSynchronize(ctx->stream) : fcw_cuCtxSynchronize();
+    }
     fc_ctx_leave();
     /* A sync that did NOT wait is a correctness problem, not a slow path:
      * every caller's next line reads a host buffer it believes the device has
