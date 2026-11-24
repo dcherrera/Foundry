@@ -1,4 +1,4 @@
-# .ingot format, version 4
+# .ingot format, version 5
 
 Exact (lossless) storage of a safetensors or GGUF file. Decoding gives back every tensor
 bit-identical and the whole source file byte-identical (same SHA-256). All integers are
@@ -16,14 +16,16 @@ its place in the output, and a partner until its last dependent is decoded (abou
 tensors), and still writes the source in order. Version 4 adds match entries (mode 7),
 whose sources may also be tensors of earlier files of the same model (external refs, read from
 the files already rebuilt); the directory tail lists every source, so the decoder knows what to
-hold before it reaches the payloads.
+hold before it reaches the payloads. Version 5 adds dictionary refs: the first rows of a tensor of
+another file, also a later one (e.g. the output head in the last shard), which the decoder reads
+from that file's .ingot by random access.
 
 ## File
 
 | Offset | Type | Field |
 |---|---|---|
 | 0 | u8[4] | magic `INGT` |
-| 4 | u32 | format version: 4 if the file has match targets (a directory tail), else 3 if it has a mode 6 entry or payloads out of source order, else 2 (same header; readers refuse versions they do not know) |
+| 4 | u32 | format version: 5 if a match entry names a dictionary ref (see the directory tail), else 4 if the file has match targets (a directory tail), else 3 if it has a mode 6 entry or payloads out of source order, else 2 (same header; readers refuse versions they do not know) |
 | 8 | u32 | entry count |
 | 12 | u32 | source kind: 1 safetensors, 2 GGUF |
 | 16 | u64 | source header offset (= 144) |
@@ -224,7 +226,8 @@ coded size, tables included); none of that is part of the format.
 
 A target tensor D coded given up to 8 partner units per unit, each chosen from any earlier
 tensor: another entry of this file, D's own earlier rows, or a tensor of an earlier file of the
-same model (an external ref). It generalises mode 6: the predictor is a per-unit linear sum and
+same model (an external ref; version 5 also: the first rows of a tensor of any other file, a
+dictionary ref). It generalises mode 6: the predictor is a per-unit linear sum and
 the contexts and weight coding are mode 6's.
 
 **Units.** As mode 6: D holds U units of length H, row u (axis 0, D is [U, H]) or column u
@@ -269,9 +272,21 @@ After the directory entries, inside `directory size`:
 u64 size, u64 hash}`; `u32 L`, L source lists `{u32 entry, u32 n, u32 source[n]}`, one for every
 mode 7 entry (its refs, as in its payload); then zero bytes up to the directory size (the writer
 reserves the space before it knows the lists). A decoder finds an external ref by name in the
-earlier files it is given (`--refs`), checks dtype, size and hash, and holds it until the last
-entry that names it is decoded. The reference encoder only refers to files that sort before the
-file being written, so decoding shards in name order always has every ref.
+files it is given (`--refs`), checks dtype, size and hash, and holds it until the last entry that
+names it is decoded. A ref found in an .ingot file must be a ref-free entry (raw, plain or quant:
+no base, no sources of its own, so refs never form a cycle); the decoder decodes only the blocks
+covering the bytes it needs, by random access, without rebuilding the rest of that file. The
+reference encoder only refers to files that sort before the file being written, so decoding
+shards in name order always has every ref, except for a dictionary ref (version 5).
+
+**Dictionary refs (version 5).** A ref may be a row prefix: its shape [n, H] names rows [0, n)
+of a 2-D tensor [N > n, H] with the same dtype and row length, and its size and hash cover those
+rows only (so the decoder holds n × H values, not the tensor). Version 4 files require the whole
+tensor. The reference encoder writes such a ref for `--dict-ref NAME --dict-rows n
+--dict-layers A-B` (e.g. the first 16,384 output-head rows as partners for late-layer MLP and
+attention units) and writes version 5 only when a payload names it; the tensor may sit in a
+later file (the output head is in the last shard), so the decoder gets that file's .ingot, or
+the file itself, in `--refs`.
 
 ## Version 1
 
@@ -279,7 +294,7 @@ Version 1 files (safetensors only, plain / delta / raw) put the directory at the
 64-byte header (no source kind, digests or base fields) and payloads without the frame.
 Readers still decode them by random access; they cannot be streamed.
 
-## Not in version 4
+## Not in version 5
 
 F16/F32 entropy coding, chained deltas (a delta base must be a model file or a plain/raw/quant
 .ingot entry), a row × column scale context for BF16 (measured: −0.003 to −0.025 bits/weight for

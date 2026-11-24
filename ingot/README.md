@@ -9,6 +9,8 @@ original file (same sha256).
   Version 4 (match mode) codes every layer tensor given up to 8 partner units per unit, found by
   a search over the previous layer, a sibling layer, earlier tensors of the same layer and the
   tensor's own earlier rows, including tensors in earlier shards (`--refs`).
+  Version 5 adds a dictionary: the first rows of a tensor of another shard (the output head)
+  join the search for the late layers (`--dict-ref`).
 - **GGUF Q8_0:** ~7.9 instead of 8.5. The scales are coded as the BF16 values they came from.
 - **GGUF K-quants:** a few percent smaller (the scale and code fields are coded).
 - **Fine-tunes:** a fine-tune of a model you already have can be stored as a delta against it,
@@ -43,6 +45,12 @@ ingot verify --base base-Q8_0.gguf --check-base finetune-Q8_0.gguf.ingot
 # a multi-shard model (version 4): give each shard the shards before it, encode and decode
 ingot encode --refs model-00001-of-00002.safetensors model-00002-of-00002.safetensors
 ingot decode --refs model-00001-of-00002.safetensors model-00002-of-00002.safetensors.ingot
+
+# version 5: the output head's first rows as partners for layers 48-63; the head sits in the
+# last shard, so decode reads it from that shard's .ingot (only the blocks it needs)
+ingot encode --refs model-00002-of-00002.safetensors \
+    --dict-ref lm_head.weight --dict-rows 16384 --dict-layers 48-63 model-00001-of-00002.safetensors
+ingot decode --refs model-00002-of-00002.safetensors.ingot model-00001-of-00002.safetensors.ingot
 
 # get the original back
 ingot decode model.gguf.ingot                  # -> model.gguf
