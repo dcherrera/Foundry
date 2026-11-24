@@ -221,8 +221,8 @@ static int entry_decode(ingot_cuda_runtime *rt, const ingot_file *f, ingot_base_
         rc = entry_matvec(rt, &img, &p, (const uint16_t *)got, &mv_ms, &err);
     double bf16_ms = -1, q80_ms = -1;
     if (!rc && base && same && mv_ms > 0)
-        rc = ingot_cuda_baseline_time(base, (const uint16_t *)got, e->shape[0], e->shape[1],
-                                      &bf16_ms, &q80_ms);
+        rc = ingot_cuda_baseline_time(base, (const uint16_t *)got, p.rows, p.cols, &bf16_ms,
+                                      &q80_ms);
     tot->mismatches += !same;
     tot->tensors++;
     tot->weights[e->mode] += e->source_size / 2;
