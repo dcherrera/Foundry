@@ -28,7 +28,8 @@
  *              here), patches x {word, stride}
  *     3 HEAD   queue, base, stride
  *     4 AWAIT  queue, count0, step (done once the queue's completed count is >= it; the
- *              token checked is the completed count's)
+ *              token checked is the completed count's; a torn line is polled again:
+ *              resident_puller_abi.h ft_tt_puller_await_step)
  *     5 SEGMENT END     6 PROGRAM END
  *     7 ROWCOPY  the 9 ROWCOPY parameter words, run inline (S2d streamed segments)
  *     8 WRITE DIRECT  xy, addr, `pad` words (head bits 20-21), words[count]: the payload is
@@ -120,8 +121,6 @@ enum {
 #define PULL_QUEUE_RING      0x170100u
 #define PULL_HEAD_OFFSET     8u
 #define PULL_WINDOW_OFFSET   16u /* words 4..7: stop, count, token, state */
-#define PULL_TOKEN_MULT      0x9E3779B9u
-#define PULL_STATE_POISON    0x7B1B1B1Bu
 #define PULL_MAX_HEADS       32u
 #define PULL_SCRATCH_BYTES   0xC000u /* 48 KB of write sources */
 #define PULL_AWAIT_BOUND     200000000u
@@ -135,6 +134,8 @@ enum {
  * reads), so it needs no initialisation. 256 queues x 8 B, clear of the poll buffer. */
 #define PULL_AWAIT_TABLE     (PULL_SCRATCH_BASE + PULL_SCRATCH_BYTES + 0x1000u)
 #define PULL_AWAIT_QUEUES    256u
+FTQ_STATIC_ASSERT(FT_TT_PULLER_AWAIT_RETRIES == PULL_AWAIT_TABLE + 8u * PULL_AWAIT_QUEUES,
+                  "the retry words sit just past the AWAIT census");
 
 typedef struct {
     volatile uint32_t *header;
@@ -158,11 +159,7 @@ typedef struct {
 
 static uint32_t pull_token(uint32_t nonce, uint32_t index)
 {
-    uint32_t token = nonce ^ ((index + 1u) * PULL_TOKEN_MULT);
-
-    if (token == 0u || token == PULL_STATE_POISON)
-        token = nonce ^ 0xA5A5A5A5u;
-    return token;
+    return ft_tt_puller_token(nonce, index);
 }
 
 static bool pull_log(pull_state *s, uint32_t type, uint32_t xy, uint32_t addr,
@@ -387,6 +384,7 @@ static uint32_t pull_segment(pull_state *s, const volatile uint32_t *entry,
                 break;
             }
             const uint32_t await_from = ft_bh_wall_clock_low();
+            uint32_t step, mismatches = 0u;
 
             for (;;) {
                 ft_tensix_noc_read(ft_tensix_noc_address(xy & 0xFFFFu, xy >> 16,
@@ -394,7 +392,8 @@ static uint32_t pull_segment(pull_state *s, const volatile uint32_t *entry,
                                    PULL_POLL_BUFFER, 16u);
                 ft_tensix_noc_read_barrier();
                 ft_bh_l1_cache_invalidate();
-                if (poll[1] >= wanted)
+                step = ft_tt_puller_await_step(poll, wanted, nonce, &mismatches);
+                if (step != FT_TT_PULLER_AWAIT_POLL)
                     break;
                 if (control[kFieldStopRequest] != 0u || ++spins >= PULL_AWAIT_BOUND) {
                     s->header[11] = poll[1];
@@ -414,13 +413,20 @@ static uint32_t pull_segment(pull_state *s, const volatile uint32_t *entry,
                     census[0] += waited;
                     census[1] += 1u;
                 }
+                if (mismatches != 0u) {
+                    volatile uint32_t *retries =
+                        (volatile uint32_t *)(uintptr_t)FT_TT_PULLER_AWAIT_RETRIES;
+
+                    retries[0] += mismatches;
+                    retries[1] += 1u;
+                }
             }
-            if (poll[3] == PULL_STATE_POISON)
+            /* ft_tt_puller_await_step: the token is the count READ's (a step mark names an
+             * older count than the queue's last), and a line read between the writer's token
+             * and count stores is read again, not refused. */
+            if (step == FT_TT_PULLER_AWAIT_POISON)
                 return kPlrErrAwaitPoison;
-            /* The token is the completed count's (the count READ, which may be past `wanted`:
-             * an AWAIT on a step mark — q38 G.2 — names an older count than the queue's last).
-             * It still proves the line is this queue's, at this nonce, at that count. */
-            if (poll[2] != pull_token(nonce, poll[1] - 1u))
+            if (step == FT_TT_PULLER_AWAIT_TOKEN)
                 return kPlrErrAwaitToken;
             entry += 4u;
             break;
@@ -622,6 +628,9 @@ void kernel_main(void)
         ftq_status_set(&ctx, kStateExit);
         return;
     }
+
+    ((volatile uint32_t *)(uintptr_t)FT_TT_PULLER_AWAIT_RETRIES)[0] = 0u;
+    ((volatile uint32_t *)(uintptr_t)FT_TT_PULLER_AWAIT_RETRIES)[1] = 0u;
 
     uint32_t tail = control[kFieldTail];
     uint32_t completed = control[kFieldCompletedCount];
