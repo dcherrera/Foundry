@@ -24,16 +24,21 @@
  * Fast path (driven by fc_topk_logits_slots_ctx in fc_cuda.c), no rounds:
  *   1. fc_topk_blockmax — each block takes one chunk of a row and emits the
  *      chunk's best (val, idx).
- *   2. fc_topk_thresh — one block per row ranks the row's chunk maxima and
- *      takes the k-th best as a threshold T (at least k elements are >= T, so
- *      the row's top-k all are). fc_topk_filter then appends each element >= T
- *      to a per-row candidate list (warp-aggregated atomics, any order).
+ *   2. fc_topk_thresh — the blocks of a row rank the row's chunk maxima (each
+ *      block a slice of them, against all) and take the k-th best as a
+ *      threshold T (at least k elements are >= T, so the row's top-k all are).
+ *      fc_topk_filter then appends each element >= T to a per-row candidate
+ *      list (warp-aggregated atomics, any order).
  *      (Every filter block used to rank the maxima itself: O(nblk^2) per block,
  *      0.43 ms of a k = 257 call over 248320 on a K80.)
- *   3. fc_topk_rank_select — one block per row ranks the candidates (rank =
- *      how many candidates beat it; distinct under the total order) and
- *      writes rank r < k to slot r. A row whose candidates overflow
- *      FC_TOPK_CAND_CAP (mass ties at T) reports status 1.
+ *   3. fc_topk_rank_select — the blocks of a row rank the candidates (rank =
+ *      how many candidates beat it; distinct under the total order; each block
+ *      a slice, against all) and write rank r < k to slot r. A row whose
+ *      candidates overflow FC_TOPK_CAND_CAP (mass ties at T) reports status 1.
+ *   Stages 2 and 3 ran as one block per row: on a K80 that one SMX did the
+ *   whole O(n^2) ranking while the others idled. Any number of blocks per row
+ *   writes the same outputs: every rank is computed over the full list, and
+ *   each output is written by the one thread that owns that entry.
  *   Optionally stage 2 also flags each row that holds a NaN (the selection
  *   skips NaN, so the pairs alone cannot show one): nan[u] = 1, zeroed by
  *   stage 1. The fallback tree does not check.
@@ -115,11 +120,14 @@ __device__ __forceinline__ void fc_topk_load(const float *row, int p, int m,
  * bv/bi:  [nslots][gridDim.x] chunk maxima (output)
  * count:  [nslots] candidate counters, zeroed here for stage 2
  * nan:    [nslots] NaN flags, zeroed here for stage 2, or NULL
+ * tv/ti:  [nslots] thresholds, set to (-inf, NO_WINNER) here for stage 2a
+ *         (which writes only a found k-th, from whichever block finds it)
  *
  * Grid (ceil(n / chunk), nslots); blockDim.x a multiple of 32, <= 1024.
  */
 __global__ void fc_topk_blockmax(const float *x, int n, int e,
-                                 float *bv, int *bi, int *count, int *nan)
+                                 float *bv, int *bi, int *count, int *nan,
+                                 float *tv, int *ti)
 {
     __shared__ float s_v[32];
     __shared__ int   s_i[32];
@@ -150,6 +158,8 @@ __global__ void fc_topk_blockmax(const float *x, int n, int e,
                 count[blockIdx.y] = 0;
                 if (nan)
                     nan[blockIdx.y] = 0;
+                tv[blockIdx.y] = FC_TOPK_NEG_INF;
+                ti[blockIdx.y] = FC_TOPK_NO_WINNER;
             }
         }
     }
@@ -161,9 +171,10 @@ __global__ void fc_topk_blockmax(const float *x, int n, int e,
  * every value above -inf is a candidate; stage 3 overflows or pads).
  *
  * bv/bi:  [nslots][nblk] chunk maxima from stage 1
- * tv/ti:  [nslots] threshold (output)
+ * tv/ti:  [nslots] threshold (output; preset by stage 1)
  *
- * Grid (1, nslots); any blockDim.x. Shared memory: nblk <= FC_TOPK_FAST_MAXBLK.
+ * Grid (any, nslots): block b ranks maxima b*blockDim.x + j*gridDim.x*blockDim.x.
+ * Any blockDim.x. Shared memory: nblk <= FC_TOPK_FAST_MAXBLK.
  */
 __global__ void fc_topk_thresh(const float *bv, const int *bi, int nblk, int k,
                                float *tv, int *ti)
@@ -173,13 +184,12 @@ __global__ void fc_topk_thresh(const float *bv, const int *bi, int nblk, int k,
     const int u = blockIdx.y;
     int tid = threadIdx.x;
 
-    if (tid == 0) { tv[u] = FC_TOPK_NEG_INF; ti[u] = FC_TOPK_NO_WINNER; }
     for (int t = tid; t < nblk; t += blockDim.x) {
         s_bv[t] = bv[(size_t)u * nblk + t];
         s_bi[t] = bi[(size_t)u * nblk + t];
     }
     __syncthreads();
-    for (int t = tid; t < nblk; t += blockDim.x) {
+    for (int t = blockIdx.x * blockDim.x + tid; t < nblk; t += gridDim.x * blockDim.x) {
         float mv = s_bv[t];
         int mi = s_bi[t];
         if (mi == FC_TOPK_NO_WINNER)
@@ -242,7 +252,9 @@ __global__ void fc_topk_filter(const float *x, int n, int e, const float *tvs,
  * candidate count get (-inf, NO_WINNER). status[u] = 1 (nothing written) if
  * the list overflowed FC_TOPK_CAND_CAP, else 0.
  *
- * Grid (1, nslots); any blockDim.x. Shared memory: the candidates.
+ * Grid (any, nslots): every block loads all of the row's candidates and ranks
+ * its slice (as fc_topk_thresh); block 0 writes the padding and the status.
+ * Any blockDim.x. Shared memory: the candidates.
  */
 __global__ void fc_topk_rank_select(const float *cv, const int *ci,
                                     const int *count, int k, float *oval,
@@ -254,7 +266,7 @@ __global__ void fc_topk_rank_select(const float *cv, const int *ci,
     const int c = count[u];
     int tid = threadIdx.x;
     if (c > FC_TOPK_CAND_CAP) {
-        if (tid == 0)
+        if (tid == 0 && blockIdx.x == 0)
             status[u] = 1;
         return;
     }
@@ -265,7 +277,7 @@ __global__ void fc_topk_rank_select(const float *cv, const int *ci,
     __syncthreads();
     float *ov = oval + (size_t)u * k;
     int *oi = oidx + (size_t)u * k;
-    for (int j = tid; j < c; j += blockDim.x) {
+    for (int j = blockIdx.x * blockDim.x + tid; j < c; j += gridDim.x * blockDim.x) {
         float a = s_v[j];
         int ai = s_i[j];
         int rank = 0;
@@ -273,6 +285,8 @@ __global__ void fc_topk_rank_select(const float *cv, const int *ci,
             rank += fc_topk_beats(s_v[q], s_i[q], a, ai);
         if (rank < k) { ov[rank] = a; oi[rank] = ai; }
     }
+    if (blockIdx.x != 0)
+        return;
     for (int r = c + tid; r < k; r += blockDim.x) {
         ov[r] = FC_TOPK_NEG_INF;
         oi[r] = FC_TOPK_NO_WINNER;

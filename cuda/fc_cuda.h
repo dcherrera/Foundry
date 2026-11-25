@@ -722,6 +722,25 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
                                  int n, int k, int *out_idx, float *out_val,
                                  int *out_nan);
 
+/* As fc_topk_logits_slots_nan_ctx (out_nan may be NULL), with speed options; the
+ * pairs, the NaN flags and the return value are the same under every option:
+ *   FC_TOPK_OPT_ROW_BLOCKS  the fast path ranks its threshold and its candidates
+ *                           over several blocks per row instead of one (on a K80,
+ *                           k = 257 over 248320: 318 -> 159 us for 1 row, 946 ->
+ *                           524 us for 4);
+ *   FC_TOPK_OPT_GRAPH       the fast path and its result copy replay as a CUDA
+ *                           graph, captured on the first call with this logits
+ *                           buffer and shape (a few cached per ctx), copied into
+ *                           pinned memory; ~25-90 us less a call. Falls back to
+ *                           stream launches if a capture fails.
+ * The no-option calls above are this with opts = 0. Not callable while the
+ * caller's stream is being captured (it synchronizes). */
+#define FC_TOPK_OPT_ROW_BLOCKS 1u
+#define FC_TOPK_OPT_GRAPH      2u
+int fc_topk_logits_slots_opt_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                                 int n, int k, int *out_idx, float *out_val,
+                                 int *out_nan, unsigned int opts);
+
 /* MoE weighted accumulate: moe_out[i] += weight * expert_out[i].
  * Both buffers are [n_embd] float32. */
 void fc_moe_weighted_add_ctx(fc_cuda_ctx *ctx, fc_buffer *expert_out,

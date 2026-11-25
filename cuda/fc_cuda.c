@@ -60,6 +60,8 @@ typedef unsigned long long CUdeviceptr;
 #define CUDA_SUCCESS 0
 #define CUDA_ERROR_INVALID_VALUE 1
 #define CUDA_ERROR_NOT_READY 600
+#define CUDA_ERROR_LAUNCH_FAILED 719
+#define CUDA_ERROR_NOT_SUPPORTED 801
 #define CU_EVENT_DISABLE_TIMING 0x2
 #define FC_CU_MEMHOSTALLOC_PORTABLE 0x01u   /* CU_MEMHOSTALLOC_PORTABLE */
 
@@ -392,6 +394,15 @@ static const struct { int r, nc, chunk; } fc_q80p_tiles[] = {
 };
 #define FC_Q80P_NKERN ((int)(sizeof(fc_q80p_tiles) / sizeof(fc_q80p_tiles[0])))
 
+/* FC_TOPK_OPT_GRAPH: one cached top-k graph and the call shape it was captured for. */
+#define FC_TOPK_GRAPHS 8
+typedef struct {
+    fc_graph   *g;
+    CUdeviceptr x;
+    int         nslots, n, k, nan;
+    unsigned int rblk;
+} fc_topk_graph_slot;
+
 struct fc_cuda_ctx {
     int        device_id;   /* CUDA device ordinal this ctx is bound to */
     bool       ready;       /* fully initialized? */
@@ -630,6 +641,13 @@ struct fc_cuda_ctx {
      * largest (nslots, n, k) seen (topk_scratch_bytes); freed with ctx. */
     CUdeviceptr topk_scratch;
     size_t topk_scratch_bytes;
+    /* FC_TOPK_OPT_GRAPH: captured fast paths over that scratch, round-robin
+     * replaced; the pinned buffer their result copy lands in. A failed capture
+     * sets topk_graph_failed and later calls use stream launches. */
+    fc_topk_graph_slot topk_graph[FC_TOPK_GRAPHS];
+    int topk_graph_next, topk_graph_failed;
+    int32_t *topk_host;
+    size_t topk_host_bytes;
 
     /* MemoryAware per-die VRAM tally: running sum of
      * bytes this context has cuMemAlloc'd and not freed. Maintained at the two
@@ -1402,6 +1420,8 @@ cleanup:
     return NULL;
 }
 
+static void fc_topk_graphs_drop(fc_cuda_ctx *ctx);
+
 void fc_cuda_ctx_free(fc_cuda_ctx *ctx)
 {
     if (!ctx)
@@ -1415,6 +1435,10 @@ void fc_cuda_ctx_free(fc_cuda_ctx *ctx)
 
     if (ctx->stream && p_cuStreamSynchronize)
         fcw_cuStreamSynchronize(ctx->stream);
+
+    fc_topk_graphs_drop(ctx);   /* graphs before the modules their kernels live in */
+    if (ctx->topk_host && p_cuMemFreeHost)
+        p_cuMemFreeHost(ctx->topk_host);
 
     if (ctx->mod_elem && p_cuModuleUnload) p_cuModuleUnload(ctx->mod_elem);
     if (ctx->mod_norm && p_cuModuleUnload) p_cuModuleUnload(ctx->mod_norm);
@@ -3721,6 +3745,12 @@ static int fc_topk_check_rows(const int *idx, int nrows, int k, int n)
 
 static int fc_topk_div_up(int a, int b) { return (a + b - 1) / b; }
 
+/* Blocks per row for the two ranking stages (thresh, rank_select) under
+ * FC_TOPK_OPT_ROW_BLOCKS: one entry per thread for the chunk maxima, up to
+ * FC_TOPK_RANK_MAXBLK for the candidates (8 x 256 covers the 800-2000 a real
+ * k = 257 row produces; more blocks measured no faster). */
+#define FC_TOPK_RANK_MAXBLK 8
+
 /* Elements per thread for a level over m entries per row with `threads`
  * threads per block, at most FC_TOPK_SEL_E, aiming at `blocks` blocks. */
 static int fc_topk_level_e(int m, int threads, int blocks)
@@ -3750,9 +3780,110 @@ static CUresult fc_topk_fetch(fc_cuda_ctx *ctx, CUdeviceptr d_oval,
     return err;
 }
 
-int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+/* The fast path's device addresses and launch shape for one call. */
+typedef struct {
+    CUdeviceptr x, bv, bi, cv, ci, cnt, oval, stat, nan, tv, ti;
+    int nslots, n, k, ef, nblkf;
+    unsigned int tblk, rblk;    /* blocks per row: thresh, rank_select */
+} fc_topk_fast_plan;
+
+/* Queue the fast path's four kernels on ctx's stream (no sync, no copy). */
+static CUresult fc_topk_fast_issue(fc_cuda_ctx *ctx, fc_topk_fast_plan *p)
+{
+    unsigned int threads = FC_TOPK_THREADS0, ns = (unsigned int)p->nslots;
+    CUdeviceptr oidx = p->oval + (size_t)p->nslots * p->k * sizeof(int32_t);
+    void *margs[] = { &p->x, &p->n, &p->ef, &p->bv, &p->bi, &p->cnt, &p->nan, &p->tv, &p->ti };
+    void *targs[] = { &p->bv, &p->bi, &p->nblkf, &p->k, &p->tv, &p->ti };
+    void *fargs[] = { &p->x, &p->n, &p->ef, &p->tv, &p->ti, &p->cv, &p->ci, &p->cnt, &p->nan };
+    void *rargs[] = { &p->cv, &p->ci, &p->cnt, &p->k, &p->oval, &oidx, &p->stat };
+    CUresult err = fcw_cuLaunchKernel(ctx->kern_topk_blockmax, (unsigned int)p->nblkf, ns, 1,
+                                      threads, 1, 1, 0, ctx->stream, margs, NULL);
+    if (err == CUDA_SUCCESS)
+        err = fcw_cuLaunchKernel(ctx->kern_topk_thresh, p->tblk, ns, 1, threads, 1, 1, 0,
+                                 ctx->stream, targs, NULL);
+    if (err == CUDA_SUCCESS)
+        err = fcw_cuLaunchKernel(ctx->kern_topk_filter, (unsigned int)p->nblkf, ns, 1,
+                                 threads, 1, 1, 0, ctx->stream, fargs, NULL);
+    if (err == CUDA_SUCCESS)
+        err = fcw_cuLaunchKernel(ctx->kern_topk_rank_select, p->rblk, ns, 1, threads, 1, 1, 0,
+                                 ctx->stream, rargs, NULL);
+    return err;
+}
+
+/* FC_TOPK_OPT_GRAPH: drop every cached top-k graph (the scratch or the pinned
+ * result buffer they captured moved, or the ctx is going away). */
+static void fc_topk_graphs_drop(fc_cuda_ctx *ctx)
+{
+    for (int i = 0; i < FC_TOPK_GRAPHS; i++) {
+        fc_graph_free(ctx->topk_graph[i].g);
+        memset(&ctx->topk_graph[i], 0, sizeof(ctx->topk_graph[i]));
+    }
+}
+
+/* FC_TOPK_OPT_GRAPH: run the fast path as a replayed graph (four kernels plus the
+ * result copy into ctx->topk_host), capturing it on the first call with this
+ * shape. One cached graph per (logits address, nslots, n, k, NaN check, blocks);
+ * a replay re-issues exactly the captured kernels, grids and arguments, so it is
+ * the stream path's work. Returns CUDA_SUCCESS with the results on the host,
+ * CUDA_ERROR_NOT_SUPPORTED when no graph could be made (the caller runs the
+ * stream path), else the driver error. */
+static CUresult fc_topk_fast_graphed(fc_cuda_ctx *ctx, fc_topk_fast_plan *p, size_t fetch_bytes)
+{
+    fc_topk_graph_slot *s = NULL;
+    for (int i = 0; i < FC_TOPK_GRAPHS && !s; i++) {
+        fc_topk_graph_slot *c = &ctx->topk_graph[i];
+        if (c->g && c->x == p->x && c->nslots == p->nslots && c->n == p->n && c->k == p->k &&
+            c->nan == (p->nan != 0) && c->rblk == p->rblk)
+            s = c;
+    }
+    if (!s) {
+        if (ctx->topk_graph_failed)
+            return CUDA_ERROR_NOT_SUPPORTED;
+        s = &ctx->topk_graph[ctx->topk_graph_next];
+        ctx->topk_graph_next = (ctx->topk_graph_next + 1) % FC_TOPK_GRAPHS;
+        fc_graph_free(s->g);
+        memset(s, 0, sizeof(*s));
+        if (fc_graph_begin_ctx(ctx) != 0) {
+            ctx->topk_graph_failed = 1;
+            return CUDA_ERROR_NOT_SUPPORTED;
+        }
+        CUresult err = fc_topk_fast_issue(ctx, p);
+        if (err == CUDA_SUCCESS)
+            err = fcw_cuMemcpyDtoHAsync(ctx->topk_host, p->oval, fetch_bytes, ctx->stream);
+        fc_graph *g = fc_graph_end_ctx(ctx);   /* always end: the stream leaves capture */
+        if (err != CUDA_SUCCESS || !g) {
+            fc_graph_free(g);
+            ctx->topk_graph_failed = 1;
+            fprintf(stderr, "[fc_cuda] topk graph capture failed (%d): stream launches\n", err);
+            return CUDA_ERROR_NOT_SUPPORTED;
+        }
+        *s = (fc_topk_graph_slot){ g, p->x, p->nslots, p->n, p->k, p->nan != 0, p->rblk };
+    }
+    if (fc_graph_launch(s->g) != 0)
+        return CUDA_ERROR_LAUNCH_FAILED;
+    return fcw_cuStreamSynchronize(ctx->stream);
+}
+
+/* FC_TOPK_OPT_GRAPH: ctx->topk_host holds at least `bytes` (pinned; growing it
+ * drops the graphs that captured the old one). 0, or -1 when pinned memory is
+ * unavailable. */
+static int fc_topk_host_reserve(fc_cuda_ctx *ctx, size_t bytes)
+{
+    if (ctx->topk_host && ctx->topk_host_bytes >= bytes)
+        return 0;
+    fc_topk_graphs_drop(ctx);
+    fc_host_free(ctx, ctx->topk_host);
+    ctx->topk_host_bytes = 0;
+    ctx->topk_host = fc_host_alloc(ctx, bytes);
+    if (!ctx->topk_host)
+        return -1;
+    ctx->topk_host_bytes = bytes;
+    return 0;
+}
+
+int fc_topk_logits_slots_opt_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
                                  int n, int k, int *out_idx, float *out_val,
-                                 int *out_nan)
+                                 int *out_nan, unsigned int opts)
 {
     if (!fc_cuda_ctx_available(ctx) || !ctx->kern_topk_select ||
         !logits || !out_idx || !out_val ||
@@ -3787,7 +3918,8 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
     size_t outn = (size_t)nslots * k;
     size_t words = 4 * lvl + 2 * mxn + 2 * cnd + nslots + 2 * outn + 4 * nslots;
     size_t bytes = words * sizeof(int32_t);
-    int32_t *tmp = malloc((2 * outn + 2 * (size_t)nslots) * sizeof(int32_t));
+    size_t res_words = 2 * outn + 2 * (size_t)nslots;
+    int32_t *tmp = malloc(res_words * sizeof(int32_t));
     if (!tmp)
         return -1;
 
@@ -3796,6 +3928,7 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
         return -1;
     }
     if (!ctx->topk_scratch || ctx->topk_scratch_bytes < bytes) {
+        fc_topk_graphs_drop(ctx);
         if (ctx->topk_scratch && p_cuMemFree)
             p_cuMemFree(ctx->topk_scratch);
         ctx->topk_scratch = 0;
@@ -3815,56 +3948,54 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
     lv_idx[0] = lv_val[0] + lvl * W;
     lv_val[1] = lv_idx[0] + lvl * W;
     lv_idx[1] = lv_val[1] + lvl * W;
-    CUdeviceptr d_bv = lv_idx[1] + lvl * W;
-    CUdeviceptr d_bi = d_bv + mxn * W;
-    CUdeviceptr d_cv = d_bi + mxn * W;
-    CUdeviceptr d_ci = d_cv + cnd * W;
-    CUdeviceptr d_cnt = d_ci + cnd * W;
-    CUdeviceptr d_oval = d_cnt + (size_t)nslots * W;
+    fc_topk_fast_plan fp = { 0 };
+    fp.x = logits->dptr;
+    fp.bv = lv_idx[1] + lvl * W;
+    fp.bi = fp.bv + mxn * W;
+    fp.cv = fp.bi + mxn * W;
+    fp.ci = fp.cv + cnd * W;
+    fp.cnt = fp.ci + cnd * W;
+    fp.oval = fp.cnt + (size_t)nslots * W;
+    CUdeviceptr d_oval = fp.oval;
     CUdeviceptr d_oidx = d_oval + outn * W;
-    CUdeviceptr d_stat = d_oidx + outn * W;
-    CUdeviceptr d_nan = out_nan ? d_stat + (size_t)nslots * W : 0;
-    CUdeviceptr d_tv = d_stat + 2 * (size_t)nslots * W;
-    CUdeviceptr d_ti = d_tv + (size_t)nslots * W;
+    fp.stat = d_oidx + outn * W;
+    fp.nan = out_nan ? fp.stat + (size_t)nslots * W : 0;
+    fp.tv = fp.stat + 2 * (size_t)nslots * W;
+    fp.ti = fp.tv + (size_t)nslots * W;
+    fp.nslots = nslots;
+    fp.n = n;
+    fp.k = k;
+    fp.ef = ef;
+    fp.nblkf = nblkf;
+    const int multi = (opts & FC_TOPK_OPT_ROW_BLOCKS) != 0;
+    fp.tblk = multi ? (unsigned int)fc_topk_div_up(nblkf, FC_TOPK_THREADS0) : 1u;
+    fp.rblk = multi ? FC_TOPK_RANK_MAXBLK : 1u;
 
     CUresult err = CUDA_SUCCESS;
     int done = 0;
+    const int32_t *res = tmp;   /* where the fast path's results landed */
     if (fast) {
-        int threads = FC_TOPK_THREADS0;
-        void *margs[] = { &logits->dptr, &n, &ef, &d_bv, &d_bi, &d_cnt, &d_nan };
-        err = fcw_cuLaunchKernel(ctx->kern_topk_blockmax,
-                               (unsigned int)nblkf, (unsigned int)nslots, 1,
-                               (unsigned int)threads, 1, 1,
-                               0, ctx->stream, margs, NULL);
-        void *targs[] = { &d_bv, &d_bi, &nblkf, &k, &d_tv, &d_ti };
-        if (err == CUDA_SUCCESS)
-            err = fcw_cuLaunchKernel(ctx->kern_topk_thresh,
-                                   1, (unsigned int)nslots, 1,
-                                   (unsigned int)threads, 1, 1,
-                                   0, ctx->stream, targs, NULL);
-        void *fargs[] = { &logits->dptr, &n, &ef, &d_tv, &d_ti,
-                          &d_cv, &d_ci, &d_cnt, &d_nan };
-        if (err == CUDA_SUCCESS)
-            err = fcw_cuLaunchKernel(ctx->kern_topk_filter,
-                                   (unsigned int)nblkf, (unsigned int)nslots, 1,
-                                   (unsigned int)threads, 1, 1,
-                                   0, ctx->stream, fargs, NULL);
-        void *rargs[] = { &d_cv, &d_ci, &d_cnt, &k, &d_oval, &d_oidx,
-                          &d_stat };
-        if (err == CUDA_SUCCESS)
-            err = fcw_cuLaunchKernel(ctx->kern_topk_rank_select,
-                                   1, (unsigned int)nslots, 1,
-                                   (unsigned int)threads, 1, 1,
-                                   0, ctx->stream, rargs, NULL);
-        if (err == CUDA_SUCCESS)
-            err = fc_topk_fetch(ctx, d_oval, outn,
-                                (size_t)nslots * (out_nan ? 2 : 1), tmp);
+        const size_t extra = (size_t)nslots * (out_nan ? 2 : 1);
+        const size_t fetch_bytes = (2 * outn + extra) * W;
+        err = CUDA_ERROR_NOT_SUPPORTED;
+        if ((opts & FC_TOPK_OPT_GRAPH) && fc_topk_host_reserve(ctx, res_words * W) == 0) {
+            err = fc_topk_fast_graphed(ctx, &fp, fetch_bytes);
+            if (err == CUDA_SUCCESS)
+                res = ctx->topk_host;
+        }
+        if (err == CUDA_ERROR_NOT_SUPPORTED) {
+            err = fc_topk_fast_issue(ctx, &fp);
+            if (err == CUDA_SUCCESS)
+                err = fc_topk_fetch(ctx, d_oval, outn, extra, tmp);
+        }
         done = err == CUDA_SUCCESS;
         for (int u = 0; done && u < nslots; u++)
-            if (tmp[2 * outn + u] != 0)
+            if (res[2 * outn + u] != 0)
                 done = 0;               /* a row overflowed: take the tree */
     }
     const int fast_done = done;
+    if (!fast_done)
+        res = tmp;
 
     CUdeviceptr in_val = logits->dptr, in_idx = 0;
     int m = n, e = e0, threads = FC_TOPK_THREADS0, nblk = nblk0;
@@ -3892,11 +4023,11 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
 
     fc_ctx_leave();
     if (err == CUDA_SUCCESS) {
-        memcpy(out_val, tmp, outn * sizeof(float));
-        memcpy(out_idx, tmp + outn, outn * sizeof(int));
+        memcpy(out_val, res, outn * sizeof(float));
+        memcpy(out_idx, res + outn, outn * sizeof(int));
         /* The tree does not check for NaN: -1 = unknown. */
         for (int u = 0; out_nan && u < nslots; u++)
-            out_nan[u] = fast_done ? tmp[2 * outn + nslots + u] : -1;
+            out_nan[u] = fast_done ? res[2 * outn + nslots + u] : -1;
     }
     free(tmp);
     if (err != CUDA_SUCCESS) {
@@ -3904,6 +4035,13 @@ int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots
         return -1;
     }
     return fc_topk_check_rows(out_idx, nslots, k, n);
+}
+
+int fc_topk_logits_slots_nan_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,
+                                 int n, int k, int *out_idx, float *out_val,
+                                 int *out_nan)
+{
+    return fc_topk_logits_slots_opt_ctx(ctx, logits, nslots, n, k, out_idx, out_val, out_nan, 0);
 }
 
 int fc_topk_logits_slots_ctx(fc_cuda_ctx *ctx, fc_buffer *logits, int nslots,

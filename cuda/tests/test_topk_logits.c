@@ -22,6 +22,11 @@
  * NaN on the fast path, -1 only when the tree ran, never stale from a previous
  * call.
  *
+ * Options (fc_topk_logits_slots_opt_ctx): several blocks per row and the graph
+ * replay give the reference pairs and flags too, across shapes and buffers that
+ * alternate (a replay keyed to the wrong shape or buffer fails) and rows rewritten
+ * in place between calls (a replay of stale results fails).
+ *
  * Build: make USE_CUDA=1 test-topk-logits
  */
 
@@ -359,6 +364,95 @@ static void test_clustered_row_fast_path(void)
     ASSERT_TRUE(memcmp(vals, rvals, sizeof(rvals)) == 0);
 }
 
+/* Clustered rows (as test_clustered_row_fast_path), a fresh draw per call. */
+static void fill_clustered_rows(float *rows, int nslots, int n)
+{
+    for (int u = 0; u < nslots; u++) {
+        float *row = rows + (size_t)u * n;
+        int hot = (int)(rng() % (uint32_t)(n - 4000));
+        for (int i = 0; i < n; i++) {
+            float g = 0.0f;
+            for (int j = 0; j < 4; j++) g += (float)(rng() % 1000000) * 1e-6f;
+            row[i] = (g - 2.0f) * 4.3f;
+        }
+        for (int i = hot; i < hot + 4000; i++) row[i] += 6.0f;
+    }
+}
+
+/* One options call against the host reference (pairs and NaN flags). */
+static int opt_call_exact(fc_buffer *buf, const float *rows, int nslots, int n, int k,
+                          unsigned int opts, int want_tree)
+{
+    int ids[4 * 257], rids[257], flag[4];
+    float vals[4 * 257], rvals[257];
+    int rc = fc_topk_logits_slots_opt_ctx(fc_default_ctx(), buf, nslots, n, k, ids, vals,
+                                          flag, opts);
+    if (rc != 0) {
+        printf("    opts %u slots %d: rc %d\n", opts, nslots, rc);
+        return 0;
+    }
+    for (int u = 0; u < nslots; u++) {
+        const float *row = rows + (size_t)u * n;
+        host_topk(row, n, k, rids, rvals);
+        int want_flag = want_tree ? -1 : host_has_nan(row, n);
+        if (flag[u] != want_flag || memcmp(ids + u * k, rids, (size_t)k * sizeof(int)) != 0 ||
+            memcmp(vals + u * k, rvals, (size_t)k * sizeof(float)) != 0) {
+            printf("    opts %u slots %d row %d: flag %d (want %d) or pairs differ\n", opts,
+                   nslots, u, flag[u], want_flag);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Several blocks per row and the graph replay: the reference result on every call,
+ * while the shape (4 / 1 / 2 rows of one buffer, 2 rows of another) and the buffers'
+ * contents change between calls, with a NaN in some rows and an all-equal row that
+ * overflows into the tree. */
+static void test_options_exact_across_shapes_and_rewrites(void)
+{
+    const int n = 248320, k = 257;
+    static const unsigned int opts[] = { FC_TOPK_OPT_ROW_BLOCKS, FC_TOPK_OPT_GRAPH,
+                                         FC_TOPK_OPT_ROW_BLOCKS | FC_TOPK_OPT_GRAPH };
+    float *a = malloc((size_t)4 * n * sizeof(float));
+    float *b = malloc((size_t)2 * n * sizeof(float));
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
+    fill_clustered_rows(a, 4, n);
+    fill_clustered_rows(b, 2, n);
+    fc_buffer *ba = fc_buffer_from_ptr(a, (size_t)4 * n * sizeof(float));
+    fc_buffer *bb = fc_buffer_from_ptr(b, (size_t)2 * n * sizeof(float));
+    ASSERT_NOT_NULL(ba);
+    ASSERT_NOT_NULL(bb);
+    for (int round = 0; round < 4; round++) {
+        fill_clustered_rows(a, 4, n);
+        fill_clustered_rows(b, 2, n);
+        if (round & 1) {
+            a[(size_t)2 * n + 777 + round] = NAN;
+            b[n + 5 + round] = NAN;
+        }
+        fc_buffer_from_cpu(ba, a);   /* same addresses: a replay must see the new rows */
+        fc_buffer_from_cpu(bb, b);
+        for (size_t o = 0; o < sizeof(opts) / sizeof(opts[0]); o++) {
+            ASSERT_TRUE(opt_call_exact(ba, a, 4, n, k, opts[o], 0));
+            ASSERT_TRUE(opt_call_exact(ba, a, 1, n, k, opts[o], 0));
+            ASSERT_TRUE(opt_call_exact(bb, b, 2, n, k, opts[o], 0));
+            ASSERT_TRUE(opt_call_exact(ba, a, 2, n, k, opts[o], 0));   /* bb's shape */
+        }
+    }
+    for (int i = 0; i < n; i++)
+        b[i] = 1.5f;                 /* all equal: the candidate list overflows */
+    fc_buffer_from_cpu(bb, b);
+    ASSERT_TRUE(opt_call_exact(bb, b, 1, n, k, FC_TOPK_OPT_ROW_BLOCKS | FC_TOPK_OPT_GRAPH, 1));
+    fill_clustered_rows(b, 2, n);
+    fc_buffer_from_cpu(bb, b);
+    ASSERT_TRUE(opt_call_exact(bb, b, 2, n, k, FC_TOPK_OPT_ROW_BLOCKS | FC_TOPK_OPT_GRAPH, 0));
+    fc_buffer_free(ba);
+    fc_buffer_free(bb);
+    free(a);
+    free(b);
+}
+
 /* ---- speed ---- */
 
 #define TOPK_BUDGET_US 400.0   /* old k-round path: 1841 us */
@@ -378,7 +472,7 @@ static int dbl_cmp(const void *a, const void *b)
 
 /* Median wall time per call (incl. launches, sync, D2H): the median keeps a
  * busy host's scheduling hiccups out of the number. */
-static double median_call_us(int nslots, int k, int with_nan)
+static double median_call_us(int nslots, int k, int with_nan, unsigned int opts)
 {
     enum { ITERS = 31 };
     const int n = 248320;
@@ -397,10 +491,8 @@ static double median_call_us(int nslots, int k, int with_nan)
     }
     for (int i = 0; rc == 0 && i < 3 + ITERS; i++) {
         double t0 = now_us();
-        rc |= with_nan ? fc_topk_logits_slots_nan_ctx(fc_default_ctx(), buf, nslots, n, k,
-                                                      ids, vals, flag)
-                       : fc_topk_logits_slots_ctx(fc_default_ctx(), buf, nslots, n, k,
-                                                  ids, vals);
+        rc |= fc_topk_logits_slots_opt_ctx(fc_default_ctx(), buf, nslots, n, k, ids, vals,
+                                           with_nan ? flag : NULL, opts);
         if (i >= 3)
             us[i - 3] = now_us() - t0;
     }
@@ -414,16 +506,19 @@ static double median_call_us(int nslots, int k, int with_nan)
 
 static void test_lm_head_shape_under_budget(void)
 {
-    double us = median_call_us(1, 40, 0);
+    double us = median_call_us(1, 40, 0, 0);
     printf("    top-k k=40 over 248320: median %.1f us/call (budget %.0f)\n", us,
            TOPK_BUDGET_US);
     ASSERT_TRUE(us >= 0.0 && us < TOPK_BUDGET_US);
     /* The short logits row: k = 257 with the NaN check, 1 and 4 rows. */
     for (int ns = 1; ns <= 4; ns *= 2) {
-        us = median_call_us(ns, 257, 1);
-        printf("    top-k k=257 + NaN check, %d row(s) over 248320: median %.1f us/call\n",
-               ns, us);
+        us = median_call_us(ns, 257, 1, 0);
+        double rb = median_call_us(ns, 257, 1, FC_TOPK_OPT_ROW_BLOCKS);
+        double gr = median_call_us(ns, 257, 1, FC_TOPK_OPT_ROW_BLOCKS | FC_TOPK_OPT_GRAPH);
+        printf("    top-k k=257 + NaN check, %d row(s) over 248320: median %.1f us/call"
+               " (row blocks %.1f, + graph %.1f)\n", ns, us, rb, gr);
         ASSERT_TRUE(us >= 0.0 && us < 2.0 * TOPK_BUDGET_US * ns);
+        ASSERT_TRUE(rb >= 0.0 && gr >= 0.0);
     }
 }
 
@@ -503,6 +598,7 @@ int main(void)
     RUN_TEST(all_equal_row_overflow_exact);
     RUN_TEST(nan_flag_exact_and_not_stale);
     RUN_TEST(clustered_row_fast_path);
+    RUN_TEST(options_exact_across_shapes_and_rewrites);
     RUN_TEST(lm_head_shape_under_budget);
     fc_free();
     TEST_REPORT();
