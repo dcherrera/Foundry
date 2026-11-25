@@ -1454,10 +1454,20 @@ static bool execute_simple_opcode(ftq_context *ctx, uint32_t opcode, uint32_t a0
     }
 
     case kOpDelay: {
+#if defined(FT_TIMELINE) && FT_TIMELINE
+        /* The timeline's NEGATIVE CONTROL: a0 wall-clock ticks exactly, so the summary must
+         * show this descriptor at a0 ticks (Pantheon pn_tt_timeline.c). Shipped images keep
+         * the iteration count below. */
+        const uint32_t from = ft_bh_wall_clock_low();
+
+        while ((uint32_t)(ft_bh_wall_clock_low() - from) < a0) {
+        }
+#else
         volatile uint32_t counter = 0;
 
         for (uint32_t iteration = 0; iteration < a0; iteration++)
             counter = counter + 1;
+#endif
         return true;
     }
 

@@ -58,11 +58,17 @@
  *                      + 0x0900   S2 wait sidecar, 16 B a ring slot, then the reader's
  *                                 precondition words, to 0xE20 (kernels/resident_precondition_
  *                                 protocol.h; the host zeroes it at every arm)
+ *                      + 0x0E20   free; the FT_TIMELINE stream's segment 1 in timeline builds
  *                      + 0x1000   MoE expansion mailbox (kernels/resident_matmul_moe_protocol.h)
+ *                      + 0x1040   free; timeline segment 2 (to 0x2000)
  *                      + 0x2000   parameter-cache overflow, 448 x 64 B (written ONCE)
  *                      + 0x9000   matmul parameter blocks, 64 x 64 B (ROTATING, rewritten)
  *                      + 0xA000   parameter cache, 320 x 64 B (written ONCE, pointed at)
- *                      + 0xF000   group completion block, 4 KiB
+ *                      + 0xF000   group completion block, 4 KiB: slots to 0xF840 at 256 members,
+ *                                 pull table 0xF900..0xFA08, sweep 0xFB00..0xFEF0, scratch
+ *                                 0xFF00..0xFF10; the gaps hold the timeline's host line and
+ *                                 headers (0xF840..0xF8D0) and segments 3..5 (timeline builds;
+ *                                 kernels/resident_queue_protocol.h kTl*)
  *
  * `head` and `tail` are MONOTONIC totals, not wrapped indices: occupancy is
  * `head - tail`, the ring is full at `capacity`, and "how many are done" is a
@@ -558,7 +564,9 @@ typedef enum ft_tt_queue_opcode {
      *  0 for the kernel's idle_spin_limit. BLOCKS — and polls `stop_request` each spin,
      *  which is what makes a cross-group deadlock recoverable by asking. */
     FT_TT_QUEUE_OP_SEM_WAIT = 0x05u,
-    /** a0 = iterations of a volatile spin. Makes a group measurably busy. */
+    /** a0 = iterations of a volatile spin. Makes a group measurably busy. The FT_TIMELINE
+     *  build of the resident matmul reader spins a0 WALL-CLOCK TICKS instead (the
+     *  timeline's negative control: a descriptor of known length). */
     FT_TT_QUEUE_OP_DELAY = 0x06u,
     /** Leave the loop. The ORDERED shutdown: everything queued before it runs first. */
     FT_TT_QUEUE_OP_STOP = 0x07u,
