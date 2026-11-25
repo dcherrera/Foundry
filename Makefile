@@ -660,6 +660,14 @@ test-call-census: cuda/tests/test_call_census
 cuda/tests/test_call_census: cuda/tests/test_call_census.c cuda/fc_cuda.c cuda/fc_cuda.h cuda/fc_cuda_ptx.h
 	$(CC) $(CFLAGS) -o $@ cuda/tests/test_call_census.c cuda/fc_cuda.c -lm -ldl
 
+# Pinned host memory round trips, and fc_sync_ctx / fc_event_sync under every FC_CUDA_WAIT mode.
+test-host-pinned-wait: cuda/tests/test_host_pinned_wait
+	for m in driver spin yield hybrid:50 sleep:20; do \
+		FC_CUDA_WAIT=$$m ./cuda/tests/test_host_pinned_wait || exit 1; done
+
+cuda/tests/test_host_pinned_wait: cuda/tests/test_host_pinned_wait.c cuda/fc_cuda.c cuda/fc_cuda.h cuda/fc_cuda_ptx.h
+	$(CC) $(CFLAGS) -o $@ cuda/tests/test_host_pinned_wait.c cuda/fc_cuda.c -lm -ldl
+
 test-xchg-2d: cuda/tests/test_xchg_2d
 	./cuda/tests/test_xchg_2d
 
