@@ -7168,7 +7168,9 @@ static double fc_wait_now_us(void)
 }
 
 /* Wait for `ev` (current context entered) by polling, per `m`. Returns the driver status:
- * CUDA_SUCCESS once complete, or the first error cuEventQuery reports. */
+ * CUDA_SUCCESS once complete, the first error cuEventQuery reports, or (hybrid, budget
+ * spent) CUDA_ERROR_NOT_READY: the caller then waits the driver's way, which honours the
+ * context's blocking-sync flag (an event sync on a plain event would spin). */
 static CUresult fc_wait_event_polled(CUevent ev, fc_wait_mode m)
 {
     const double t0 = m.kind == FC_WAIT_HYBRID ? fc_wait_now_us() : 0.0;
@@ -7182,7 +7184,7 @@ static CUresult fc_wait_event_polled(CUevent ev, fc_wait_mode m)
             struct timespec d = { 0, (long)m.us * 1000L };
             nanosleep(&d, NULL);
         } else if (m.kind == FC_WAIT_HYBRID && fc_wait_now_us() - t0 >= (double)m.us) {
-            return p_cuEventSynchronize ? p_cuEventSynchronize(ev) : CUDA_ERROR_NOT_READY;
+            return CUDA_ERROR_NOT_READY;
         }
     }
 }
@@ -7272,6 +7274,8 @@ int fc_event_sync(fc_event *ev)
     if (m.kind != FC_WAIT_DRIVER) {
         FC_CENSUS_ADD(syncs, 1);
         err = fc_wait_event_polled(ev->ev, m);
+        if (err == CUDA_ERROR_NOT_READY)
+            err = p_cuEventSynchronize(ev->ev);
     } else {
         err = fcw_cuEventSynchronize(ev->ev);
     }
@@ -7395,6 +7399,8 @@ void fc_sync_ctx(fc_cuda_ctx *ctx)
         err = p_cuEventRecord(ctx->sync_ev, ctx->stream);
         if (err == CUDA_SUCCESS)
             err = fc_wait_event_polled(ctx->sync_ev, m);
+        if (err == CUDA_ERROR_NOT_READY)
+            err = p_cuStreamSynchronize(ctx->stream);
     } else {
         err = ctx->stream ? fcw_cuStreamSynchronize(ctx->stream) : fcw_cuCtxSynchronize();
     }
