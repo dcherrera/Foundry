@@ -2,7 +2,7 @@
 # Copyright (C) 2026 David (Corey) Herrera
 # Foundry Blackhole backend — the GATED-DELTA-NET op family's acceptance.
 #
-#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row
+#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row && ./build-gdn/test_gdn_conv_bf16_in
 #
 # NO PHASE1B, AND NO CARD. This suite is off-hardware by construction: it pins the wire
 # contract between ft_tt_op_gdn.h and kernels/resident_gdn_protocol.h by PARSING the device
@@ -61,10 +61,11 @@ SUPPORT := ft_tt_test_report.c
 
 TARGET := $(BUILD)/test_gdn_ops
 TARGET_ROWS := $(BUILD)/test_gdn_multi_row
+TARGET_BF16 := $(BUILD)/test_gdn_conv_bf16_in
 
 .PHONY: all red clean
 
-all: $(TARGET) $(TARGET_ROWS)
+all: $(TARGET) $(TARGET_ROWS) $(TARGET_BF16)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -77,6 +78,9 @@ $(TARGET): test_gdn_ops.c $(BACKEND) $(SUPPORT) | $(BUILD)
 
 $(TARGET_ROWS): test_gdn_multi_row.c $(BACKEND) $(SUPPORT) | $(BUILD)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_multi_row.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+$(TARGET_BF16): test_gdn_conv_bf16_in.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_conv_bf16_in.c $(BACKEND) $(SUPPORT) $(LDLIBS)
 
 red: clean all
 

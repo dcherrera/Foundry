@@ -245,6 +245,13 @@ static uint32_t gdn_row;
 static bool gdn_red_strip_half;
 /** RED ONLY (kGdnFlagRedRowsRow0): a multi-row CONV convolves row 0's stream for every row. */
 static bool gdn_red_rows_row0;
+/** G2a (kGdnFlagConvBf16In): the CONV stream is the bf16 projection strip. Its rows land in
+ *  the half of each 64 B face row at the source's DRAM-window lane and are widened in place
+ *  after the group's barrier. */
+static bool gdn_stream_bf16;
+static uint32_t gdn_widen_destination;
+static uint32_t gdn_widen_tiles;
+static uint32_t gdn_widen_lane;
 static volatile FTQ_L1_PTR uint32_t *gdn_clock_control;
 
 static FT_BH_INLINE void gdn_clock_add(uint32_t word, uint32_t started)
@@ -253,12 +260,16 @@ static FT_BH_INLINE void gdn_clock_add(uint32_t word, uint32_t started)
         gdn_clock_control[word] += (ft_bh_wall_clock_low() - started) >> 4;
 }
 
+static void conv_widen_pending(void);
+
 static FT_BH_INLINE void gdn_read_barrier(void)
 {
     const uint32_t started = ft_bh_wall_clock_low();
 
     ft_tensix_noc_read_barrier();
     gdn_clock_add(gdn_conv_phase ? kGdnClockConvBarrier : kGdnClockBarrier, started);
+    if (gdn_widen_tiles)
+        conv_widen_pending();
 }
 
 static void load_endpoints(gdn_endpoints *endpoints, const ftg_shape *shape,
@@ -271,6 +282,10 @@ static void load_endpoints(gdn_endpoints *endpoints, const ftg_shape *shape,
     endpoints->constant_y = ftg_xy_y(parameters[kGdnConstantXy]);
     endpoints->state_x = ftg_xy_x(parameters[kGdnStateXy]);
     endpoints->state_y = ftg_xy_y(parameters[kGdnStateXy]);
+    if (shape->phase == (uint32_t)kGdnPhaseConv && gdn_stream_bf16) {
+        endpoints->activation_x = ftg_xy_x(parameters[kGdnConstantGate]);
+        endpoints->activation_y = ftg_xy_y(parameters[kGdnConstantGate]);
+    }
     if (shape->phase == (uint32_t)kGdnPhaseConv) {
         endpoints->constant_base = parameters[kGdnConstantWeight];
         endpoints->state_base = parameters[kGdnStateConv];
@@ -341,6 +356,62 @@ static void conv_read(uint32_t x, uint32_t y, uint32_t address, uint32_t destina
         }
 }
 
+/** Byte offset, inside a bf16 tile, of the face row holding `row`, columns [16*half, +16). */
+static uint32_t ftg_bf16_face_row_offset(uint32_t row, uint32_t half)
+{
+    return ((row / (uint32_t)kGdnFaceRows) * 2u + half) * ((uint32_t)kGdnBf16TileBytes / 4u) +
+           (row % (uint32_t)kGdnFaceRows) * ((uint32_t)kGdnBf16TileBytes / 64u);
+}
+
+/**
+ * G2a: row `row` of `tiles` bf16 stream tiles into L1 row 0 of fp32 pages at `destination`:
+ * each 32 B face-row half lands in the half of its 64 B fp32 face row at the SOURCE's offset
+ * in the 64 B DRAM-read window (ftg_bf16_half_lane: the two ends of a NoC DRAM read must be
+ * congruent mod 64), and the caller's barrier widens it in place (conv_widen_pending).
+ * `address` is the bf16 strip's tile. Every half of one call shares the lane: the tile
+ * (2048 B) and face (512 B) strides are multiples of 64.
+ */
+static void conv_read_bf16_row(uint32_t x, uint32_t y, uint32_t address, uint32_t destination,
+                               uint32_t tiles, uint32_t row)
+{
+    const uint32_t half_bytes = (uint32_t)kGdnBf16TileBytes / 64u;
+    const uint32_t lane = ftg_bf16_half_lane(address + ftg_bf16_face_row_offset(row, 0u));
+    uint32_t tile, half;
+
+    for (tile = 0; tile < tiles; tile++)
+        for (half = 0; half < (gdn_red_strip_half ? 1u : 2u); half++)
+            ft_tensix_noc_read(ft_tensix_noc_address(x, y, address +
+                                                               tile * (uint32_t)kGdnBf16TileBytes +
+                                                               ftg_bf16_face_row_offset(row, half)),
+                               destination + tile * TILE_BYTES + ftg_face_row_offset(0u, half) +
+                                   lane,
+                               half_bytes);
+    gdn_widen_destination = destination;
+    gdn_widen_tiles = tiles;
+    gdn_widen_lane = lane;
+}
+
+/** G2a, after the barrier: widen every staged half of the pending pages in place. */
+static void conv_widen_pending(void)
+{
+    uint32_t tile, half;
+
+    for (tile = 0; tile < gdn_widen_tiles; tile++)
+        for (half = 0; half < (gdn_red_strip_half ? 1u : 2u); half++)
+            ftg_widen_face_row_at((volatile FTQ_L1_PTR uint32_t *)(gdn_widen_destination +
+                                                                   tile * TILE_BYTES +
+                                                                   ftg_face_row_offset(0u, half)),
+                                  gdn_widen_lane);
+    gdn_widen_tiles = 0u;
+}
+
+/** The stream's tile `column` in DRAM: fp32 `stream_in`, or the G2a bf16 projection strip. */
+static uint32_t conv_stream_tile(const gdn_endpoints *endpoints, uint32_t column)
+{
+    return endpoints->activation_in +
+           column * (gdn_stream_bf16 ? (uint32_t)kGdnBf16TileBytes : TILE_BYTES);
+}
+
 /** S2c: conv_read for the STREAM at DRAM row `row` into L1 row 0 (the strip-mode layout the
  *  compute thread reads). Row 0 is conv_read() itself. */
 static void conv_read_stream_row(uint32_t x, uint32_t y, uint32_t address, uint32_t destination,
@@ -349,6 +420,10 @@ static void conv_read_stream_row(uint32_t x, uint32_t y, uint32_t address, uint3
     uint32_t tile;
     uint32_t half;
 
+    if (gdn_stream_bf16) {
+        conv_read_bf16_row(x, y, address, destination, tiles, row);
+        return;
+    }
     if (row == 0u || !gdn_conv_strip) {
         conv_read(x, y, address, destination, tiles);
         return;
@@ -850,7 +925,7 @@ static bool read_conv_operands(ftq_context *ctx, const gdn_endpoints *endpoints,
 
     if (!ctx->aborting) {
         conv_read_stream(endpoints->activation_x, endpoints->activation_y,
-                         endpoints->activation_in + first_col * TILE_BYTES,
+                         conv_stream_tile(endpoints, first_col),
                          ft_tensix_cb_write_pointer(CB_IN), depth);
         for (tap = 0; tap < taps; tap++) {
             const uint32_t first = ftg_conv_plane_tile(shape, tap, first_col);
@@ -905,7 +980,7 @@ static bool read_one_conv(ftq_context *ctx, const gdn_endpoints *endpoints,
                 return false;
             if (!ctx->aborting) {
                 conv_read_stream(endpoints->activation_x, endpoints->activation_y,
-                                 endpoints->activation_in + first_col * TILE_BYTES,
+                                 conv_stream_tile(endpoints, first_col),
                                  ft_tensix_cb_write_pointer(CB_IN), depth);
                 gdn_read_barrier();
             }
@@ -933,7 +1008,7 @@ static bool read_conv_sequence_tap(ftq_context *ctx, const gdn_endpoints *endpoi
         return false;
     if (!ctx->aborting) {
         conv_read_stream_row(endpoints->activation_x, endpoints->activation_y,
-                             endpoints->activation_in + first_col * TILE_BYTES,
+                             conv_stream_tile(endpoints, first_col),
                              ft_tensix_cb_write_pointer(CB_STATE), depth,
                              shape->row_first + element - (shape->conv_taps - 1u));
         gdn_read_barrier();
@@ -984,7 +1059,7 @@ static bool read_one_conv_rows(ftq_context *ctx, const gdn_endpoints *endpoints,
                     return false;
                 if (!ctx->aborting) {
                     conv_read_stream(endpoints->activation_x, endpoints->activation_y,
-                                     endpoints->activation_in + first_col * TILE_BYTES,
+                                     conv_stream_tile(endpoints, first_col),
                                      ft_tensix_cb_write_pointer(CB_IN), depth);
                     gdn_read_barrier();
                 }
@@ -1182,6 +1257,9 @@ static bool read_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *paramet
         return false;
     }
 
+    gdn_stream_bf16 = shape.phase == (uint32_t)kGdnPhaseConv &&
+                      (parameters[kGdnFlags] & (uint32_t)kGdnFlagConvBf16In) != 0u;
+    gdn_widen_tiles = 0u;
     load_endpoints(&endpoints, &shape, parameters);
     if (!rebase_produced_buffers(ctx, &shape))
         return false;
@@ -1193,8 +1271,8 @@ static bool read_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *paramet
     gdn_red_rows_row0 = (parameters[kGdnFlags] & (uint32_t)kGdnFlagRedRowsRow0) != 0u;
     /* The CONV row select — and so the multi-row CONV — exists in strip mode only (a
      * whole-tile read has no row). */
-    if ((gdn_row != 0u || shape.row_count > 1u) && shape.phase == (uint32_t)kGdnPhaseConv &&
-        !gdn_conv_strip) {
+    if ((gdn_row != 0u || shape.row_count > 1u || gdn_stream_bf16) &&
+        shape.phase == (uint32_t)kGdnPhaseConv && !gdn_conv_strip) {
         ftq_abort(ctx, kErrBadParameters);
         return false;
     }
