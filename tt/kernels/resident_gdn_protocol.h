@@ -294,6 +294,64 @@ enum { kGdnRowMask = 31 };
 /** RED ONLY (reader): every row of a multi-row descriptor stages row `row`'s q/k/v — must
  *  DIFFER, which proves the rows' own operands reach the recurrence. */
 enum { kGdnFlagRedRowsRow0 = 1u << 26 };
+/** G2a (reader only, PHASE CONV in strip mode): the stream input is the bf16 PROJECTION strip
+ *  itself, not a widened fp32 copy -- word 4 its address, word 8 (DELTA-only, free in CONV)
+ *  its NoC coordinate, 2048 B tiles. The reader reads row r's two 32 B face-row halves (each
+ *  at its source's lane, ftg_bf16_half_lane) and widens each element into CB_IN row 0 by render_widen's arithmetic (`x + 0` on bf16 into
+ *  fp32): a zero or denormal exponent gives +0, anything else is the bf16 bits << 16. Saves
+ *  the render_widen descriptor. Word 3 stays the OUTPUT's. */
+enum { kGdnFlagConvBf16In = 1u << 27 };
+/** bf16 tile bytes of the G2a stream input. */
+enum { kGdnBf16TileBytes = 2048 };
+
+/** render_widen's element: bf16 `h` as the fp32 bits `h + 0` packs (DAZ/FTZ, -0 + 0 = +0). */
+FTQ_INLINE uint32_t ftg_widen_bf16(uint32_t h)
+{
+    return (h & 0x7F80u) == 0u ? 0u : (h & 0xFFFFu) << 16;
+}
+
+/** Elements in one face row (a 16 x 16 face). */
+enum { kGdnFaceRowElements = 16 };
+
+/** The NoC's DRAM-read window: both ends of a read sit at the SAME offset inside it. */
+enum { kGdnDramReadWindow = 64 };
+
+/**
+ * G2a: which 32 B half of a 64 B fp32 face row a bf16 face-row half read from `source` must
+ * land in -- the half at the source's own offset in the 64 B window (0 or 32; bf16 face rows
+ * are 32 B aligned). A read whose two ends are NOT congruent mod 64 is not refused; it lands
+ * wrong, and an even row's half sits at 0 mod 64.
+ */
+FTQ_INLINE uint32_t ftg_bf16_half_lane(uint32_t source)
+{
+    return source & ((uint32_t)kGdnDramReadWindow / 2u);
+}
+
+/**
+ * G2a, in place: one 64 B fp32 face row whose 16 bf16 elements sit in its 32 B half at `lane`
+ * (ftg_bf16_half_lane) becomes those elements widened, element i landing in the word at byte
+ * 4i. TOP half (lane 32, bf16 i at 32 + 2i): ascending i, each store only covers halves
+ * already read (4i + 3 < 32 + 2(i + 1), i < 16). BOTTOM half (lane 0, bf16 i at 2i):
+ * descending i, word i covers halves 2i and 2i + 1, both above i for i > 0 and so already
+ * read; i = 0 reads before it stores.
+ */
+FTQ_INLINE void ftg_widen_face_row_at(volatile FTQ_L1_PTR uint32_t *row, uint32_t lane)
+{
+    volatile FTQ_L1_PTR uint16_t *halves =
+        (volatile FTQ_L1_PTR uint16_t *)row + (lane ? (uint32_t)kGdnFaceRowElements : 0u);
+    uint32_t i;
+
+#ifdef FTG_WIDEN_RED_DESCENDING
+    lane = !lane;
+#endif
+    if (lane) {
+        for (i = 0; i < (uint32_t)kGdnFaceRowElements; i++)
+            row[i] = ftg_widen_bf16(halves[i]);
+    } else {
+        for (i = (uint32_t)kGdnFaceRowElements; i-- > 0u;)
+            row[i] = ftg_widen_bf16(halves[i]);
+    }
+}
 enum { kGdnRowCountShift = 21 };
 enum { kGdnRowCountMask = 31 };
 enum { kGdnMultiRowMax = 16 };

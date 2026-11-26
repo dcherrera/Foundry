@@ -504,6 +504,11 @@ typedef struct ft_tt_op_gdn_request {
      *  encodes into the next parameter slot. DELTA's gate is row-major at ftg_gate_stride(). */
     uint32_t row_count;
     ft_tt_op_operand state_rows_out[FT_TT_OP_GDN_MULTI_ROW_MAX];
+    /** G2a (CONV, strip mode): when set, the reader takes its stream input from this bf16
+     *  strip (the projection itself, 2048 B tiles) and widens it, instead of the fp32
+     *  `activation_in` (which still names the input buffer the output shares a bank with).
+     *  Encodes word 4 = its address, word 8 = its NoC coordinate, FT_TT_OP_GDN_FLAG_CONV_BF16_IN. */
+    ft_tt_op_operand stream_bf16;
     /** FT_TT_OP_GDN_FLAG_* bits, encoded into word 14. 0 = the shipped walk. */
     uint32_t flags;
 } ft_tt_op_gdn_request;
@@ -553,6 +558,10 @@ uint32_t ft_tt_op_gdn_conv_slice_granule(uint32_t state_size, uint32_t conv_taps
 #define FT_TT_OP_GDN_ROW_SHIFT 16u
 /** Mirrors kGdnFlagRedRowsRow0 (RED ONLY): a multi-row reader stages row `row` for every row. */
 #define FT_TT_OP_GDN_FLAG_RED_ROWS_ROW0 (1u << 26)
+/** Mirrors kGdnFlagConvBf16In; set by the encoder from `stream_bf16`, never by a caller. */
+#define FT_TT_OP_GDN_FLAG_CONV_BF16_IN (1u << 27)
+/** The bf16 tile bytes `stream_bf16` must carry. */
+#define FT_TT_OP_GDN_BF16_TILE_BYTES 2048u
 /** Mirrors kGdnRowCountShift: the multi-row count rides in flags bits 21-25 (`row_count`). */
 #define FT_TT_OP_GDN_ROW_COUNT_SHIFT 21u
 

@@ -206,6 +206,25 @@ static uint32_t pack_xy(const ft_tt_op_operand *operand)
     return (uint32_t)operand->x | ((uint32_t)operand->y << 16);
 }
 
+/**
+ * G2a: point a CONV descriptor's stream read at the bf16 projection strip (word 4 its address,
+ * word 8 its coordinate; word 8 is DELTA's gate and unused by CONV). Strip mode only (the
+ * reader widens row halves), bf16 tiles only, CONV only.
+ */
+static int encode_stream_bf16(const ft_tt_op_gdn_request *request, uint32_t *out_words)
+{
+    if (!operand_is_set(&request->stream_bf16))
+        return FT_TT_OK;
+    if (request->phase != FT_TT_OP_GDN_PHASE_CONV ||
+        (request->flags & FT_TT_OP_GDN_FLAG_CONV_STRIP) == 0u ||
+        request->stream_bf16.tile_bytes != FT_TT_OP_GDN_BF16_TILE_BYTES)
+        return FT_TT_EINVAL;
+    out_words[FT_TT_OP_GDN_ACTIVATION_IN] = request->stream_bf16.address;
+    out_words[FT_TT_OP_GDN_CONSTANT_GATE] = pack_xy(&request->stream_bf16);
+    out_words[FT_TT_OP_GDN_FLAGS] |= FT_TT_OP_GDN_FLAG_CONV_BF16_IN;
+    return FT_TT_OK;
+}
+
 /** A CONV slice of whole granules (FT_TT_OP_GDN_CONV_SLICE_GRANULE). */
 static bool conv_slice_is_granular(const ft_tt_op_gdn_request *request)
 {
@@ -501,7 +520,7 @@ int ft_tt_op_gdn_parameters(const ft_tt_op_gdn_request *request,
     out_words[FT_TT_OP_GDN_TILE_COUNT] = resolve_tile_count(request);
     if (out_words[FT_TT_OP_GDN_TILE_COUNT] == 0u)
         return FT_TT_EINVAL;
-    return FT_TT_OK;
+    return encode_stream_bf16(request, out_words);
 }
 
 /**
