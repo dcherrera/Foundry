@@ -92945,8 +92945,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_kernels[] = {
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 5755e2244b5eef4d488d4bef1f32b357\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id ee13bb7a15d7ac79c56a126e808c5cf0\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -92965,8 +92965,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_kernels[] = {
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id cd1e3999fb74211b0001c1239b34186e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 7b6f00afd381856f4721af930c6787ba\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_66e3011f0456, sizeof(ft_tt_program_image_k_66e3011f0456), 0x9087ec6fdbe23d53ull,
      "ft-tt-prov 1\n"
@@ -92990,10 +92990,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention/ft_tensix_cb_formats.h c360d648a98134e9e6890598ee166706\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id ade0215f0ca0d8a769fc0f1dc1043be6\n"
+     "build_id 78c3b4730f9d1924c6ac7c4eac8f0a67\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_fc3cbbde7c5f, sizeof(ft_tt_program_image_k_fc3cbbde7c5f), 0x34df6d198cf0f1c5ull,
      "ft-tt-prov 1\n"
@@ -93020,10 +93020,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention/ft_tensix_cb_formats.h c360d648a98134e9e6890598ee166706\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 60dbfcc20b6ff1f5f283b0f33fd265cc\n"
+     "build_id d79790280f18da4ef93d512d9b243f2b\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_16b242c4eec0, sizeof(ft_tt_program_image_k_16b242c4eec0), 0x599f503cd085a936ull,
      "ft-tt-prov 1\n"
@@ -93046,10 +93046,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention/ft_tensix_cb_formats.h c360d648a98134e9e6890598ee166706\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 3465db830e8b52374ac952d714107507\n"
+     "build_id b4bfdcfb7d717394c2ee9a5c4c9b7927\n"
     },
 };
 
@@ -93079,8 +93079,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp4_kernels[] = {
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 5c5f06d1c089a31dd2310148ce4e8d4a\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 8367e73b0a90998950bf7e4db052503e\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93099,8 +93099,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp4_kernels[] = {
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id a68ddb3a4da5f94c0f70ae8713f069af\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id f98cd0bfc6d6ce1d731e1aa4b915703d\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a1abd0045924, sizeof(ft_tt_program_image_k_a1abd0045924), 0x27ba3d119c42b19eull,
      "ft-tt-prov 1\n"
@@ -93124,10 +93124,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp4_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp4/ft_tensix_cb_formats.h 667e2cc578bc5f2d7091a8e4abf856fa\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id bee8791681e849c30718f8875330875a\n"
+     "build_id 02b499a265c3b8266aea2ddc8c13100f\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_81655c764f01, sizeof(ft_tt_program_image_k_81655c764f01), 0x4ffc38668551f969ull,
      "ft-tt-prov 1\n"
@@ -93154,10 +93154,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp4_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp4/ft_tensix_cb_formats.h 667e2cc578bc5f2d7091a8e4abf856fa\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id a7307a72c8ffbf2a00cf5a302c44b3f9\n"
+     "build_id 55219fcf6365eb5f2a20c38cca2faa03\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fd5a7a9c5280, sizeof(ft_tt_program_image_k_fd5a7a9c5280), 0x1826db8a63e2b8f6ull,
      "ft-tt-prov 1\n"
@@ -93180,10 +93180,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp4_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp4/ft_tensix_cb_formats.h 667e2cc578bc5f2d7091a8e4abf856fa\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id ae0f2b0b7b3b570496f866b5cfb1e10f\n"
+     "build_id a45e93266edb69f2f2c489456e341864\n"
     },
 };
 
@@ -93213,8 +93213,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp8_kernels[] = {
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 18e21b5a2b0f6e7dac3a4b67faadb6e4\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id f4f2c1dd9c03be3e8fab0dd1f8b1fa39\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93233,8 +93233,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp8_kernels[] = {
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 115bb5848cc5cac792448359f218509e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 43e45aba8e67457985248da6e69ef08e\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_275c32737d4c, sizeof(ft_tt_program_image_k_275c32737d4c), 0x28f5c3d99240b01eull,
      "ft-tt-prov 1\n"
@@ -93258,10 +93258,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp8_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp8/ft_tensix_cb_formats.h d6c5e2b5950f989d6d7534e328fd86ba\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id e6edbb3bfd4221af3b9fab013fef5423\n"
+     "build_id cd3d5b5108b2be8c365aab5c736f2ab3\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_12b08d782d3d, sizeof(ft_tt_program_image_k_12b08d782d3d), 0x1153db92eadd78e9ull,
      "ft-tt-prov 1\n"
@@ -93288,10 +93288,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp8_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp8/ft_tensix_cb_formats.h d6c5e2b5950f989d6d7534e328fd86ba\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id b6d3ac6261be02bba88367075fca7b70\n"
+     "build_id 02d534e18985dc7b21935bd35eeba332\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fd5a7a9c5280, sizeof(ft_tt_program_image_k_fd5a7a9c5280), 0x1826db8a63e2b8f6ull,
      "ft-tt-prov 1\n"
@@ -93314,10 +93314,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_bfp8_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_bfp8/ft_tensix_cb_formats.h d6c5e2b5950f989d6d7534e328fd86ba\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 405568f23e92241b34ee58a8d882251d\n"
+     "build_id 11ba6b9d6ec74671d89b22e4e973bfad\n"
     },
 };
 
@@ -93347,8 +93347,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v4_kernels[] = 
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 0fe0a219f037399007beded6b271fd12\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 364c1cde442f9e68c8f5064829e8fca4\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93367,8 +93367,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v4_kernels[] = 
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 09e48b5792b4e03e50052b9603808b07\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 4aa7fde112a3663d231efd91422e8d56\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_43093bb7ff0d, sizeof(ft_tt_program_image_k_43093bb7ff0d), 0xed35475eca28cc80ull,
      "ft-tt-prov 1\n"
@@ -93392,10 +93392,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v4_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v4/ft_tensix_cb_formats.h e3a1330c73f7e7340ac4d8cc80bc5880\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 05297834b6ce07c643e797587917072e\n"
+     "build_id b739b85ec5a738f8bfade49b53609de5\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_2345baad8db2, sizeof(ft_tt_program_image_k_2345baad8db2), 0x323481847d1804fdull,
      "ft-tt-prov 1\n"
@@ -93422,10 +93422,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v4_kernels[] = 
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v4/ft_tensix_cb_formats.h e3a1330c73f7e7340ac4d8cc80bc5880\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id c8b6170f1b8768e5420a3f5f633a2ccc\n"
+     "build_id 6a438c76bb8745661dea892d36f53ea5\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -93448,10 +93448,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v4_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v4/ft_tensix_cb_formats.h e3a1330c73f7e7340ac4d8cc80bc5880\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 7aa84a93e6273edb232004b31f33e141\n"
+     "build_id 448a6e9b585e79237e7414c57475823a\n"
     },
 };
 
@@ -93481,8 +93481,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v8_kernels[] = 
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 27db5f44615c6458443adf9d5032ff9d\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 840ed9c19d28ee2fea9395265e0efb33\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93501,8 +93501,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v8_kernels[] = 
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 0d2be76291d86ed69670ca7e0e4c2fcb\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id cb8977b764d9d08c81626e4fe622e271\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_c0c0cecb1e81, sizeof(ft_tt_program_image_k_c0c0cecb1e81), 0x45848954422ca080ull,
      "ft-tt-prov 1\n"
@@ -93526,10 +93526,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v8_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v8/ft_tensix_cb_formats.h 812381b6360bb9a6de1242a6bc731e03\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id e1771630dab00284178cc893d9638690\n"
+     "build_id 02d7225e7bcef977668c7432421435f4\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_2345baad8db2, sizeof(ft_tt_program_image_k_2345baad8db2), 0x323481847d1804fdull,
      "ft-tt-prov 1\n"
@@ -93556,10 +93556,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v8_kernels[] = 
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v8/ft_tensix_cb_formats.h 812381b6360bb9a6de1242a6bc731e03\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 9e8535c41dbe4a34fd03a9373538f878\n"
+     "build_id 1d4da8f97294ac1285a65e1a1c749d81\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -93582,10 +93582,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k16v8_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k16v8/ft_tensix_cb_formats.h 812381b6360bb9a6de1242a6bc731e03\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 08b23e1feefb6b83ef67224d24e4cd1e\n"
+     "build_id 0f5b2ed082d8b569c2b46af9c2314991\n"
     },
 };
 
@@ -93615,8 +93615,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k4v16_kernels[] = 
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id e83afd1e12239cefaec417563e218b97\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id cb308650d508854369ac6dae92289a11\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93635,8 +93635,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k4v16_kernels[] = 
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 9aec85a11d5c56621b01d6be1db067cc\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id c4a1d38018b011e5030b82bffb0269eb\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_bac22467e9a3, sizeof(ft_tt_program_image_k_bac22467e9a3), 0x7808a50f0c0c1a15ull,
      "ft-tt-prov 1\n"
@@ -93660,10 +93660,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k4v16_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k4v16/ft_tensix_cb_formats.h e1b915d8a04b496f6fe9b8be90a35bcc\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id bf6ffa8eebeb7552fe2ce592917e42bc\n"
+     "build_id ebe9cc53f9aaf18ab99816b1891e67d6\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_504919809e92, sizeof(ft_tt_program_image_k_504919809e92), 0xb9a5c2c4ec5344c6ull,
      "ft-tt-prov 1\n"
@@ -93690,10 +93690,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k4v16_kernels[] = 
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k4v16/ft_tensix_cb_formats.h e1b915d8a04b496f6fe9b8be90a35bcc\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 5c5b013d9bf75fcc04ed32b4a6c4d0e9\n"
+     "build_id cfc78763ecbdda1003d5fae0fd7368ec\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -93716,10 +93716,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k4v16_kernels[] = 
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k4v16/ft_tensix_cb_formats.h e1b915d8a04b496f6fe9b8be90a35bcc\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 1414964c33a1094779df6787fdfdfee1\n"
+     "build_id 899907d450b11994df1925a048b36c62\n"
     },
 };
 
@@ -93749,8 +93749,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_kernels[] = {
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id d32cf17bfb2478f57a2d16d1ca3bc7c2\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id e57ab4be133b7220d3fc5980b0f48a3c\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93769,8 +93769,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_kernels[] = {
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 6b41778110a723208952227907d2ceeb\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 9708e02040e160010fdb7e871c521d5f\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a7d4c7cd5548, sizeof(ft_tt_program_image_k_a7d4c7cd5548), 0xcf98dcb61222d554ull,
      "ft-tt-prov 1\n"
@@ -93794,10 +93794,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id ff51d51a769d117b2a2775d2ebd957a4\n"
+     "build_id 2c492c14bb8d7e078de666eef10362bd\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_0604175e3bf9, sizeof(ft_tt_program_image_k_0604175e3bf9), 0xf1f4320f7e0d85a6ull,
      "ft-tt-prov 1\n"
@@ -93824,10 +93824,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 04591e46c35cd9468a03ffcc4d0304fa\n"
+     "build_id 9a990befce1362d1d9c66a92a6649ad5\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -93850,10 +93850,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 01047772480d45964a157191b5a5928a\n"
+     "build_id e1899d3424c272a029a58d3bf1de0c13\n"
     },
 };
 
@@ -93883,8 +93883,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fast_kernels[
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 405383009585aaca4e1e2245bba89d91\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 017f244f82a8a2ab0ebb034576124216\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -93903,8 +93903,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fast_kernels[
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 9ca4cd14eb95a0ad1c232b2926b65f5b\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id b68d236dc513e447ea77b89d5b366ebe\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a7d4c7cd5548, sizeof(ft_tt_program_image_k_a7d4c7cd5548), 0xcf98dcb61222d554ull,
      "ft-tt-prov 1\n"
@@ -93928,10 +93928,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fast_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 5eb5ddf3b9d83383999900628ad0ae1f\n"
+     "build_id f85bb16049993fa8b37a460cd1b4dae8\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_9d167279ff32, sizeof(ft_tt_program_image_k_9d167279ff32), 0x6b4dccc9921a16caull,
      "ft-tt-prov 1\n"
@@ -93959,10 +93959,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fast_kernels[
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id d99d9bbcc346c04032d966546f72b685\n"
+     "build_id d3d046553bf349d3a0fc61525d514d45\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -93985,10 +93985,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fast_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id d6795361348cb0d9b34416bd671a17a4\n"
+     "build_id 4ccb3d276ecae6ed54865de71c4afdd1\n"
     },
 };
 
@@ -94018,8 +94018,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fexp_kernels[
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 89c8ecfb2b73e8e444deff817812008c\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id ba68f15c1236bf6adb81a3446ea254f7\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -94038,8 +94038,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fexp_kernels[
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 8c6989bf74982824bebaf9bc8b006f0e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 4787a353cf88c5f5dbbb4d8cd1ec220f\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a7d4c7cd5548, sizeof(ft_tt_program_image_k_a7d4c7cd5548), 0xcf98dcb61222d554ull,
      "ft-tt-prov 1\n"
@@ -94063,10 +94063,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fexp_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 0d490899bb582ab6c6a54cb522228a81\n"
+     "build_id ba72b1689c9b091be081075ca0bba61b\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_8bdbdd00f4ca, sizeof(ft_tt_program_image_k_8bdbdd00f4ca), 0x07f175305aafd5aeull,
      "ft-tt-prov 1\n"
@@ -94094,10 +94094,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fexp_kernels[
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 1c01e5fe654c9a92e16af328f5eb5a98\n"
+     "build_id 9e674878bc706a50d883411259bb81d0\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -94120,10 +94120,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_fexp_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id fcc44fcbc0397bf5260cdfa20e94071f\n"
+     "build_id 1691866768ba2530c2ce929663945fe5\n"
     },
 };
 
@@ -94153,8 +94153,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_lofi_kernels[
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id c5ffe548f8656b5f58adaf2320890693\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id a3ae6bad8d71c182267eb934f6dda5f4\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_cb64e165b3c0, sizeof(ft_tt_program_image_k_cb64e165b3c0), 0x7f76c5c283a9b5e2ull,
      "ft-tt-prov 1\n"
@@ -94173,8 +94173,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_lofi_kernels[
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id c8ba0af304a9f428de93ac4113224216\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id d590bc04e14844d5a655178eb49e5a27\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a7d4c7cd5548, sizeof(ft_tt_program_image_k_a7d4c7cd5548), 0xcf98dcb61222d554ull,
      "ft-tt-prov 1\n"
@@ -94198,10 +94198,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_lofi_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 6abe3f56d2e6a2b091938db58984323d\n"
+     "build_id 0dbda158fb2937ed3a6962191bb05b6e\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_b3f5f176cc3b, sizeof(ft_tt_program_image_k_b3f5f176cc3b), 0xf36e15294452fbc9ull,
      "ft-tt-prov 1\n"
@@ -94228,10 +94228,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_lofi_kernels[
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 7af42804d4a52a86f9dc7fb8853af1c0\n"
+     "build_id 50fde000b165285586cac9198accdbbf\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6d8e3e5978fe, sizeof(ft_tt_program_image_k_6d8e3e5978fe), 0x85cad1d154443dd5ull,
      "ft-tt-prov 1\n"
@@ -94254,10 +94254,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_lofi_kernels[
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 63dde96012456a8495543c7fe53d3fad\n"
+     "build_id 63ba5b3fb1f3054e1f750b4098ed8f4f\n"
     },
 };
 
@@ -94287,8 +94287,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_kernels
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 0d16449255818c828305720131506521\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 893e6e356aad739bbc7d9070f43cd60c\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_03e8316a5507, sizeof(ft_tt_program_image_k_03e8316a5507), 0xf7e9920b3fc20ae0ull,
      "ft-tt-prov 1\n"
@@ -94307,8 +94307,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_kernels
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f387c9f2e6a13410027186487c23f8d0\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id a9ba716042a8c8944886368d13fcb4f5\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_765f9068375b, sizeof(ft_tt_program_image_k_765f9068375b), 0x2ae20f94ce1a64c2ull,
      "ft-tt-prov 1\n"
@@ -94332,10 +94332,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_kernels
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 896f83941b62a31999dd00a9a45c2d51\n"
+     "build_id 7564c1e3ec14916ed1f14d1e7acdaefd\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_91e6f9f96402, sizeof(ft_tt_program_image_k_91e6f9f96402), 0x1f502a7d9c3b3c95ull,
      "ft-tt-prov 1\n"
@@ -94362,10 +94362,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_kernels
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 6c26daf9e62a4cfba7d37956aa43e6c2\n"
+     "build_id 9cbb8a69b98a724035534e919a66de4b\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fe6be5c44e8f, sizeof(ft_tt_program_image_k_fe6be5c44e8f), 0x9d3ecbe11f55a656ull,
      "ft-tt-prov 1\n"
@@ -94388,10 +94388,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_kernels
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id d713ad007e4515eb0f208deba19f5bee\n"
+     "build_id 370fe1192d9b7b526068b0cb8284da1c\n"
     },
 };
 
@@ -94421,8 +94421,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fast_ke
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f40ab3e5e5592847517e733152879d87\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id f4e98a03e27ad9d3d42b86e4a4e8eba7\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_03e8316a5507, sizeof(ft_tt_program_image_k_03e8316a5507), 0xf7e9920b3fc20ae0ull,
      "ft-tt-prov 1\n"
@@ -94441,8 +94441,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fast_ke
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id d7612a63ce6429423ba924cee9731413\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 8d3312b041e895ba9be056591d819973\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_765f9068375b, sizeof(ft_tt_program_image_k_765f9068375b), 0x2ae20f94ce1a64c2ull,
      "ft-tt-prov 1\n"
@@ -94466,10 +94466,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fast_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 246c42ae79518bc12e3526a3d489dc32\n"
+     "build_id c45f1f37dc66108b2516b4593f0a70cf\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4ff4578f0521, sizeof(ft_tt_program_image_k_4ff4578f0521), 0xa74bbf2a1c708e02ull,
      "ft-tt-prov 1\n"
@@ -94497,10 +94497,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fast_ke
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 8b25a885ecd7b65a63ec710e07f9edc1\n"
+     "build_id 2b54b6bdae343899381625377731919c\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fe6be5c44e8f, sizeof(ft_tt_program_image_k_fe6be5c44e8f), 0x9d3ecbe11f55a656ull,
      "ft-tt-prov 1\n"
@@ -94523,10 +94523,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fast_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fast/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id c7eec744f7bd5d3337ec4faf7cac4f6f\n"
+     "build_id 78cc5a433c7cdc7d428fcaf1d941b1cd\n"
     },
 };
 
@@ -94556,8 +94556,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fexp_ke
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 2265b5917d4938082acc4e1c08ac4217\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 78c612df8efc9f13325ac6925c9e7ebd\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_03e8316a5507, sizeof(ft_tt_program_image_k_03e8316a5507), 0xf7e9920b3fc20ae0ull,
      "ft-tt-prov 1\n"
@@ -94576,8 +94576,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fexp_ke
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 136ee545826ee1631c0e58a98d988102\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 8053c97eef1f8861b0eeb25b1e8e23e1\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_765f9068375b, sizeof(ft_tt_program_image_k_765f9068375b), 0x2ae20f94ce1a64c2ull,
      "ft-tt-prov 1\n"
@@ -94601,10 +94601,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fexp_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 3f5c522e1e449c7210d9405ed427f4f6\n"
+     "build_id b2bc100fbbd97d7ea1a973ddb2bd6f6d\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_ee48742ecca2, sizeof(ft_tt_program_image_k_ee48742ecca2), 0xd3b392a6818f2cd8ull,
      "ft-tt-prov 1\n"
@@ -94632,10 +94632,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fexp_ke
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id eac454d5970c770f5ccd16df9bfcc589\n"
+     "build_id cf911fe68e1b8f5fe254827380a5b53d\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fe6be5c44e8f, sizeof(ft_tt_program_image_k_fe6be5c44e8f), 0x9d3ecbe11f55a656ull,
      "ft-tt-prov 1\n"
@@ -94658,10 +94658,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_fexp_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_fexp/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id bea5d06e51e03ef167dd03dfd688b625\n"
+     "build_id a88fd615dec1e9534e27a986c5dc7253\n"
     },
 };
 
@@ -94691,8 +94691,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_lofi_ke
      "input kernels/resident_attention_reader.c c2cacd6f45ae6213be48191638335a78\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 4f5a869b6c9a34bdb22794b6a3e03b74\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id d8e80691c91287d3b19422128329bb1b\n"
     },
     {"resident_attention_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_03e8316a5507, sizeof(ft_tt_program_image_k_03e8316a5507), 0xf7e9920b3fc20ae0ull,
      "ft-tt-prov 1\n"
@@ -94711,8 +94711,8 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_lofi_ke
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
      "input kernels/resident_attention_writer.c a8467fde8cc5f05d9f8b40292c18ec4c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 03001b1a36b9fad0b0d0ec57fe7a43e8\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 029494b86f0b6a1985e0638b2a55e60d\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_765f9068375b, sizeof(ft_tt_program_image_k_765f9068375b), 0x2ae20f94ce1a64c2ull,
      "ft-tt-prov 1\n"
@@ -94736,10 +94736,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_lofi_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2ec90add66e5f65b0798ae5858809736\n"
+     "build_id 86a5352094616036a97747d05dc23382\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_d283a39a234b, sizeof(ft_tt_program_image_k_d283a39a234b), 0x44076284e4da0bebull,
      "ft-tt-prov 1\n"
@@ -94766,10 +94766,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_lofi_ke
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 6ad047230cc4400669f4f79afc139cc3\n"
+     "build_id a5ce9722ba73cc6ff4b062decdd89cbf\n"
     },
     {"resident_attention_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_fe6be5c44e8f, sizeof(ft_tt_program_image_k_fe6be5c44e8f), 0x9d3ecbe11f55a656ull,
      "ft-tt-prov 1\n"
@@ -94792,10 +94792,10 @@ static const ft_tt_program_blob_image ft_tt_program_attention_k8v4_split_lofi_ke
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_compute.c 7dd45a7fb09d71d3f8a2c103efe6dfaa\n"
      "input kernels/resident_attention_protocol.h 8e4f48a8427e82f4498b887dd662e313\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/attention_k8v4_split_lofi/ft_tensix_cb_formats.h 2b07eab5b9df36ccc369cbe9c3a9a479\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id a7d465002de109d95862b4d6b2135f19\n"
+     "build_id acc34e74ed2399ba9834fa05b79404fb\n"
     },
 };
 
@@ -94824,9 +94824,9 @@ static const ft_tt_program_blob_image ft_tt_program_eltwise_kernels[] = {
      "input kernels/resident_eltwise_reader.c 28cfdc6daf0540e9f4c4aceb51a06030\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id 65589b339f94cd07fd1a4ea65ef5a88c\n"
+     "build_id 57c5d4fb5c494be0bdc256b286bbb84e\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_53d2a985e660, sizeof(ft_tt_program_image_k_53d2a985e660), 0xc9fbb2907f3c59f2ull,
      "ft-tt-prov 1\n"
@@ -94844,10 +94844,10 @@ static const ft_tt_program_blob_image ft_tt_program_eltwise_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id d9cab98bcf9bf8361d3e6161f2f8a5aa\n"
+     "build_id 351a1737069de9160b2e89cf10faf821\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_50e0c0d50fa8, sizeof(ft_tt_program_image_k_50e0c0d50fa8), 0x5c91b54a247bc7d6ull,
      "ft-tt-prov 1\n"
@@ -94867,11 +94867,11 @@ static const ft_tt_program_blob_image ft_tt_program_eltwise_kernels[] = {
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/eltwise/ft_tensix_cb_formats.h 481dd5f52a0dbb1366b6e51cc0c03c27\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id e602d71de15896c994b9793bb7e2da80\n"
+     "build_id b739fb98d6012f8fcfcd9b33e19138d3\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4561e9ffb8a1, sizeof(ft_tt_program_image_k_4561e9ffb8a1), 0xce5c687500dcdd10ull,
      "ft-tt-prov 1\n"
@@ -94894,11 +94894,11 @@ static const ft_tt_program_blob_image ft_tt_program_eltwise_kernels[] = {
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/eltwise/ft_tensix_cb_formats.h 481dd5f52a0dbb1366b6e51cc0c03c27\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2c5fb85333379d1a05dff40714cf7831\n"
+     "build_id cf0290da41e14c4e370112b858bb1058\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_1a5a0742a970, sizeof(ft_tt_program_image_k_1a5a0742a970), 0xaf45c0618fa313e3ull,
      "ft-tt-prov 1\n"
@@ -94918,11 +94918,11 @@ static const ft_tt_program_blob_image ft_tt_program_eltwise_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/eltwise/ft_tensix_cb_formats.h 481dd5f52a0dbb1366b6e51cc0c03c27\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2393f98c62d2ebcd48148a7287a69711\n"
+     "build_id 0997d21a85f224f27ea3032007c91b5b\n"
     },
 };
 
@@ -94951,9 +94951,9 @@ static const ft_tt_program_blob_image ft_tt_program_gate_narrow_kernels[] = {
      "input kernels/resident_eltwise_reader.c 28cfdc6daf0540e9f4c4aceb51a06030\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id b2bf5e49b07c93a334ed9687e5be1765\n"
+     "build_id 01ddca98e2f05e89085c01925ba073e9\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_53d2a985e660, sizeof(ft_tt_program_image_k_53d2a985e660), 0xc9fbb2907f3c59f2ull,
      "ft-tt-prov 1\n"
@@ -94971,10 +94971,10 @@ static const ft_tt_program_blob_image ft_tt_program_gate_narrow_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id d9cab98bcf9bf8361d3e6161f2f8a5aa\n"
+     "build_id 351a1737069de9160b2e89cf10faf821\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_7f091d936365, sizeof(ft_tt_program_image_k_7f091d936365), 0x33dafd20bc657986ull,
      "ft-tt-prov 1\n"
@@ -94994,11 +94994,11 @@ static const ft_tt_program_blob_image ft_tt_program_gate_narrow_kernels[] = {
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/gate_narrow/ft_tensix_cb_formats.h e1eea6f528a6b1b4539e9dec7babf5a5\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id fc987910b99221d6c5e557138ed28816\n"
+     "build_id 5479eba48b5d739a4efa16e815635951\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4561e9ffb8a1, sizeof(ft_tt_program_image_k_4561e9ffb8a1), 0xce5c687500dcdd10ull,
      "ft-tt-prov 1\n"
@@ -95021,11 +95021,11 @@ static const ft_tt_program_blob_image ft_tt_program_gate_narrow_kernels[] = {
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/gate_narrow/ft_tensix_cb_formats.h e1eea6f528a6b1b4539e9dec7babf5a5\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 96ffcefb8f7ce0a2d344af9f5d3f0f5d\n"
+     "build_id ac3118c9a02df06b122da51b2759191a\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_1a5a0742a970, sizeof(ft_tt_program_image_k_1a5a0742a970), 0xaf45c0618fa313e3ull,
      "ft-tt-prov 1\n"
@@ -95045,11 +95045,11 @@ static const ft_tt_program_blob_image ft_tt_program_gate_narrow_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/gate_narrow/ft_tensix_cb_formats.h e1eea6f528a6b1b4539e9dec7babf5a5\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id f90419fe9be6e3c0ea4eefedef50b921\n"
+     "build_id 14fdefc35983e5d8628373d90bc48123\n"
     },
 };
 
@@ -95081,8 +95081,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdn_kernels[] = {
      "input kernels/resident_gdn_reader.c ee1585b9d6ac446f5437cd6bb797c2a9\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f510aa24505897556a33bd3637580317\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 23d110681facba31aa9d21bbe5b6caaa\n"
     },
     {"resident_gdn_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_ca3ba3c5c71e, sizeof(ft_tt_program_image_k_ca3ba3c5c71e), 0x43be431ecc51089bull,
      "ft-tt-prov 1\n"
@@ -95101,8 +95101,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdn_kernels[] = {
      "input kernels/resident_gdn_protocol.h 879dcf504dfee94e835d84805d499c5c\n"
      "input kernels/resident_gdn_writer.c 0f71cd67c2678e050748656cd8e7890c\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 0daddd474bd6be699cf1befb78306486\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id be343fa8106195dd1b7e53d8af430ccd\n"
     },
     {"resident_gdn_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_132d524cb23d, sizeof(ft_tt_program_image_k_132d524cb23d), 0x41709782d776b13bull,
      "ft-tt-prov 1\n"
@@ -95125,10 +95125,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdn_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_gdn_compute.c b50f61983146f18727416496ef4ff606\n"
      "input kernels/resident_gdn_protocol.h 879dcf504dfee94e835d84805d499c5c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdn/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 7f4ebbc76848eda4eef03738758ee2d0\n"
+     "build_id ff3b87566e6a981923a1930f3790dac2\n"
     },
     {"resident_gdn_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_2c906222dcb6, sizeof(ft_tt_program_image_k_2c906222dcb6), 0xcf986f5febff6512ull,
      "ft-tt-prov 1\n"
@@ -95154,10 +95154,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdn_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_gdn_compute.c b50f61983146f18727416496ef4ff606\n"
      "input kernels/resident_gdn_protocol.h 879dcf504dfee94e835d84805d499c5c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdn/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 24d01ec1156f812b8334e943d26dde1d\n"
+     "build_id 062f3c657922f77236159592e226c848\n"
     },
     {"resident_gdn_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_f8a091886c78, sizeof(ft_tt_program_image_k_f8a091886c78), 0xf690228716b20478ull,
      "ft-tt-prov 1\n"
@@ -95179,10 +95179,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdn_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_gdn_compute.c b50f61983146f18727416496ef4ff606\n"
      "input kernels/resident_gdn_protocol.h 879dcf504dfee94e835d84805d499c5c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdn/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 60bffb17e094a4d9f10f80e0a50a5961\n"
+     "build_id 7888277e187c62ae62faecfd2959d93c\n"
     },
 };
 
@@ -95214,8 +95214,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdnc_kernels[] = {
      "input kernels/resident_gdnc_reader.c e71cc3142d8837a379d1f1c0844c84c8\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id d30b278e4e33daa3810d1195345e9d4b\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 9f6e855bda5ba9b7f889ed26b6337f48\n"
     },
     {"resident_gdnc_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_a41f7ea2b747, sizeof(ft_tt_program_image_k_a41f7ea2b747), 0xffc680647a7e35adull,
      "ft-tt-prov 1\n"
@@ -95233,8 +95233,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdnc_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_gdnc_protocol.h 03ee41c6d08712728dfafd4d1465735e\n"
      "input kernels/resident_gdnc_writer.c 1a0635f332aebe2e341103fba0c29dbd\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id ec4250ef36d38dba745413e4dcac50a7\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 1291e87925a7ebf977312dff115e42c6\n"
     },
     {"resident_gdnc_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_92fdb6731980, sizeof(ft_tt_program_image_k_92fdb6731980), 0xf3f6755ce2468a45ull,
      "ft-tt-prov 1\n"
@@ -95257,10 +95257,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdnc_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_gdnc_compute.c cb2b4a5be8b77a61b261c3b6ea5165d9\n"
      "input kernels/resident_gdnc_protocol.h 03ee41c6d08712728dfafd4d1465735e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdnc/ft_tensix_cb_formats.h 6c4e1a39769c74756d1e9f847931fd46\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 4402a5fa466e0f0c27f4dcdefa5a5455\n"
+     "build_id 9c4a7475927308162cf8063cd9ca368e\n"
     },
     {"resident_gdnc_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_0167a1298226, sizeof(ft_tt_program_image_k_0167a1298226), 0xa50c6f97ef53f904ull,
      "ft-tt-prov 1\n"
@@ -95286,10 +95286,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdnc_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_gdnc_compute.c cb2b4a5be8b77a61b261c3b6ea5165d9\n"
      "input kernels/resident_gdnc_protocol.h 03ee41c6d08712728dfafd4d1465735e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdnc/ft_tensix_cb_formats.h 6c4e1a39769c74756d1e9f847931fd46\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 349fb524bd38984477e141b006d5c973\n"
+     "build_id 378cd39edecaed9fcf181ff90c139f80\n"
     },
     {"resident_gdnc_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_6c1331ed959b, sizeof(ft_tt_program_image_k_6c1331ed959b), 0xffed3de00d51658full,
      "ft-tt-prov 1\n"
@@ -95311,10 +95311,10 @@ static const ft_tt_program_blob_image ft_tt_program_gdnc_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_gdnc_compute.c cb2b4a5be8b77a61b261c3b6ea5165d9\n"
      "input kernels/resident_gdnc_protocol.h 03ee41c6d08712728dfafd4d1465735e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/gdnc/ft_tensix_cb_formats.h 6c4e1a39769c74756d1e9f847931fd46\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 71dae53782cd30688747b7660ea69b89\n"
+     "build_id 218399d0b0e67f8ea8ea208cee512978\n"
     },
 };
 
@@ -95345,8 +95345,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdngate_kernels[] = {
      "input kernels/resident_gdngate_reader.c 792186155bf4579885a3a588837458bd\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id b33ee099b553e6b72f6aebf4af33e58f\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 9963349d3934583310fde3aaa3c33539\n"
     },
     {"resident_gdngate_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_3b3cd14289fc, sizeof(ft_tt_program_image_k_3b3cd14289fc), 0x27c8ba46a7027901ull,
      "ft-tt-prov 1\n"
@@ -95365,8 +95365,8 @@ static const ft_tt_program_blob_image ft_tt_program_gdngate_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_gdngate_protocol.h 6df1db4f3b3bed29d16b189bff2f56ff\n"
      "input kernels/resident_gdngate_writer.c 56b849eeeac2d67597e5d9c0abebf05e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 528bda9c48e0797c7183cfc8f82f047a\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 60caeb7548b7103daf177826bb6829d7\n"
     },
     {"noop_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_e71571417d8b, sizeof(ft_tt_program_image_k_e71571417d8b), 0x0b751e723720ec2eull,
      "ft-tt-prov 1\n"
@@ -95982,8 +95982,8 @@ static const ft_tt_program_blob_image ft_tt_program_memory_kernels[] = {
      "input kernels/resident_memory_protocol.h b64fc421a606fbc46bd251c2efead4d7\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id a35df1919905afe01f05e00faa9a30c9\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 0a3c9326ec7ec05cbdd499b3f4ab9796\n"
     },
     {"resident_place_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_963c5668810a, sizeof(ft_tt_program_image_k_963c5668810a), 0x74f90b90be1aa982ull,
      "ft-tt-prov 1\n"
@@ -96003,8 +96003,8 @@ static const ft_tt_program_blob_image ft_tt_program_memory_kernels[] = {
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_memory_protocol.h b64fc421a606fbc46bd251c2efead4d7\n"
      "input kernels/resident_place_writer.c 9f487a40d70445a21e29e27533efab50\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 5433731b706cf0533627a8b3ecfb6343\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 95a2d782257de237185348e1c2e062cc\n"
     },
     {"noop_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_e71571417d8b, sizeof(ft_tt_program_image_k_e71571417d8b), 0x0b751e723720ec2eull,
      "ft-tt-prov 1\n"
@@ -96070,8 +96070,8 @@ static const ft_tt_program_blob_image ft_tt_program_norm_role_kernels[] = {
      "input kernels/resident_norm_role_reader.c 0522ff9e454eca516d0d4eeb7de22092\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id a0ea6221e57ecb2d4ab3a54898f798dc\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id f8eb82c2269ff23c27f54451f64ee1c1\n"
     },
     {"resident_norm_role_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_540c59510e6d, sizeof(ft_tt_program_image_k_540c59510e6d), 0x8ca6528c68fd1566ull,
      "ft-tt-prov 1\n"
@@ -96093,8 +96093,8 @@ static const ft_tt_program_blob_image ft_tt_program_norm_role_kernels[] = {
      "input kernels/resident_norm_role_writer.c b7c1dcf5389341c19ebdc2b3018c525b\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 52a38862797e072de2516a657ff9c08c\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id dcef721d6ef71df114fa2336af950ead\n"
     },
     {"resident_norm_role_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_d93308149967, sizeof(ft_tt_program_image_k_d93308149967), 0x17d656de9e15869aull,
      "ft-tt-prov 1\n"
@@ -96117,10 +96117,10 @@ static const ft_tt_program_blob_image ft_tt_program_norm_role_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_norm_role_compute.c f8f7978fc0129a0feef4f9e60878d98c\n"
      "input kernels/resident_norm_role_protocol.h 8b678596f93005335f324ca5ceff7b9c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/norm_role/ft_tensix_cb_formats.h 256ca1ab17cf6e1ef8eaed32f3939b80\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 5a519c1613f8cdadbdbdf8dee786cf65\n"
+     "build_id 59c17c673bbcaca4ae6ec9a764e1febc\n"
     },
     {"resident_norm_role_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_2f37defe7ddc, sizeof(ft_tt_program_image_k_2f37defe7ddc), 0xa3f17b3086a14cb3ull,
      "ft-tt-prov 1\n"
@@ -96146,10 +96146,10 @@ static const ft_tt_program_blob_image ft_tt_program_norm_role_kernels[] = {
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_norm_role_compute.c f8f7978fc0129a0feef4f9e60878d98c\n"
      "input kernels/resident_norm_role_protocol.h 8b678596f93005335f324ca5ceff7b9c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/norm_role/ft_tensix_cb_formats.h 256ca1ab17cf6e1ef8eaed32f3939b80\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id a73f03611aaf6df67eeb3a580f38db0b\n"
+     "build_id 2e938fa69d03d7666a451c8345259c36\n"
     },
     {"resident_norm_role_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_dedd8736055d, sizeof(ft_tt_program_image_k_dedd8736055d), 0x5112733e9515f07cull,
      "ft-tt-prov 1\n"
@@ -96171,10 +96171,10 @@ static const ft_tt_program_blob_image ft_tt_program_norm_role_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_norm_role_compute.c f8f7978fc0129a0feef4f9e60878d98c\n"
      "input kernels/resident_norm_role_protocol.h 8b678596f93005335f324ca5ceff7b9c\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/norm_role/ft_tensix_cb_formats.h 256ca1ab17cf6e1ef8eaed32f3939b80\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2c483c2520dccb6f68f0451cbb5b4e74\n"
+     "build_id bb394eb57f2874e23114b154dbf17557\n"
     },
 };
 
@@ -96201,8 +96201,8 @@ static const ft_tt_program_blob_image ft_tt_program_oneshot_kernels[] = {
      "input kernels/ft_tensix_noc.h fc9bdfb593c0c9a524ea39010a5b841d\n"
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_queue.c 455428de7dcac4c13940ff7c72017db3\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 8d0fa8dc272ff211f09bbdab7689f770\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 6e99a561d4167340f0e7de09b8db4d74\n"
     },
     {"vector_add_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_c1e677f641af, sizeof(ft_tt_program_image_k_c1e677f641af), 0xad29f2996a5a5677ull,
      "ft-tt-prov 1\n"
@@ -96284,11 +96284,11 @@ static const ft_tt_program_blob_image ft_tt_program_probe_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f9bb820b06a332691e9e219d7ccc56cf\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 1b536f43ef4816c6ed62d3be86d3268b\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_b1f019297a39, sizeof(ft_tt_program_image_k_b1f019297a39), 0x9b808d2aa219d1e0ull,
      "ft-tt-prov 1\n"
@@ -96307,8 +96307,8 @@ static const ft_tt_program_blob_image ft_tt_program_probe_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 02f8ecaefa3600308b3ecc209046cb3b\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id ee3baf534961aa6340f9f1c036a922ea\n"
     },
     {"resident_attention_transpose_probe.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_f403a7e0c873, sizeof(ft_tt_program_image_k_f403a7e0c873), 0x9a4595523673ac4full,
      "ft-tt-prov 1\n"
@@ -96328,10 +96328,10 @@ static const ft_tt_program_blob_image ft_tt_program_probe_kernels[] = {
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_transpose_probe.c 81634150061d467ec2fca97993d0128e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/probe/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 65d7fa410be8fbda246d4d02e48e38b3\n"
+     "build_id 3ad3f7cc99be09476ffabb25df5abd38\n"
     },
     {"resident_attention_transpose_probe.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_1a939577cc45, sizeof(ft_tt_program_image_k_1a939577cc45), 0xc953607e8cf6d78full,
      "ft-tt-prov 1\n"
@@ -96351,10 +96351,10 @@ static const ft_tt_program_blob_image ft_tt_program_probe_kernels[] = {
      "input kernels/ft_tensix_compute_matmul.h d9a6844ea0ce3504fc3d5e0603ec369f\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_transpose_probe.c 81634150061d467ec2fca97993d0128e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/probe/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 0fe52f5e033f46888affcf1fe5d397f1\n"
+     "build_id f73b28b4605f06cb6486c6fc0a3efa56\n"
     },
     {"resident_attention_transpose_probe.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_43ec94f4bc3a, sizeof(ft_tt_program_image_k_43ec94f4bc3a), 0xec3aa96a32d9579cull,
      "ft-tt-prov 1\n"
@@ -96374,10 +96374,10 @@ static const ft_tt_program_blob_image ft_tt_program_probe_kernels[] = {
      "input kernels/ft_tensix_compute_pack.h 786a24fbec54e8db7e7a3929508fe6e1\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_attention_transpose_probe.c 81634150061d467ec2fca97993d0128e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/probe/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 3f45c7339b4197f36b93c29db1e14257\n"
+     "build_id f3c997e6eab4fcc167075d15ff8c29b3\n"
     },
 };
 
@@ -96407,8 +96407,8 @@ static const ft_tt_program_blob_image ft_tt_program_puller_kernels[] = {
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
      "input kernels/resident_puller.c be16d5e3d284099cd7659c618c387cc1\n"
      "input kernels/resident_puller_abi.h da3fb0a687eedbc87464503e160249f1\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 522450c993b05fbbe78a0dadf20d5356\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 96c5fa8e8f6e12d83cd05cf5c3dd8463\n"
     },
     {"resident_exit_only.c", FT_TT_PROC_DM1, ft_tt_program_image_k_bf7091509549, sizeof(ft_tt_program_image_k_bf7091509549), 0x1bb92a0ec4c8b651ull,
      "ft-tt-prov 1\n"
@@ -96425,8 +96425,8 @@ static const ft_tt_program_blob_image ft_tt_program_puller_kernels[] = {
      "input kernels/ft_tensix_noc.h fc9bdfb593c0c9a524ea39010a5b841d\n"
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_exit_only.c 64f4a2ae03f7a8453f1fd06a3f5426c4\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 4ac2d67d9191207a0cfce9060f7d4435\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 2db6d9b5d66827febe5b2dd021657cee\n"
     },
     {"noop_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_e71571417d8b, sizeof(ft_tt_program_image_k_e71571417d8b), 0x0b751e723720ec2eull,
      "ft-tt-prov 1\n"
@@ -96490,11 +96490,11 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_reduce_reader.c 762f5aa21b14162fca9a0e6cb2a52c1b\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id f69051a4b587e1122eb846789d7de2be\n"
+     "build_id 31ab4d1c0e6cf50845ea70533a5301a8\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_53d2a985e660, sizeof(ft_tt_program_image_k_53d2a985e660), 0xc9fbb2907f3c59f2ull,
      "ft-tt-prov 1\n"
@@ -96512,10 +96512,10 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id d9cab98bcf9bf8361d3e6161f2f8a5aa\n"
+     "build_id 351a1737069de9160b2e89cf10faf821\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_e0084ce8b324, sizeof(ft_tt_program_image_k_e0084ce8b324), 0xbe9b46239b6d3e1aull,
      "ft-tt-prov 1\n"
@@ -96536,13 +96536,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce/ft_tensix_cb_formats.h c63b92ee579ea3ba17a9833e2597947e\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id a16e982ba7d1cd4aaf4eee59b71fa9f0\n"
+     "build_id f2ffe8a0207b5bdaf2e09b8c0a5e16bd\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_ec90f006ca26, sizeof(ft_tt_program_image_k_ec90f006ca26), 0x5fa3abc5759f0217ull,
      "ft-tt-prov 1\n"
@@ -96566,13 +96566,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_kernels[] = {
      "input kernels/ft_tensix_math_eltwise_sfpu.h 2d1242872eb00a50d2db762c0a53b98f\n"
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce/ft_tensix_cb_formats.h c63b92ee579ea3ba17a9833e2597947e\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 46965e04e89897dbd88b29aa20b9e463\n"
+     "build_id f2a85c5ad666d5d28996a5453d053da4\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_e48bee1b03b5, sizeof(ft_tt_program_image_k_e48bee1b03b5), 0xb9ebf81f2501d8f8ull,
      "ft-tt-prov 1\n"
@@ -96592,13 +96592,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_kernels[] = {
      "input kernels/ft_tensix_compute_pack.h 786a24fbec54e8db7e7a3929508fe6e1\n"
      "input kernels/ft_tensix_compute_reduce.h c5f8bd682b3d1d7bcb7869b985a47c18\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce/ft_tensix_cb_formats.h c63b92ee579ea3ba17a9833e2597947e\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2213b0afdc21f2461352630dc18c1d24\n"
+     "build_id 5e25601d8c72494617fd068e1c156440\n"
     },
 };
 
@@ -96626,11 +96626,11 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_fp32_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_reduce_reader.c 762f5aa21b14162fca9a0e6cb2a52c1b\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id ab1f3e2b9c8608b5e6cbab448daa5ac0\n"
+     "build_id b9552d0952304c93e4c1963c9439dc58\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_dcab993fda08, sizeof(ft_tt_program_image_k_dcab993fda08), 0xbf910d6eef95366eull,
      "ft-tt-prov 1\n"
@@ -96648,10 +96648,10 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_fp32_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id ca708529fd7b6ce75035d4fc605f4895\n"
+     "build_id 779fc466ce21cb2050592808a0492165\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_f6f02c4e769e, sizeof(ft_tt_program_image_k_f6f02c4e769e), 0x54d3f9834b68486aull,
      "ft-tt-prov 1\n"
@@ -96672,13 +96672,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_fp32_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce_fp32/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 1e91b5feedd8b7b0844bf47626d86ecb\n"
+     "build_id 40671b2f31348d37d0269c7f13d8c147\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_9ac11cbc6bb8, sizeof(ft_tt_program_image_k_9ac11cbc6bb8), 0x58e53a7043460217ull,
      "ft-tt-prov 1\n"
@@ -96702,13 +96702,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_fp32_kernels[] = {
      "input kernels/ft_tensix_math_eltwise_sfpu.h 2d1242872eb00a50d2db762c0a53b98f\n"
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce_fp32/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id ae245e568953475d3eec828a61b0569a\n"
+     "build_id efbc78259cf318d5941dcdbe498f37ed\n"
     },
     {"resident_reduce_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_62db46027d9f, sizeof(ft_tt_program_image_k_62db46027d9f), 0x72696f3ab6fa86a2ull,
      "ft-tt-prov 1\n"
@@ -96728,13 +96728,13 @@ static const ft_tt_program_blob_image ft_tt_program_reduce_fp32_kernels[] = {
      "input kernels/ft_tensix_compute_pack.h 786a24fbec54e8db7e7a3929508fe6e1\n"
      "input kernels/ft_tensix_compute_reduce.h c5f8bd682b3d1d7bcb7869b985a47c18\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_reduce_compute.c 7da433ae10f9384542bce31509b37e2f\n"
      "input kernels/resident_reduce_protocol.h 57878043e30e7690741360f06efe2a32\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/reduce_fp32/ft_tensix_cb_formats.h d4a0f44a969adfa1ee96c60fd23668e0\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2144c7c5a5522d0919d47d81855176de\n"
+     "build_id e9813f7c3bdf2b6ae8ad61c0bde9a777\n"
     },
 };
 
@@ -96763,9 +96763,9 @@ static const ft_tt_program_blob_image ft_tt_program_render_narrow_kernels[] = {
      "input kernels/resident_eltwise_reader.c 28cfdc6daf0540e9f4c4aceb51a06030\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id 3e55f5998095824aad8829f82aba6e78\n"
+     "build_id ae91e11064e84f1a4bb17c82172e130e\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_53d2a985e660, sizeof(ft_tt_program_image_k_53d2a985e660), 0xc9fbb2907f3c59f2ull,
      "ft-tt-prov 1\n"
@@ -96783,10 +96783,10 @@ static const ft_tt_program_blob_image ft_tt_program_render_narrow_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id d9cab98bcf9bf8361d3e6161f2f8a5aa\n"
+     "build_id 351a1737069de9160b2e89cf10faf821\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_02b697161ccc, sizeof(ft_tt_program_image_k_02b697161ccc), 0x945736e48038fb36ull,
      "ft-tt-prov 1\n"
@@ -96806,11 +96806,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_narrow_kernels[] = {
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_narrow/ft_tensix_cb_formats.h 57c0d6f3a837b8bed4e6f53dbaa93f56\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id c21709e93d14dd5d4a7e2ca954c820c9\n"
+     "build_id b040d199709eeb7c32c477663b61786d\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4561e9ffb8a1, sizeof(ft_tt_program_image_k_4561e9ffb8a1), 0xce5c687500dcdd10ull,
      "ft-tt-prov 1\n"
@@ -96833,11 +96833,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_narrow_kernels[] = {
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_narrow/ft_tensix_cb_formats.h 57c0d6f3a837b8bed4e6f53dbaa93f56\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 368854c83cd7c93ad5c9cb5b55e697e6\n"
+     "build_id e5b86c27637f7ab23375aa957bd5cfdd\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_1a5a0742a970, sizeof(ft_tt_program_image_k_1a5a0742a970), 0xaf45c0618fa313e3ull,
      "ft-tt-prov 1\n"
@@ -96857,11 +96857,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_narrow_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_narrow/ft_tensix_cb_formats.h 57c0d6f3a837b8bed4e6f53dbaa93f56\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 452b0e23e23b4bb4373f04a9b6666872\n"
+     "build_id b52348e3606736ee0f8589f900ab43d6\n"
     },
 };
 
@@ -96890,9 +96890,9 @@ static const ft_tt_program_blob_image ft_tt_program_render_widen_kernels[] = {
      "input kernels/resident_eltwise_reader.c 28cfdc6daf0540e9f4c4aceb51a06030\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
-     "build_id 65589b339f94cd07fd1a4ea65ef5a88c\n"
+     "build_id 57c5d4fb5c494be0bdc256b286bbb84e\n"
     },
     {"resident_vector_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_dcab993fda08, sizeof(ft_tt_program_image_k_dcab993fda08), 0xbf910d6eef95366eull,
      "ft-tt-prov 1\n"
@@ -96910,10 +96910,10 @@ static const ft_tt_program_blob_image ft_tt_program_render_widen_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_group_pull.h 438638a9a0572f77c767687c0828f645\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input kernels/resident_vector_writer.c ac34858186cb75be46e7d949c5ba25ee\n"
-     "build_id ca708529fd7b6ce75035d4fc605f4895\n"
+     "build_id 779fc466ce21cb2050592808a0492165\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_50e0c0d50fa8, sizeof(ft_tt_program_image_k_50e0c0d50fa8), 0x5c91b54a247bc7d6ull,
      "ft-tt-prov 1\n"
@@ -96933,11 +96933,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_widen_kernels[] = {
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_widen/ft_tensix_cb_formats.h 83d1a793000e76fc4dea9a5572a60359\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id c3631ad79be510e45cb268cf24907b7e\n"
+     "build_id 70bb7f86247a7b6681e8f87f96b4187c\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4561e9ffb8a1, sizeof(ft_tt_program_image_k_4561e9ffb8a1), 0xce5c687500dcdd10ull,
      "ft-tt-prov 1\n"
@@ -96960,11 +96960,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_widen_kernels[] = {
      "input kernels/ft_tensix_sfpu.h 6a428e511c001ed53cb122c7e2428536\n"
      "input kernels/ft_tensix_sfpu_math.h 203c3b179e1f0a6bedca276193b723ff\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_widen/ft_tensix_cb_formats.h 83d1a793000e76fc4dea9a5572a60359\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id ead7d985ffbaa15895e3a2a878f460b1\n"
+     "build_id a88e06542b44fa82caafde09dbaaea48\n"
     },
     {"resident_eltwise_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_28e6fbb5a895, sizeof(ft_tt_program_image_k_28e6fbb5a895), 0x138a105194df61cdull,
      "ft-tt-prov 1\n"
@@ -96984,11 +96984,11 @@ static const ft_tt_program_blob_image ft_tt_program_render_widen_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/resident_eltwise_compute.c 5615d8e6f300a9c25c845fb62cdebfcc\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_vector_protocol.h 908ac68d23f14b0b1615e1de212dc4ed\n"
      "input programs/render_widen/ft_tensix_cb_formats.h 83d1a793000e76fc4dea9a5572a60359\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 9ad882eeb5ec2027a873edf498cd5f0b\n"
+     "build_id 0fcc2724d0344a468fa9364259d1bd73\n"
     },
 };
 
@@ -97015,8 +97015,8 @@ static const ft_tt_program_blob_image ft_tt_program_resident_kernels[] = {
      "input kernels/ft_tensix_noc.h fc9bdfb593c0c9a524ea39010a5b841d\n"
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_queue.c 455428de7dcac4c13940ff7c72017db3\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 5b4f0d6a4cadc0f6b4b207f7754af10c\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 6c271a3e42bda2befa0069bf9a013bd6\n"
     },
     {"vector_add_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_c1e677f641af, sizeof(ft_tt_program_image_k_c1e677f641af), 0xad29f2996a5a5677ull,
      "ft-tt-prov 1\n"
@@ -97212,10 +97212,10 @@ static const ft_tt_program_blob_image ft_tt_program_rope_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_rope_protocol.h 5aa5d47ca8f0dc46dacafe1bc468a5b1\n"
      "input kernels/resident_rope_reader.c 5f0b5432ba66975ba4dbb5f52981bdfa\n"
-     "build_id c691a2b0fe622ff3cc922cf280427ae0\n"
+     "build_id c722cedb271d2be7aad259675a839dcf\n"
     },
     {"resident_rope_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_435c1c3eda47, sizeof(ft_tt_program_image_k_435c1c3eda47), 0x09f48c5f88f9e1e3ull,
      "ft-tt-prov 1\n"
@@ -97231,10 +97231,10 @@ static const ft_tt_program_blob_image ft_tt_program_rope_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/ft_tensix_noc.h fc9bdfb593c0c9a524ea39010a5b841d\n"
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_rope_protocol.h 5aa5d47ca8f0dc46dacafe1bc468a5b1\n"
      "input kernels/resident_rope_writer.c 40f685989e108615d837a1aa923193e8\n"
-     "build_id de5b7cc9d61463616384fa9e590b1981\n"
+     "build_id ffb06ecc62a18de860f99a711351f717\n"
     },
     {"resident_rope_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_a01157f22d5e, sizeof(ft_tt_program_image_k_a01157f22d5e), 0x762a4bf2904f16ebull,
      "ft-tt-prov 1\n"
@@ -97253,12 +97253,12 @@ static const ft_tt_program_blob_image ft_tt_program_rope_kernels[] = {
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_compute_unpack.h a7c37ddfa1a1cadc25bc026af2e34ff5\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_rope_compute.c 1708ce7257f7ad30db824d23b6532a46\n"
      "input kernels/resident_rope_protocol.h 5aa5d47ca8f0dc46dacafe1bc468a5b1\n"
      "input programs/rope/ft_tensix_cb_formats.h b92a84aedeb5c9c29e8237fbeebd8c44\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id f75254b868e2b27831726302be627913\n"
+     "build_id f8aecac37cb8ff8968414241d389a129\n"
     },
     {"resident_rope_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_9fa769614e1a, sizeof(ft_tt_program_image_k_9fa769614e1a), 0x9b0b6fdf1a1c011full,
      "ft-tt-prov 1\n"
@@ -97277,12 +97277,12 @@ static const ft_tt_program_blob_image ft_tt_program_rope_kernels[] = {
      "input kernels/ft_tensix_compute_math.h c23b9f74f57a7ca60daab6a8fc77aeeb\n"
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_rope_compute.c 1708ce7257f7ad30db824d23b6532a46\n"
      "input kernels/resident_rope_protocol.h 5aa5d47ca8f0dc46dacafe1bc468a5b1\n"
      "input programs/rope/ft_tensix_cb_formats.h b92a84aedeb5c9c29e8237fbeebd8c44\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id d500a72d5b28acdfba9f78556f4baf43\n"
+     "build_id c2655325b8d2594774ad3d476ebd0ee7\n"
     },
     {"resident_rope_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_b51cc2445931, sizeof(ft_tt_program_image_k_b51cc2445931), 0xecc718c692e912b6ull,
      "ft-tt-prov 1\n"
@@ -97301,12 +97301,12 @@ static const ft_tt_program_blob_image ft_tt_program_rope_kernels[] = {
      "input kernels/ft_tensix_compute_pack.h 786a24fbec54e8db7e7a3929508fe6e1\n"
      "input kernels/ft_tensix_compute_sfpu.h ea15967d0ca1a953b289b6f6e14c43cd\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_rope_compute.c 1708ce7257f7ad30db824d23b6532a46\n"
      "input kernels/resident_rope_protocol.h 5aa5d47ca8f0dc46dacafe1bc468a5b1\n"
      "input programs/rope/ft_tensix_cb_formats.h b92a84aedeb5c9c29e8237fbeebd8c44\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 6fce21d1b49f639054716f4106287e60\n"
+     "build_id 5b313273a01ed1e5b744da844b727d7f\n"
     },
 };
 
@@ -97335,11 +97335,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f9bb820b06a332691e9e219d7ccc56cf\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 1b536f43ef4816c6ed62d3be86d3268b\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_b1f019297a39, sizeof(ft_tt_program_image_k_b1f019297a39), 0x9b808d2aa219d1e0ull,
      "ft-tt-prov 1\n"
@@ -97358,8 +97358,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 02f8ecaefa3600308b3ecc209046cb3b\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id ee3baf534961aa6340f9f1c036a922ea\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_1b453aa9a507, sizeof(ft_tt_program_image_k_1b453aa9a507), 0x9e121af95bbd2a89ull,
      "ft-tt-prov 1\n"
@@ -97381,10 +97381,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 24af84d4447720b7c6fda9ee326dd5b5\n"
+     "build_id c8242fedeb8c492e177042f936370efa\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_14e5fd213f06, sizeof(ft_tt_program_image_k_14e5fd213f06), 0x41965e5c543a213full,
      "ft-tt-prov 1\n"
@@ -97406,10 +97406,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 3f44767ea9f139bdfba21aa10f5959c0\n"
+     "build_id db4f4ef00601b47c8552f827696cf36a\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_732669fbed72, sizeof(ft_tt_program_image_k_732669fbed72), 0x264661bc5c20ba19ull,
      "ft-tt-prov 1\n"
@@ -97431,10 +97431,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id f20f47564cbfc7c6da8eb1d51a1602f6\n"
+     "build_id 70aaa2fc8f7155bc3b94bec1d6f25cf0\n"
     },
 };
 
@@ -97466,11 +97466,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_kernels[] = {
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 55549a3c19b6a6c8eb8554596923abdd\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 64ebd32766b6c287868a7aa06e3d1a63\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_94a654aeda7f, sizeof(ft_tt_program_image_k_94a654aeda7f), 0xf3ef2116eebdec28ull,
      "ft-tt-prov 1\n"
@@ -97492,8 +97492,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_kernels[] = {
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 405af2ef3023be9e61e8352ae2443450\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 7495378c03445c4f7f308818625bf9ae\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_74b6d0473ca6, sizeof(ft_tt_program_image_k_74b6d0473ca6), 0x81fce3baf1e9e9bbull,
      "ft-tt-prov 1\n"
@@ -97518,10 +97518,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_kernels[] = {
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id b3099e536b3d80b7f184c3d7250c1d64\n"
+     "build_id d292dfd6e5a39a5c1c4dad7e7293d0f6\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_a8f9e61a5b85, sizeof(ft_tt_program_image_k_a8f9e61a5b85), 0x0b0ba0cbf7c97579ull,
      "ft-tt-prov 1\n"
@@ -97546,10 +97546,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_kernels[] = {
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 8e7eca2dfb9dcfaba23e4017f3a8f4f1\n"
+     "build_id aa35a6f1880ba5de7006ad6d199bfcd7\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_77ed3281e580, sizeof(ft_tt_program_image_k_77ed3281e580), 0x6cbe8ed1f54f6635ull,
      "ft-tt-prov 1\n"
@@ -97574,10 +97574,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_kernels[] = {
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id e2e0ae2bf66bf82b6706a57833d226e8\n"
+     "build_id ee3b167c4cfcd90c538d352918619b7b\n"
     },
 };
 
@@ -97609,11 +97609,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_red_kernels[] = 
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 415d90b5edd47636c1a647cf1970e274\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 0b0ddaab56838c5f9b9daeb6d68a3e25\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_145c4838c566, sizeof(ft_tt_program_image_k_145c4838c566), 0x9dc99ce462c7dd55ull,
      "ft-tt-prov 1\n"
@@ -97635,8 +97635,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_red_kernels[] = 
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 7671a0c98a335a9c858995019bc05447\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 4d50bcc99ee772b73d2df7a0c6d11545\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_45825846e7dc, sizeof(ft_tt_program_image_k_45825846e7dc), 0x99fd28bc9e477941ull,
      "ft-tt-prov 1\n"
@@ -97661,10 +97661,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_red_kernels[] = 
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6_red/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id f245361f5b76ce057ceefccab55934d4\n"
+     "build_id 93bffe377302909021b4ed743b54f9cb\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_8fe93ad49ab1, sizeof(ft_tt_program_image_k_8fe93ad49ab1), 0x5e0fe936ce00ec3eull,
      "ft-tt-prov 1\n"
@@ -97689,10 +97689,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_red_kernels[] = 
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6_red/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 89aa17b0c4f5e013f6c5d2a4e2ec3145\n"
+     "build_id abcfe7a5d43897d0cc87007727c9e603\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_df2ff3c4d2ba, sizeof(ft_tt_program_image_k_df2ff3c4d2ba), 0xf11d4c9a636bea2bull,
      "ft-tt-prov 1\n"
@@ -97717,10 +97717,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp6_red_kernels[] = 
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
      "input kernels/resident_matmul_moe_helpers.h b3602b1e4dff13e29834a0a62e5490bf\n"
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp6_red/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 68254e984c18d7891ebddd768ff5f79e\n"
+     "build_id 2970a1181d1c36ab1e584051f79bf053\n"
     },
 };
 
@@ -97749,11 +97749,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 81d20bce60705cb625953f421dad74e9\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 084dc646b87baa174f1eec78bac852e6\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_b1f019297a39, sizeof(ft_tt_program_image_k_b1f019297a39), 0x9b808d2aa219d1e0ull,
      "ft-tt-prov 1\n"
@@ -97772,8 +97772,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 6f365c5efb1bde8fd20db1039e83577e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 5bfd2ba245c3cccf9d5b29f2d9cc46d7\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_3ee898f70058, sizeof(ft_tt_program_image_k_3ee898f70058), 0xd4a0bb04e5f7afefull,
      "ft-tt-prov 1\n"
@@ -97795,10 +97795,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 2a02e93270e00e8c2f5f14761f875ecf\n"
+     "build_id 50f652011deab69c41c740d1446cb054\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4fe97570872d, sizeof(ft_tt_program_image_k_4fe97570872d), 0x2708bab470bc7ec6ull,
      "ft-tt-prov 1\n"
@@ -97820,10 +97820,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 20bd6bfadb9d31ad8da6504c90c5a13c\n"
+     "build_id 2e4162579f7fc22202bf7cbee3cacfe7\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_e21dc1d6b0f3, sizeof(ft_tt_program_image_k_e21dc1d6b0f3), 0xf5f584e91257d9f5ull,
      "ft-tt-prov 1\n"
@@ -97845,10 +97845,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8/ft_tensix_cb_formats.h 4cdff0de95c6c0937afd8c1a19d160f3\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 4b9bc13c0607b849e77c71ae8dcc5b96\n"
+     "build_id ecef137d4e165037cea663184e35ed0c\n"
     },
 };
 
@@ -97877,13 +97877,13 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_swiglu_kernels[]
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_matmul_resadd_protocol.h 1b4d17c9c1416f4d7258fda0c94b0582\n"
      "input kernels/resident_matmul_swiglu_protocol.h e4c82887e12181111b9d4c993f4d75ba\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id fcacfe00867f49fe2c9b3ccdb6c7ac9e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 4721d65d1ff643881aef65b77eee982d\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_a363a191b63d, sizeof(ft_tt_program_image_k_a363a191b63d), 0x231ff11c3363770full,
      "ft-tt-prov 1\n"
@@ -97904,8 +97904,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_swiglu_kernels[]
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_output_replicas.h 8d1504c15af1ff97c3aef1a5196d1364\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 67cb323ed8b4d90f1c13cd7d7ab9ba98\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 4d4612bda2df0ef2aa156a968ecaa205\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_82b66e1517cb, sizeof(ft_tt_program_image_k_82b66e1517cb), 0x4e0e908dc629e197ull,
      "ft-tt-prov 1\n"
@@ -97932,10 +97932,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_swiglu_kernels[]
      "input kernels/resident_matmul_resadd_protocol.h 1b4d17c9c1416f4d7258fda0c94b0582\n"
      "input kernels/resident_matmul_swiglu_compute.h d2ec5df6e7011ca55c84b99e28c4bc32\n"
      "input kernels/resident_matmul_swiglu_protocol.h e4c82887e12181111b9d4c993f4d75ba\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8_swiglu/ft_tensix_cb_formats.h 13979890f56b0d07412987a66ba0956a\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 4d16cdf1a92ca3ede3c7ec28054f44c5\n"
+     "build_id 7d8d34d2d58f5a1e2558d5c98dca3289\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_1a71f7457b89, sizeof(ft_tt_program_image_k_1a71f7457b89), 0x92608681d1e4a36eull,
      "ft-tt-prov 1\n"
@@ -97965,10 +97965,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_swiglu_kernels[]
      "input kernels/resident_matmul_resadd_protocol.h 1b4d17c9c1416f4d7258fda0c94b0582\n"
      "input kernels/resident_matmul_swiglu_compute.h d2ec5df6e7011ca55c84b99e28c4bc32\n"
      "input kernels/resident_matmul_swiglu_protocol.h e4c82887e12181111b9d4c993f4d75ba\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8_swiglu/ft_tensix_cb_formats.h 13979890f56b0d07412987a66ba0956a\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 1fb65b27677894ebf3200dae106323af\n"
+     "build_id bf34c9001af654ca1afa42525963e444\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_3fe5fc49b695, sizeof(ft_tt_program_image_k_3fe5fc49b695), 0xdc9c7b4add211560ull,
      "ft-tt-prov 1\n"
@@ -97994,10 +97994,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_bfp8_swiglu_kernels[]
      "input kernels/resident_matmul_resadd_protocol.h 1b4d17c9c1416f4d7258fda0c94b0582\n"
      "input kernels/resident_matmul_swiglu_compute.h d2ec5df6e7011ca55c84b99e28c4bc32\n"
      "input kernels/resident_matmul_swiglu_protocol.h e4c82887e12181111b9d4c993f4d75ba\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_bfp8_swiglu/ft_tensix_cb_formats.h 13979890f56b0d07412987a66ba0956a\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id e57f2fd71cff6e68f01170a98d9e934f\n"
+     "build_id 71b4d632dd7a6a942ec427734e2b2206\n"
     },
 };
 
@@ -98026,11 +98026,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_boundonly_kernels[] =
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id fe7a870f54141a504c6428d4a60dc4d9\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 0e1847e06c3ca30bb8404c682c509ebf\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_250f4102a864, sizeof(ft_tt_program_image_k_250f4102a864), 0x92fabf2d3f6d1c69ull,
      "ft-tt-prov 1\n"
@@ -98049,8 +98049,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_boundonly_kernels[] =
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id f239d6374177e0fe4cc0bbe614f00445\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id f66e3ddc0ebab7aef1d1038f4404d26f\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_d93a8d41da88, sizeof(ft_tt_program_image_k_d93a8d41da88), 0xa978da6628e76730ull,
      "ft-tt-prov 1\n"
@@ -98072,10 +98072,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_boundonly_kernels[] =
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_boundonly/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 8d0e2d55dbb5e0d5ada3fb6655b2b283\n"
+     "build_id e12ad1444a734acedfc2872e545cf062\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_14e5fd213f06, sizeof(ft_tt_program_image_k_14e5fd213f06), 0x41965e5c543a213full,
      "ft-tt-prov 1\n"
@@ -98097,10 +98097,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_boundonly_kernels[] =
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_boundonly/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 10e696793d420d479454e8c402f1d187\n"
+     "build_id d2d88866ef73bac146f98e5945958506\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_7a5530e75ee6, sizeof(ft_tt_program_image_k_7a5530e75ee6), 0x5f74fcce741128d6ull,
      "ft-tt-prov 1\n"
@@ -98122,10 +98122,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_boundonly_kernels[] =
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_boundonly/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 20026d39b7c382a195ea2cf6e7c565cc\n"
+     "build_id f96727c29884184da6beb0d959312392\n"
     },
 };
 
@@ -98154,11 +98154,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_mixw_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 944dcff6f39efae819232fbc1e6b2c14\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id c1bf22f89725a60f2de44e639f27a864\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_b1f019297a39, sizeof(ft_tt_program_image_k_b1f019297a39), 0x9b808d2aa219d1e0ull,
      "ft-tt-prov 1\n"
@@ -98177,8 +98177,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_mixw_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 057b642c2b04e3717533c719d3b07eee\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id b87be6131a02a2632fe7ffdf68776a00\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_007b3acd6f17, sizeof(ft_tt_program_image_k_007b3acd6f17), 0xf444e8364dc8c800ull,
      "ft-tt-prov 1\n"
@@ -98200,10 +98200,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_mixw_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_mixw/ft_tensix_cb_formats.h 61c89ad707a6e61eedebbb9ba937cf43\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 9687482c936cfd79bbae7da3a7807cb4\n"
+     "build_id 3d055a9089fca0168b0d838f664d9860\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_4fe97570872d, sizeof(ft_tt_program_image_k_4fe97570872d), 0x2708bab470bc7ec6ull,
      "ft-tt-prov 1\n"
@@ -98225,10 +98225,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_mixw_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_mixw/ft_tensix_cb_formats.h 61c89ad707a6e61eedebbb9ba937cf43\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 9fbc8a66518c1fbdfd5539c20203c737\n"
+     "build_id 848cf7dd50002fbd8f73c243be6cd328\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_e21dc1d6b0f3, sizeof(ft_tt_program_image_k_e21dc1d6b0f3), 0xf5f584e91257d9f5ull,
      "ft-tt-prov 1\n"
@@ -98250,10 +98250,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_mixw_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_mixw/ft_tensix_cb_formats.h 61c89ad707a6e61eedebbb9ba937cf43\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 1509c7057c17852be46ca82af265c1e0\n"
+     "build_id 08333087fafcc14d45028ef691d6a876\n"
     },
 };
 
@@ -98282,11 +98282,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_router_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 6ba13c7742e942b7d8b4baff505f7bac\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 0a81d1b837d8c59e876465a123d04d21\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_2f2b3e62f9d3, sizeof(ft_tt_program_image_k_2f2b3e62f9d3), 0x078c11eb86585e23ull,
      "ft-tt-prov 1\n"
@@ -98308,8 +98308,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_router_kernels[] = {
      "input kernels/resident_matmul_moe_protocol.h 055f66a1437b1ea9578e46333d582a0d\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 768d2b6eeaed3923b45dd4475eb4aac8\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 50c62e9a21f7941c79d676539d99e64f\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_1b453aa9a507, sizeof(ft_tt_program_image_k_1b453aa9a507), 0x9e121af95bbd2a89ull,
      "ft-tt-prov 1\n"
@@ -98331,10 +98331,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_router_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_router/ft_tensix_cb_formats.h 85766d55961f2f580c43662e80c5f2fd\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 85df81afdd1bebe252d1724d789bb5b0\n"
+     "build_id 5c232d3dfd3594f046b6c29e65405d4a\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_14e5fd213f06, sizeof(ft_tt_program_image_k_14e5fd213f06), 0x41965e5c543a213full,
      "ft-tt-prov 1\n"
@@ -98356,10 +98356,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_router_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_router/ft_tensix_cb_formats.h 85766d55961f2f580c43662e80c5f2fd\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 16e6bc22f34c2892653515788fee1a06\n"
+     "build_id cb9a60ac78288533fe69454e8d0654b4\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_08514afe3ff4, sizeof(ft_tt_program_image_k_08514afe3ff4), 0x0d2a3eae33741143ull,
      "ft-tt-prov 1\n"
@@ -98381,10 +98381,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_router_kernels[] = {
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_router/ft_tensix_cb_formats.h 85766d55961f2f580c43662e80c5f2fd\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 938ed22982067c053155a33dc33c83f0\n"
+     "build_id 80ef84b3cd7f0f56505d766a73e357b4\n"
     },
 };
 
@@ -98413,11 +98413,11 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_upstream_kernels[] = 
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_multicast_protocol.h d11f2da91e7b412513b53657a2a31b35\n"
-     "input kernels/resident_matmul_reader.c 047636adf5931f3b95d2bea50bb668fc\n"
+     "input kernels/resident_matmul_reader.c d0ba01c326cefec3f27d4c1c77c424b5\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 93f4f15cf8eb238d5a1626bd4bdd497e\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id 899b23e91d63b07743af40ea23b98767\n"
     },
     {"resident_matmul_writer.c", FT_TT_PROC_DM1, ft_tt_program_image_k_a0f1c31d5320, sizeof(ft_tt_program_image_k_a0f1c31d5320), 0x3126c8b30956c3c3ull,
      "ft-tt-prov 1\n"
@@ -98436,8 +98436,8 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_upstream_kernels[] = 
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_writer.c d1d197f1da1430489457d8fc3b178130\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
-     "build_id 2d245f9a9ef3119c602a7842953681b1\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
+     "build_id c69a94ee069d44e7a3ae5e09b1d9606d\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_c13a80265c0a, sizeof(ft_tt_program_image_k_c13a80265c0a), 0x33c9d5068f1f86efull,
      "ft-tt-prov 1\n"
@@ -98459,10 +98459,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_upstream_kernels[] = 
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_upstream/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 9f70920cd85d8efca34bfcded3630344\n"
+     "build_id a87afd2fccec24356de4f449db2694bf\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_14e5fd213f06, sizeof(ft_tt_program_image_k_14e5fd213f06), 0x41965e5c543a213full,
      "ft-tt-prov 1\n"
@@ -98484,10 +98484,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_upstream_kernels[] = 
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_upstream/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 32c6d6170b72154322745bbcf55e7e34\n"
+     "build_id 1f9547732bbb7542c9c15ed5e15698f0\n"
     },
     {"resident_matmul_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_cf5ea5ea7a6a, sizeof(ft_tt_program_image_k_cf5ea5ea7a6a), 0xf3397a25b152b7cdull,
      "ft-tt-prov 1\n"
@@ -98509,10 +98509,10 @@ static const ft_tt_program_blob_image ft_tt_program_rtriad_upstream_kernels[] = 
      "input kernels/resident_matmul_block_protocol.h 111a862b096e1745dc831d02d44652ea\n"
      "input kernels/resident_matmul_compute.c 0dc0abf76eedb4a7271d092a84bb9c66\n"
      "input kernels/resident_matmul_dst_sync.h f228965a7dcde79a80e37eceeaf64c47\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input programs/rtriad_upstream/ft_tensix_cb_formats.h 8aebb6b366f11759a3f7272c0739e373\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id cc4397ed64c9a73b73f566b95c8862ed\n"
+     "build_id 7b39c8af5d2b8e8f5a9b4eb85186ba75\n"
     },
 };
 
@@ -98540,10 +98540,10 @@ static const ft_tt_program_blob_image ft_tt_program_topk_kernels[] = {
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
      "input kernels/resident_precondition.h e7df18115bbecbb2d973f7d36a6feac1\n"
      "input kernels/resident_precondition_protocol.h bc261dbb7c1a08d72d1c1b5e87f9e2e0\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_topk_protocol.h f5e45f59cc9ae4c1f4f77227fc85fe3d\n"
      "input kernels/resident_topk_reader.c bc7c80e314f476abd91037cc8a7be539\n"
-     "build_id c38536e94b4eaad7f566e3c626f67d3c\n"
+     "build_id 32ffa4eb78c153ae612458571172fd30\n"
     },
     {"resident_topk_select.c", FT_TT_PROC_DM1, ft_tt_program_image_k_7dbe6c7dfdd6, sizeof(ft_tt_program_image_k_7dbe6c7dfdd6), 0x852a5fea63d52768ull,
      "ft-tt-prov 1\n"
@@ -98559,10 +98559,10 @@ static const ft_tt_program_blob_image ft_tt_program_topk_kernels[] = {
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
      "input kernels/ft_tensix_noc.h fc9bdfb593c0c9a524ea39010a5b841d\n"
      "input kernels/ft_tensix_transfer_guard.h 02168d1a6730f6e988338fea79b74fdd\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_topk_protocol.h f5e45f59cc9ae4c1f4f77227fc85fe3d\n"
      "input kernels/resident_topk_select.c 88c71ca01e44bc5263a50d98f098f511\n"
-     "build_id dd3b1238240ff6c3cf4bf0f8088cb7a7\n"
+     "build_id 9b9f8fa8d953c8941e1c8cc6e5f81f81\n"
     },
     {"resident_topk_compute.c", FT_TT_PROC_MATH0, ft_tt_program_image_k_3d756c142832, sizeof(ft_tt_program_image_k_3d756c142832), 0x5c3e9bcfcd4a1cc1ull,
      "ft-tt-prov 1\n"
@@ -98579,11 +98579,11 @@ static const ft_tt_program_blob_image ft_tt_program_topk_kernels[] = {
      "input kernels/ft_tensix_compute.h 1df001333d398cedfc3fb4bc66f1d8fe\n"
      "input kernels/ft_tensix_compute_cb.h 00abf5bf1649a52895df989dcb39d0f2\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_topk_compute.c 2fa140db9e513bc48af8e00718ea51df\n"
      "input kernels/resident_topk_protocol.h f5e45f59cc9ae4c1f4f77227fc85fe3d\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id c9557bc3d31e46018b399a3e9a138f0c\n"
+     "build_id c046536784bfd8d2d4e38d6697023d6c\n"
     },
     {"resident_topk_compute.c", FT_TT_PROC_MATH1, ft_tt_program_image_k_ac14584667bf, sizeof(ft_tt_program_image_k_ac14584667bf), 0x271021d2909a7dd0ull,
      "ft-tt-prov 1\n"
@@ -98600,11 +98600,11 @@ static const ft_tt_program_blob_image ft_tt_program_topk_kernels[] = {
      "input kernels/ft_tensix_compute.h 1df001333d398cedfc3fb4bc66f1d8fe\n"
      "input kernels/ft_tensix_compute_cb.h 00abf5bf1649a52895df989dcb39d0f2\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_topk_compute.c 2fa140db9e513bc48af8e00718ea51df\n"
      "input kernels/resident_topk_protocol.h f5e45f59cc9ae4c1f4f77227fc85fe3d\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 6447f367f2f962058f8eff8b5fb7b84e\n"
+     "build_id 312026e63707c952fded79ce33db896d\n"
     },
     {"resident_topk_compute.c", FT_TT_PROC_MATH2, ft_tt_program_image_k_280eb44a76a5, sizeof(ft_tt_program_image_k_280eb44a76a5), 0xa0a0d2bf6bb56753ull,
      "ft-tt-prov 1\n"
@@ -98621,11 +98621,11 @@ static const ft_tt_program_blob_image ft_tt_program_topk_kernels[] = {
      "input kernels/ft_tensix_compute.h 1df001333d398cedfc3fb4bc66f1d8fe\n"
      "input kernels/ft_tensix_compute_cb.h 00abf5bf1649a52895df989dcb39d0f2\n"
      "input kernels/ft_tensix_kernel_args.h f5d94fd9e05d8b6c4985ccf3657e724e\n"
-     "input kernels/resident_queue_protocol.h 77c3806ee57146c58c135160fbeea2ce\n"
+     "input kernels/resident_queue_protocol.h 33c8e8eec1daabb9821c7d69bd40b390\n"
      "input kernels/resident_topk_compute.c 2fa140db9e513bc48af8e00718ea51df\n"
      "input kernels/resident_topk_protocol.h f5e45f59cc9ae4c1f4f77227fc85fe3d\n"
      "input tools/emit_tensix_cb_formats.py 8c4ee9e078faec2865f45e653d20ff5a\n"
-     "build_id 588bdb79e573396673dcc3ba2efb1e83\n"
+     "build_id ef6120f7c82d04e4aef0203e9afcebc1\n"
     },
 };
 

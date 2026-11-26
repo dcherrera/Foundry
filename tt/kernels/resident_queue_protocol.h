@@ -25,7 +25,9 @@
  * identifiers here that start with `kOp`. kMatmulColumnBlock, kMatmulWords and kDescA2 are
  * parsed as decimal.
  *
- * @status Complete for the data-movement and C99 compute arms.
+ * @status Complete for the data-movement and C99 compute arms. The per-descriptor timeline
+ *         (FT_TIMELINE, data-movement only) is compile-side gated by
+ *         tools/check_timeline_program_gates.sh; its card check is pending.
  * @issues None
  * @todo None
  */
@@ -72,6 +74,14 @@
 #endif
 
 #define FTQ_RUNTIME_ARG(index) ft_tensix_runtime_arg(index)
+
+/* The per-descriptor timeline is compiled only into FT_TIMELINE builds, and only into the two
+ * data-movement processors: every TRISC image of such a build stays the shipped one. */
+#if defined(FT_TIMELINE) && FT_TIMELINE && !defined(COMPILE_FOR_TRISC)
+#define FTQ_TIMELINE_DM 1
+#else
+#define FTQ_TIMELINE_DM 0
+#endif
 
 /* ---- Control-block word indices (4-byte words from the control block base) ---- */
 enum { kFieldMagic = 0 };
@@ -212,6 +222,73 @@ enum { kArgGroupY = 7 };
 enum { kArgGroupAddress = 8 };      /* 0 = no group completion */
 enum { kArgGroupMember = 9 };
 
+/* ---- Per-descriptor TIMELINE (FT_TIMELINE builds only; host mirror: Pantheon
+ *      src/accel/tt/pn_tt_timeline_wire.h). Byte offsets from the control block, all in the
+ *      queue region and all free with S2 ON or OFF at EVERY ring depth (ft_tt_queue.h's map):
+ *        ring tail  0x100 + 32 * capacity .. 0x900   the ring is 32 B a slot from 0x100 and
+ *                   capacity is this queue's own (capacity_mask + 1; 0 bytes at 64 slots)
+ *        0x900..0xE20 is S2's (wait sidecar + reader words; the host zeroes it at every arm,
+ *                   resident_precondition_protocol.h kPreRegionEnd): NOT used
+ *        seg 1      0xE20 .. 0x1000                  up to the MoE mailbox (0x1000..0x1040)
+ *        seg 2      0x1040 .. 0x2000                 up to the parameter-cache overflow
+ *        group block 0xF000 + 0x40 + 8 * 256 (FT_TT_QUEUE_GROUP_MAX_MEMBERS) = 0xF840 at most:
+ *          0xF840     host line (word 0: the arm generation, 0 = off; the ONLY host word)
+ *          0xF850     BRISC header, 16 words; 0xF890 NCRISC header, 16 words
+ *        seg 3      0xF8D0 .. 0xF900                 up to the pull table (kPullTableOffset)
+ *        seg 4      0xFA10 .. 0xFB00                 the pull table is 2 + kPullMaxMembers
+ *                                                    (64) words, so it ends at 0xFA08; up to
+ *                                                    the pull sweep (0xFB00..0xFEF0)
+ *        seg 5      0xFF10 .. 0x10000                past the pull scratch (0xFF00..0xFF10) to
+ *                                                    the end of the region (= end of L1)
+ *      The tail and segments 1..5, in that order, are ONE byte stream; BRISC owns its first
+ *      half (rounded down to 16 bytes), NCRISC the rest, so no 16-byte line has two writers.
+ *      A processor's stream is halfwords: per descriptor [gap][first][end], each a 16-bit
+ *      log code of ticks (exact below 8192, 12-bit mantissa above): gap = pickup - the
+ *      previous record's reconstructed end, first/end = since pickup. A gap of
+ *      kTlAnchorTicks or more (and the window's first record) is an ANCHOR instead:
+ *      [kTlMarker][pickup lo][pickup hi][first][end]. The last DELAY descriptor is also kept
+ *      whole in header words 12..15, so the negative control is never lost to a full stream.
+ *      Declared only in that build, so every shipped image preprocesses to the same tokens
+ *      as before. ---- */
+#if defined(FT_TIMELINE) && FT_TIMELINE
+enum { kTlBlockOffset = 0xF840 };
+enum { kTlHeaderOffset = 0xF850 };
+enum { kTlHeaderBytes = 64 };
+enum { kTlTailOffset = 0x100 };
+enum { kTlTailEnd = 0x900 };
+enum { kTlSeg1 = 0xE20 };
+enum { kTlSeg1End = 0x1000 };
+enum { kTlSeg2 = 0x1040 };
+enum { kTlSeg2End = 0x2000 };
+enum { kTlSeg3 = 0xF8D0 };
+enum { kTlSeg3End = 0xF900 };
+enum { kTlSeg4 = 0xFA10 };
+enum { kTlSeg4End = 0xFB00 };
+enum { kTlSeg5 = 0xFF10 };
+enum { kTlSeg5End = 0x10000 };
+enum { kTlAnchorTicks = 0x100000 };
+enum { kTlMarker = 0xFFFF };
+enum { kTlMagic = 0x46544C32 };
+enum { kTlCodeNone = 0xFFFF };
+enum { kTlCodeSaturated = 0xFFFE };
+enum { kTlHdrMagic = 0 };
+enum { kTlHdrGen = 1 };
+enum { kTlHdrCount = 2 };
+enum { kTlHdrFirst = 3 };
+enum { kTlHdrHash = 4 };
+enum { kTlHdrBreaks = 5 };
+enum { kTlHdrOnGen = 6 };
+enum { kTlHdrOnClock = 7 };
+enum { kTlHdrOffGen = 8 };
+enum { kTlHdrOffClock = 9 };
+enum { kTlHdrUsed = 10 };
+enum { kTlHdrProcessor = 11 };
+enum { kTlHdrDelayIndex = 12 };
+enum { kTlHdrDelayPickup = 13 };
+enum { kTlHdrDelayCodes = 14 };
+enum { kTlHdrDelayGen = 15 };
+#endif
+
 /* ---- Poll masks for blocked waits ---- */
 enum { kStopPollMask = 0 };         /* poll the stop word every blocked pass */
 enum { kHeartbeatPollMask = 0xFF }; /* bump the heartbeat every 256 blocked passes */
@@ -241,6 +318,150 @@ typedef struct ftq_context {
     uint32_t error;
     bool aborting;
 } ftq_context;
+
+#if FTQ_TIMELINE_DM
+/* ---- Timeline helpers (BRISC and NCRISC only): every stamp is written by the processor
+ *      that owns the event. Pickup = ftq_wait_for_work's return; first event = the first
+ *      input CB reserve on BRISC, the first output CB wait on NCRISC; end = the next
+ *      ftq_wait_for_work entry (BRISC: inputs pushed; NCRISC: completion posted). ---- */
+#if defined(COMPILE_FOR_NCRISC)
+#define FTQ_TL_PROCESSOR 1u
+#else
+#define FTQ_TL_PROCESSOR 0u
+#endif
+
+/* This processor's timeline state. File-scope (the entry code zeroes .bss), not context
+ * fields, so a kernel that never waits for work (the puller, the BRISC-only queue, the exit
+ * stub) references none of it and keeps its shipped image even in an FT_TIMELINE build. */
+static uint32_t ftq_tl_ready __attribute__((unused));    /* identity written */
+static uint32_t ftq_tl_arm_seen __attribute__((unused)); /* the arm word as last observed */
+static uint32_t ftq_tl_open __attribute__((unused));     /* 0 none, 1 open, 2 with first */
+static uint32_t ftq_tl_t0 __attribute__((unused));       /* its pickup clock */
+static uint32_t ftq_tl_t1 __attribute__((unused));       /* its first-event clock */
+static uint32_t ftq_tl_index __attribute__((unused));    /* its queue index */
+static uint32_t ftq_tl_gen __attribute__((unused));      /* its generation */
+static uint32_t ftq_tl_delay __attribute__((unused));    /* it is a DELAY (the control) */
+static uint32_t ftq_tl_used __attribute__((unused));     /* stream bytes written */
+static uint32_t ftq_tl_full __attribute__((unused));     /* the stream ran out: sticky */
+static uint32_t ftq_tl_base __attribute__((unused));     /* reconstructed end of the last */
+static uint32_t ftq_tl_base_ok __attribute__((unused));  /* 0: the next record anchors */
+
+FTQ_INLINE volatile FTQ_L1_PTR uint32_t *ftq_tl_word(const ftq_context *ctx, uint32_t offset)
+{
+    return (volatile FTQ_L1_PTR uint32_t *)((uintptr_t)ctx->control + offset);
+}
+
+FTQ_INLINE volatile FTQ_L1_PTR uint32_t *ftq_tl_header(const ftq_context *ctx)
+{
+    return ftq_tl_word(ctx, (uint32_t)kTlHeaderOffset +
+                                FTQ_TL_PROCESSOR * (uint32_t)kTlHeaderBytes);
+}
+
+/** Bytes of the ring's free tail: past this queue's own capacity, up to the 64-slot end. */
+FTQ_INLINE uint32_t ftq_tl_tail_bytes(const ftq_context *ctx)
+{
+    const uint32_t start = (uint32_t)kTlTailOffset + (ctx->capacity_mask + 1u) * 32u;
+
+    return start < (uint32_t)kTlTailEnd ? (uint32_t)kTlTailEnd - start : 0u;
+}
+
+/* The fixed segments' lengths, in stream order. */
+#define FTQ_TL_SEG1 ((uint32_t)kTlSeg1End - (uint32_t)kTlSeg1)
+#define FTQ_TL_SEG2 ((uint32_t)kTlSeg2End - (uint32_t)kTlSeg2)
+#define FTQ_TL_SEG3 ((uint32_t)kTlSeg3End - (uint32_t)kTlSeg3)
+#define FTQ_TL_SEG4 ((uint32_t)kTlSeg4End - (uint32_t)kTlSeg4)
+#define FTQ_TL_SEG5 ((uint32_t)kTlSeg5End - (uint32_t)kTlSeg5)
+
+/** [begin, end) of this processor's half of the stream, in stream bytes. */
+FTQ_INLINE void ftq_tl_span(const ftq_context *ctx, uint32_t *begin, uint32_t *end)
+{
+    const uint32_t total = ftq_tl_tail_bytes(ctx) + FTQ_TL_SEG1 + FTQ_TL_SEG2 + FTQ_TL_SEG3 +
+                           FTQ_TL_SEG4 + FTQ_TL_SEG5;
+    const uint32_t split = (total / 2u) & ~15u;
+
+    *begin = FTQ_TL_PROCESSOR ? split : 0u;
+    *end = FTQ_TL_PROCESSOR ? total : split;
+}
+
+/** Store one halfword at stream byte `at` (the ring tail, then segments 1..5). */
+FTQ_INLINE void ftq_tl_put(const ftq_context *ctx, uint32_t at, uint32_t value)
+{
+    const uint32_t tail = ftq_tl_tail_bytes(ctx);
+    uint32_t offset;
+
+    if (at < tail) {
+        offset = (uint32_t)kTlTailEnd - tail + at;
+    } else {
+        at -= tail;
+        if (at < FTQ_TL_SEG1)
+            offset = (uint32_t)kTlSeg1 + at;
+        else if ((at -= FTQ_TL_SEG1) < FTQ_TL_SEG2)
+            offset = (uint32_t)kTlSeg2 + at;
+        else if ((at -= FTQ_TL_SEG2) < FTQ_TL_SEG3)
+            offset = (uint32_t)kTlSeg3 + at;
+        else if ((at -= FTQ_TL_SEG3) < FTQ_TL_SEG4)
+            offset = (uint32_t)kTlSeg4 + at;
+        else
+            offset = (uint32_t)kTlSeg5 + (at - FTQ_TL_SEG4);
+    }
+    *(volatile FTQ_L1_PTR uint16_t *)((uintptr_t)ctx->control + offset) = (uint16_t)value;
+}
+
+/** 16-bit log code of a tick count: exact below 8192, a 12-bit mantissa and a 4-bit exponent
+ *  above (0.025% steps, to ~99 ms); codes >= kTlCodeSaturated are never values. No multiply
+ *  and no count-leading-zeros instruction is assumed. */
+FTQ_INLINE uint32_t ftq_tl_code(uint32_t ticks)
+{
+    uint32_t exponent = 1u;
+
+    if (ticks < 4096u)
+        return ticks;
+    while (ticks >= 8192u) {
+        ticks >>= 1;
+        exponent++;
+    }
+    if (exponent > 15u || (exponent == 15u && (ticks & 0xFFFu) >= 0xFFEu))
+        return (uint32_t)kTlCodeSaturated;
+    return (exponent << 12) | (ticks & 0xFFFu);
+}
+
+/** The ticks a (non-sentinel) code stands for, exactly as the host decodes it. */
+FTQ_INLINE uint32_t ftq_tl_value(uint32_t code)
+{
+    const uint32_t exponent = code >> 12;
+
+    return exponent == 0u ? code : ((code & 0xFFFu) | 0x1000u) << (exponent - 1u);
+}
+
+/** Stamp a change of the arm word (the host's broadcast, which is how it estimates the clock
+ *  skew between cores): the clock first, then the generation that clock belongs to. */
+FTQ_INLINE void ftq_tl_observe(const ftq_context *ctx, uint32_t arm)
+{
+    volatile FTQ_L1_PTR uint32_t *header;
+
+    if (arm == ftq_tl_arm_seen)
+        return;
+    header = ftq_tl_header(ctx);
+    if (arm != 0u) {
+        header[kTlHdrOnClock] = ft_bh_wall_clock_low();
+        header[kTlHdrOnGen] = arm;
+    } else {
+        header[kTlHdrOffClock] = ft_bh_wall_clock_low();
+        header[kTlHdrOffGen] = ftq_tl_arm_seen;
+    }
+    ftq_tl_arm_seen = arm;
+}
+
+/** The first event of the open record (first input reserve / first output wait). */
+#define FTQ_TL_FIRST(ctx)                                                                    \
+    do {                                                                                     \
+        (void)(ctx);                                                                         \
+        if (ftq_tl_open == 1u) {                                                             \
+            ftq_tl_t1 = ft_bh_wall_clock_low();                                              \
+            ftq_tl_open = 2u;                                                                \
+        }                                                                                    \
+    } while (0)
+#endif /* FTQ_TIMELINE_DM */
 
 /** Fill `ctx` from this launch's runtime arguments. Statement order is kept as written. */
 FTQ_INLINE void ftq_context_init(ftq_context *ctx)
@@ -346,6 +567,119 @@ FTQ_INLINE volatile FTQ_L1_PTR uint32_t *ftq_parameters(volatile FTQ_L1_PTR uint
     return (volatile FTQ_L1_PTR uint32_t *)(uintptr_t)descriptor[kDescA0];
 }
 
+#if FTQ_TIMELINE_DM
+/** Open a record for the descriptor at the cursor when the window is armed. A new
+ *  generation restarts the count and the stream; every descriptor of the window is counted
+ *  and hashed (the host's join check). */
+FTQ_INLINE void ftq_tl_pickup(const ftq_context *ctx)
+{
+    const uint32_t now = ft_bh_wall_clock_low();
+    const uint32_t arm = ftq_tl_word(ctx, (uint32_t)kTlBlockOffset)[0];
+    volatile FTQ_L1_PTR uint32_t *header = ftq_tl_header(ctx);
+    volatile FTQ_L1_PTR uint32_t *descriptor = ftq_descriptor(ctx);
+    uint32_t count;
+    uint32_t hash;
+
+    ftq_tl_open = 0u;
+    ftq_tl_observe(ctx, arm);
+    if (arm == 0u)
+        return;
+    if (header[kTlHdrGen] != arm) {
+        header[kTlHdrCount] = 0u;
+        header[kTlHdrFirst] = ctx->cursor;
+        header[kTlHdrHash] = 0u;
+        header[kTlHdrBreaks] = 0u;
+        header[kTlHdrUsed] = 0u;
+        header[kTlHdrGen] = arm;
+        ftq_tl_used = 0u;
+        ftq_tl_full = 0u;
+        ftq_tl_base_ok = 0u;
+    }
+    count = header[kTlHdrCount];
+    if (ctx->cursor != header[kTlHdrFirst] + count)
+        header[kTlHdrBreaks] += 1u;
+    hash = header[kTlHdrHash];
+    header[kTlHdrHash] = ((hash << 5) | (hash >> 27)) ^ descriptor[kDescToken];
+    header[kTlHdrCount] = count + 1u;
+    ftq_tl_delay = descriptor[kDescOpcode] == (uint32_t)kOpDelay;
+    if (ftq_tl_full != 0u && ftq_tl_delay == 0u)
+        return;
+    ftq_tl_open = 1u;
+    ftq_tl_t0 = now;
+    ftq_tl_index = ctx->cursor;
+    ftq_tl_gen = arm;
+}
+
+/** Append the closed record to the stream: [gap][first][end], or an anchor when the gap is
+ *  long, the window just began, or the last end saturated. A record that does not fit ends
+ *  the stream for the window (the records stay a prefix of the descriptors). */
+FTQ_INLINE void ftq_tl_append(const ftq_context *ctx, uint32_t first, uint32_t end)
+{
+    uint32_t begin, limit, at, pickup;
+    const uint32_t gap = ftq_tl_t0 - ftq_tl_base;
+    const uint32_t anchor = ftq_tl_base_ok == 0u || gap >= (uint32_t)kTlAnchorTicks;
+    const uint32_t gap_code = anchor ? 0u : ftq_tl_code(gap);
+
+    ftq_tl_span(ctx, &begin, &limit);
+    at = begin + ftq_tl_used;
+    if (at + (anchor ? 10u : 6u) > limit) {
+        ftq_tl_full = 1u;
+        return;
+    }
+    if (anchor) {
+        ftq_tl_put(ctx, at, (uint32_t)kTlMarker);
+        ftq_tl_put(ctx, at + 2u, ftq_tl_t0 & 0xFFFFu);
+        ftq_tl_put(ctx, at + 4u, ftq_tl_t0 >> 16);
+        at += 6u;
+        pickup = ftq_tl_t0;
+    } else {
+        ftq_tl_put(ctx, at, gap_code);
+        at += 2u;
+        pickup = ftq_tl_base + ftq_tl_value(gap_code);
+    }
+    ftq_tl_put(ctx, at, first);
+    ftq_tl_put(ctx, at + 2u, end);
+    ftq_tl_used = at + 4u - begin;
+    ftq_tl_header(ctx)[kTlHdrUsed] = ftq_tl_used;
+    ftq_tl_base_ok = end < (uint32_t)kTlCodeSaturated;
+    ftq_tl_base = pickup + (ftq_tl_base_ok ? ftq_tl_value(end) : 0u);
+}
+
+/** Close the open record: its end is now (this processor is back for the next one). The
+ *  first call of a launch instead writes this processor's identity words (a relaunch inside
+ *  a window keeps its records and generation, anchors its next record, and a cursor that
+ *  jumps counts in kTlHdrBreaks). */
+FTQ_INLINE void ftq_tl_close(const ftq_context *ctx)
+{
+    volatile FTQ_L1_PTR uint32_t *header = ftq_tl_header(ctx);
+
+    if (ftq_tl_ready == 0u) {
+        ftq_tl_arm_seen = ftq_tl_word(ctx, (uint32_t)kTlBlockOffset)[0];
+        ftq_tl_used = header[kTlHdrUsed];
+        header[kTlHdrProcessor] = FTQ_TL_PROCESSOR;
+        header[kTlHdrMagic] = (uint32_t)kTlMagic;
+        ftq_tl_ready = 1u;
+        return;
+    }
+    if (ftq_tl_open != 0u) {
+        const uint32_t now = ft_bh_wall_clock_low();
+        const uint32_t first =
+            ftq_tl_open == 2u ? ftq_tl_code(ftq_tl_t1 - ftq_tl_t0) : (uint32_t)kTlCodeNone;
+        const uint32_t end = ftq_tl_code(now - ftq_tl_t0);
+
+        if (ftq_tl_delay != 0u) {
+            header[kTlHdrDelayIndex] = ftq_tl_index;
+            header[kTlHdrDelayPickup] = ftq_tl_t0;
+            header[kTlHdrDelayCodes] = first | (end << 16);
+            header[kTlHdrDelayGen] = ftq_tl_gen;
+        }
+        if (ftq_tl_full == 0u)
+            ftq_tl_append(ctx, first, end);
+        ftq_tl_open = 0u;
+    }
+}
+#endif /* FTQ_TIMELINE_DM */
+
 /** Idle until control[barrier_field] differs from the cursor. False = leave the resident
  *  loop (stop requested, or the idle bound ran out with kErrIdleTimeout). */
 FTQ_INLINE bool ftq_wait_for_work(ftq_context *ctx, uint32_t barrier_field)
@@ -355,7 +689,13 @@ FTQ_INLINE bool ftq_wait_for_work(ftq_context *ctx, uint32_t barrier_field)
     const uint32_t idle_from = ft_bh_wall_clock_low();
 #endif
 
+#if FTQ_TIMELINE_DM
+    ftq_tl_close(ctx);
+#endif
     for (;;) {
+#if FTQ_TIMELINE_DM
+        ftq_tl_observe(ctx, ftq_tl_word(ctx, (uint32_t)kTlBlockOffset)[0]);
+#endif
         ctx->heartbeat++;
         if (ctx->status)
             ctx->status[kStatusHeartbeat] = ctx->heartbeat;
@@ -365,6 +705,9 @@ FTQ_INLINE bool ftq_wait_for_work(ftq_context *ctx, uint32_t barrier_field)
 #if defined(COMPILE_FOR_NCRISC)
             if (idle_spins != 0u)
                 ctx->control[kFieldIdleClock] += (ft_bh_wall_clock_low() - idle_from) >> 4;
+#endif
+#if FTQ_TIMELINE_DM
+            ftq_tl_pickup(ctx);
 #endif
             return true;
         }
@@ -438,6 +781,9 @@ FTQ_INLINE bool ftq_cb_wait_front_stoppable(ftq_context *ctx, int32_t operand, i
 
     if (wait_mode == (uint32_t)kWaitUpstream) {
         ft_tensix_cb_wait_front(operand, num_pages);
+#if FTQ_TIMELINE_DM && defined(COMPILE_FOR_NCRISC)
+        FTQ_TL_FIRST(ctx);
+#endif
         return true;
     }
     if (ctx->aborting)
@@ -453,6 +799,9 @@ FTQ_INLINE bool ftq_cb_wait_front_stoppable(ftq_context *ctx, int32_t operand, i
     } while (true);
     if (spins != 0u)
         ftq_wait_account(ctx, wait_started);
+#if FTQ_TIMELINE_DM && defined(COMPILE_FOR_NCRISC)
+    FTQ_TL_FIRST(ctx);
+#endif
     return true;
 }
 
@@ -468,6 +817,9 @@ FTQ_INLINE bool ftq_cb_reserve_back_stoppable(ftq_context *ctx, int32_t operand,
 
     if (wait_mode == (uint32_t)kWaitUpstream) {
         ft_tensix_cb_reserve_back(operand, num_pages);
+#if FTQ_TIMELINE_DM && !defined(COMPILE_FOR_NCRISC)
+        FTQ_TL_FIRST(ctx);
+#endif
         return true;
     }
     if (ctx->aborting)
@@ -489,6 +841,9 @@ FTQ_INLINE bool ftq_cb_reserve_back_stoppable(ftq_context *ctx, int32_t operand,
     } while (true);
     if (spins != 0u)
         ftq_wait_account(ctx, wait_started);
+#if FTQ_TIMELINE_DM && !defined(COMPILE_FOR_NCRISC)
+    FTQ_TL_FIRST(ctx);
+#endif
     return true;
 }
 
