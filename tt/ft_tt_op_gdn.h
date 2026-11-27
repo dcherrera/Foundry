@@ -564,6 +564,10 @@ uint32_t ft_tt_op_gdn_conv_slice_granule(uint32_t state_size, uint32_t conv_taps
 #define FT_TT_OP_GDN_FLAG_RED_ROWS_ROW0 (1u << 26)
 /** Mirrors kGdnFlagConvBf16In; set by the encoder from `stream_bf16`, never by a caller. */
 #define FT_TT_OP_GDN_FLAG_CONV_BF16_IN (1u << 27)
+/** Mirrors kGdnFlagStateRound (PHASE DELTA only; refused on CONV): d1, each state pack adds
+ *  0x1000 to the fp32 bits so the next Tf32 unpack rounds instead of truncating. The stored
+ *  state carries up to half a Tf32 ulp of bias. */
+#define FT_TT_OP_GDN_FLAG_STATE_ROUND (1u << 28)
 /** The bf16 tile bytes `stream_bf16` must carry. */
 #define FT_TT_OP_GDN_BF16_TILE_BYTES 2048u
 /** Mirrors kGdnRowCountShift: the multi-row count rides in flags bits 21-25 (`row_count`). */

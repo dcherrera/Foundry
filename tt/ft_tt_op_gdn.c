@@ -525,7 +525,8 @@ int ft_tt_op_gdn_parameters(const ft_tt_op_gdn_request *request,
     out_words[FT_TT_OP_GDN_FLAGS] =
         (request->flags & (FT_TT_OP_GDN_FLAG_NOC_REPLICATE | FT_TT_OP_GDN_FLAG_RED_NO_COPY |
                            FT_TT_OP_GDN_FLAG_CONV_STRIP | FT_TT_OP_GDN_FLAG_RED_STRIP_HALF |
-                           FT_TT_OP_GDN_FLAG_RED_ROWS_ROW0 | FT_TT_OP_GDN_FLAG_TABLE)) |
+                           FT_TT_OP_GDN_FLAG_RED_ROWS_ROW0 | FT_TT_OP_GDN_FLAG_TABLE |
+                           FT_TT_OP_GDN_FLAG_STATE_ROUND)) |
         (operand_is_set(&request->state_out) ? FT_TT_OP_GDN_FLAG_STATE_OUT : 0u) |
         ((request->row & 31u) << FT_TT_OP_GDN_ROW_SHIFT) |
         ((request->row_count > 1u && request->conv_row_batch == 0u ? request->row_count & 31u
@@ -536,6 +537,10 @@ int ft_tt_op_gdn_parameters(const ft_tt_op_gdn_request *request,
     if (request->row > 31u ||
         (request->row != 0u && request->phase == FT_TT_OP_GDN_PHASE_CONV &&
          (request->flags & FT_TT_OP_GDN_FLAG_CONV_STRIP) == 0u))
+        return FT_TT_EINVAL;
+    /* CONV packs no recurrent state; the round bias there would be a bit nothing reads. */
+    if ((request->flags & FT_TT_OP_GDN_FLAG_STATE_ROUND) != 0u &&
+        request->phase != FT_TT_OP_GDN_PHASE_DELTA)
         return FT_TT_EINVAL;
     out_words[FT_TT_OP_GDN_TILE_COUNT] = resolve_tile_count(request);
     if (out_words[FT_TT_OP_GDN_TILE_COUNT] == 0u)

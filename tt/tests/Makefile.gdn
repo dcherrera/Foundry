@@ -4,6 +4,8 @@
 #
 #   make -f Makefile.gdn PHASE1B=1 card -> build-gdn-card/test_phase6_gdn_conv_batch (on card:
 #     FT_TT_DRIVER=udrv FT_TT_TENSIX_INDEX=<n> ./build-gdn-card/test_phase6_gdn_conv_batch ../programs/gdn)
+#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row && ./build-gdn/test_gdn_conv_bf16_in
+#   ./build-gdn/test_gdn_state_round (d1; `make -f Makefile.gdn red-round` builds its red model)
 #
 #   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row && ./build-gdn/test_gdn_conv_bf16_in && ./build-gdn/test_gdn_conv_batch
 #
@@ -78,14 +80,15 @@ TARGET := $(BUILD)/test_gdn_ops
 TARGET_ROWS := $(BUILD)/test_gdn_multi_row
 TARGET_BF16 := $(BUILD)/test_gdn_conv_bf16_in
 TARGET_BATCH := $(BUILD)/test_gdn_conv_batch
+TARGET_ROUND := $(BUILD)/test_gdn_state_round
 
 CARD_TARGET := $(CARD_BUILD)/test_phase6_gdn_conv_batch
 # The session list also names ft_tt_udrv_claim.c, which BACKEND already links.
 CARD_SUPPORT := $(filter-out $(BACKEND),$(HARDWARE_SESSION_SOURCES)) ft_tt_program_directory.c
 
-.PHONY: all card red clean
+.PHONY: all card red red-round clean
 
-all: $(TARGET) $(TARGET_ROWS) $(TARGET_BF16) $(TARGET_BATCH)
+all: $(TARGET) $(TARGET_ROWS) $(TARGET_BF16) $(TARGET_BATCH) $(TARGET_ROUND)
 
 card: $(CARD_TARGET)
 
@@ -111,7 +114,17 @@ $(CARD_TARGET): test_phase6_gdn_conv_batch.c $(BACKEND) $(SUPPORT) $(CARD_SUPPOR
 	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_phase6_gdn_conv_batch.c $(BACKEND) $(SUPPORT) \
 	    $(CARD_SUPPORT) $(LDLIBS)
 
+$(TARGET_ROUND): test_gdn_state_round.c $(BACKEND) $(SRC_DIR)/ft_tt_op_gdnc.c $(SRC_DIR)/ft_tt_tilize.c $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_state_round.c $(BACKEND) $(SRC_DIR)/ft_tt_op_gdnc.c $(SRC_DIR)/ft_tt_tilize.c \
+	    $(SUPPORT) $(LDLIBS)
+
 red: clean all
+
+# The d1 rule with a wrong bias (0x0FFF): the ties must fail.
+red-round: | $(BUILD)
+	$(CC) $(CFLAGS) -DGDN_STATE_ROUND_RED -o $(BUILD)/test_gdn_state_round_red \
+	    test_gdn_state_round.c $(BACKEND) $(SRC_DIR)/ft_tt_op_gdnc.c $(SRC_DIR)/ft_tt_tilize.c $(SUPPORT) $(LDLIBS)
+	! ./$(BUILD)/test_gdn_state_round_red
 
 clean:
 	rm -rf $(BUILD) $(CARD_BUILD)
