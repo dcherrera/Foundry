@@ -308,6 +308,19 @@ enum { kGdnFlagConvBf16In = 1u << 27 };
  *  zero. The STORED state is the value plus up to half a Tf32 ulp: a reader that does not
  *  truncate sees the bias. 0 = the shipped truncation, byte for byte. */
 enum { kGdnFlagStateRound = 1u << 28 };
+/** dswap (reader + compute, PHASE DELTA): step (a) becomes an eltwise multiply with the decay as
+ *  a FULL constant tile in SrcA and the state in SrcB. In a multiply SrcA keeps 9 mantissa bits
+ *  and SrcB 10 (measured, FPU probe), so the state is read at its full Tf32 width; the reader
+ *  rounds the decay to 9 bits, nearest even, so the operand SrcA truncates is unbiased. With
+ *  kGdnFlagStateRound this is "dswap1". 0 = the column-broadcast decay, byte for byte. */
+enum { kGdnFlagDecaySwap = 1u << 29 };
+
+/** fp32 bits rounded to 9 mantissa bits, nearest even (finite values; the dswap decay). */
+FTQ_INLINE uint32_t ftg_round_bits9(uint32_t bits)
+{
+    return (bits + 0x1FFFu + ((bits >> 14) & 1u)) & 0xFFFFC000u;
+}
+
 /** The integer kGdnFlagStateRound adds: half a Tf32 ulp in fp32 bits (the SFPU kernel's
  *  FT_SFPU_TF32_ROUND_BIAS; test_gdn_state_round.c pins the two equal). */
 enum { kGdnStateRoundBias = 0x1000 };

@@ -13,7 +13,9 @@
  * value to the nearer Tf32 with ties away from zero, including the edges: a carry into the
  * exponent, +-0, the largest Tf32 band rounding to inf, inf, NaN and its one wrap; and the
  * stored value is within half a Tf32 ulp of the computed one (what a non-truncating reader
- * sees). Build with -DGDN_STATE_ROUND_RED to model a bias of 0x0FFF and see the ties fail.
+ * sees). dswap (kGdnFlagDecaySwap): the constants agree, it encodes on DELTA only, and the reader's
+ * decay rounding (ftg_round_bits9) is nearest even at 9 bits. Build with -DGDN_STATE_ROUND_RED to
+ * model a bias of 0x0FFF and see the ties fail.
  *
  * @status added 2026-11-27 (d1).
  * @issues None
@@ -107,7 +109,7 @@ static long header_define(const char *file, const char *name)
 
 static void test_constants_agree(void)
 {
-    const uint32_t gdn_taken = (uint32_t)kGdnFlagNocReplicate | (uint32_t)kGdnFlagRedNoCopy |
+    const uint32_t gdn_taken = (uint32_t)kGdnFlagStateRound | (uint32_t)kGdnFlagNocReplicate | (uint32_t)kGdnFlagRedNoCopy |
                                (uint32_t)kGdnFlagConvStrip | (uint32_t)kGdnFlagRedStripHalf |
                                (uint32_t)kGdnFlagStateOut | (uint32_t)kGdnFlagTable |
                                ((uint32_t)kGdnRowMask << kGdnRowShift) |
@@ -125,11 +127,18 @@ static void test_constants_agree(void)
                          (uint32_t)kGdncDeltaFlagStateRound ==
                              FT_TT_OP_GDNC_DELTA_FLAG_STATE_ROUND,
                          "0x%08X", (unsigned)kGdncDeltaFlagStateRound);
-    ft_tt_test_check_fmt("the gdn bit is one bit and collides with no other field",
+    ft_tt_test_check_fmt("the gdn round bit is one bit and collides with no other field",
                          ((uint32_t)kGdnFlagStateRound & ((uint32_t)kGdnFlagStateRound - 1u)) ==
                                  0u &&
-                             ((uint32_t)kGdnFlagStateRound & gdn_taken) == 0u,
+                             ((uint32_t)kGdnFlagStateRound & (gdn_taken &
+                                                               ~(uint32_t)kGdnFlagStateRound)) == 0u,
                          "taken 0x%08X", (unsigned)gdn_taken);
+    ft_tt_test_check_fmt("kGdnFlagDecaySwap is FT_TT_OP_GDN_FLAG_DECAY_SWAP, one bit, free",
+                         (uint32_t)kGdnFlagDecaySwap == FT_TT_OP_GDN_FLAG_DECAY_SWAP &&
+                             ((uint32_t)kGdnFlagDecaySwap & ((uint32_t)kGdnFlagDecaySwap - 1u)) ==
+                                 0u &&
+                             ((uint32_t)kGdnFlagDecaySwap & gdn_taken) == 0u,
+                         "0x%08X", (unsigned)kGdnFlagDecaySwap);
     ft_tt_test_check_fmt("the gdnc bit collides with no other field",
                          ((uint32_t)kGdncDeltaFlagStateRound & gdnc_taken) == 0u, "taken 0x%08X",
                          (unsigned)gdnc_taken);
@@ -198,6 +207,43 @@ static void test_gdn_encoding(void)
     request.flags = FT_TT_OP_GDN_FLAG_STATE_ROUND;
     rc = ft_tt_op_gdn_parameters(&request, words);
     ft_tt_test_check_fmt("the flag on CONV is refused", rc != FT_TT_OK, "rc=%d", rc);
+    request.flags = FT_TT_OP_GDN_FLAG_DECAY_SWAP;
+    rc = ft_tt_op_gdn_parameters(&request, words);
+    ft_tt_test_check_fmt("dswap on CONV is refused", rc != FT_TT_OK, "rc=%d", rc);
+
+    fill_delta_request(&request);
+    request.flags = FT_TT_OP_GDN_FLAG_STATE_ROUND | FT_TT_OP_GDN_FLAG_DECAY_SWAP;
+    rc = ft_tt_op_gdn_parameters(&request, words);
+    ft_tt_test_check_fmt("dswap1 (round + swap) encodes both bits and nothing else",
+                         rc == FT_TT_OK &&
+                             words[FT_TT_OP_GDN_FLAGS] ==
+                                 (base[FT_TT_OP_GDN_FLAGS] | FT_TT_OP_GDN_FLAG_STATE_ROUND |
+                                  FT_TT_OP_GDN_FLAG_DECAY_SWAP),
+                         "0x%08X", words[FT_TT_OP_GDN_FLAGS]);
+}
+
+/** The reader's dswap decay: 9 mantissa bits, nearest even. */
+static void test_decay_round9(void)
+{
+    ft_tt_test_step("dswap: the decay is rounded to 9 mantissa bits, nearest even");
+#ifdef GDN_STATE_ROUND_RED
+#define ROUND9(x) ((x) & 0xFFFFC000u)
+#else
+#define ROUND9(x) ftg_round_bits9(x)
+#endif
+    ft_tt_test_check_fmt("below half rounds down", ROUND9(0x3F7F9FFFu) == 0x3F7F8000u, "0x%08X",
+                         ROUND9(0x3F7F9FFFu));
+    ft_tt_test_check_fmt("above half rounds up", ROUND9(0x3F7FA001u) == 0x3F7FC000u, "0x%08X",
+                         ROUND9(0x3F7FA001u));
+    ft_tt_test_check_fmt("a tie goes to the even 9-bit mantissa (down)",
+                         ROUND9(0x3F7F2000u) == 0x3F7F0000u, "0x%08X", ROUND9(0x3F7F2000u));
+    ft_tt_test_check_fmt("a tie goes to the even 9-bit mantissa (up)",
+                         ROUND9(0x3F7F6000u) == 0x3F7F8000u, "0x%08X", ROUND9(0x3F7F6000u));
+    ft_tt_test_check_fmt("a carry into the exponent (0.99998 -> 1.0)",
+                         ROUND9(0x3F7FFFC0u) == 0x3F800000u, "0x%08X", ROUND9(0x3F7FFFC0u));
+    ft_tt_test_check_fmt("a 9-bit value is unchanged", ROUND9(0x3F7FC000u) == 0x3F7FC000u,
+                         "0x%08X", ROUND9(0x3F7FC000u));
+#undef ROUND9
 }
 
 static void fill_gdnc_delta(ft_tt_op_gdnc_request *request)
@@ -338,5 +384,6 @@ int main(void)
     test_gdnc_encoding();
     test_rule_edges();
     test_rule_sweep();
+    test_decay_round9();
     return ft_tt_test_finish();
 }

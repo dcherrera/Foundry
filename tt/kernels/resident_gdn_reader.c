@@ -480,6 +480,8 @@ static void stage_activation_tiles(ftq_context *ctx, const gdn_endpoints *endpoi
  * the DELTA reader (~4.6 us a tile, ~6 cycles a store). */
 static bool gdn_noc_replicate;
 static bool gdn_red_no_copy;
+/** kGdnFlagDecaySwap: the decay goes out as a full constant tile (push_decay). */
+static bool gdn_decay_swap;
 static uint32_t gdn_self_x, gdn_self_y;
 
 /** Row 0 of faces 0 and 1 by RISC-V stores (32 words), then doubling inside each face with
@@ -625,6 +627,42 @@ static bool push_constant_column(ftq_context *ctx, uint32_t bits)
     return true;
 }
 
+/** The dswap decay: one FULL constant tile into CB_VECTOR, the decay rounded to 9 bits (the
+ *  compute thread multiplies it from SrcA). Row 0 of faces 0-1 by stores, the rest by the NoC
+ *  doubling the replicas use, or by stores without it. */
+static bool push_constant_tile(ftq_context *ctx, uint32_t bits)
+{
+    if (!ftq_cb_reserve_back_stoppable(ctx, (int32_t)CB_VECTOR, 1, WAIT_MODE))
+        return false;
+
+    if (!ctx->aborting) {
+        const uint32_t build_started = ft_bh_wall_clock_low();
+        const uint32_t destination = ft_tensix_cb_write_pointer(CB_VECTOR);
+        const uint32_t value = ftg_round_bits9(bits);
+        uint32_t word;
+
+        if (gdn_noc_replicate) {
+            for (word = 0; word < ftg_face_row_words(); word++) {
+                *(uint32_t *)(uintptr_t)(destination + word * 4u) = value;
+                *(uint32_t *)(uintptr_t)(destination + ftg_face_bytes() + word * 4u) = value;
+            }
+            build_replicated_by_noc(destination, destination, 0u);
+        } else {
+            for (word = 0; word < 1024u; word++)
+                *(uint32_t *)(uintptr_t)(destination + word * 4u) = value;
+        }
+        gdn_clock_add(kGdnClockBuild, build_started);
+    }
+    ft_tensix_cb_push_back(CB_VECTOR, 1);
+    return true;
+}
+
+/** decay[h] as step (a) consumes it: a constant column, or under dswap a constant tile. */
+static bool push_decay(ftq_context *ctx, uint32_t bits)
+{
+    return gdn_decay_swap ? push_constant_tile(ctx, bits) : push_constant_column(ctx, bits);
+}
+
 /** One tile-row of one head's carried state: `state_tiles` CONSECUTIVE tiles, one read. */
 static bool push_state_row(ftq_context *ctx, const gdn_endpoints *endpoints,
                            const ftg_shape *shape, uint32_t head, uint32_t tile_row)
@@ -685,7 +723,7 @@ static bool read_one_head(ftq_context *ctx, const gdn_endpoints *endpoints,
             return false;
 
     /* decay[h] then beta[h], out of the gate block this descriptor staged once. */
-    if (!push_constant_column(ctx, *(const uint32_t *)(uintptr_t)(gate + head * 4u)))
+    if (!push_decay(ctx, *(const uint32_t *)(uintptr_t)(gate + head * 4u)))
         return false;
     if (!push_constant_column(ctx, *(const uint32_t *)(uintptr_t)(gate +
                                                                   (shape->v_heads + head) * 4u)))
@@ -804,7 +842,7 @@ static bool push_row_operands(ftq_context *ctx, const ftg_shape *shape, uint32_t
     for (index = 0; index < tiles; index++)
         if (!push_column_tile(ctx, scratch + 2u * tiles * TILE_BYTES, row, index))
             return false;
-    return push_constant_column(ctx, *(const uint32_t *)(uintptr_t)(gate + head * 4u)) &&
+    return push_decay(ctx, *(const uint32_t *)(uintptr_t)(gate + head * 4u)) &&
            push_constant_column(ctx, *(const uint32_t *)(uintptr_t)(gate +
                                                               (shape->v_heads + head) * 4u)) &&
            push_constant_column(ctx, scale_bits);
@@ -1416,6 +1454,7 @@ static bool read_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *paramet
         return false;
     gdn_noc_replicate = (parameters[kGdnFlags] & (uint32_t)kGdnFlagNocReplicate) != 0u;
     gdn_red_no_copy = (parameters[kGdnFlags] & (uint32_t)kGdnFlagRedNoCopy) != 0u;
+    gdn_decay_swap = (parameters[kGdnFlags] & (uint32_t)kGdnFlagDecaySwap) != 0u;
     gdn_conv_strip = (parameters[kGdnFlags] & (uint32_t)kGdnFlagConvStrip) != 0u;
     gdn_red_strip_half = (parameters[kGdnFlags] & (uint32_t)kGdnFlagRedStripHalf) != 0u;
     gdn_row = (parameters[kGdnFlags] >> kGdnRowShift) & (uint32_t)kGdnRowMask;

@@ -17,6 +17,9 @@
 #   must be exactly gdn's and gdnc's compute images (trisc0-2) and every other image IDENTICAL.
 #   The script REFUSES any other mover set before writing the header.
 #
+#   MOVERS / IMAGES override the expected mover set and the image-name pattern that may move: dswap
+#   (kGdnFlagDecaySwap) is MOVERS=gdn IMAGES='^(brisc|trisc[012])\.elf$'.
+#
 #   RED=1 builds the red programs instead: gdn and gdnc with a wrong bias (0x0800), into
 #   tt/build/gdnround/red/ for PN_TT_PROGRAM_DIR, and leaves the header alone.
 #
@@ -39,8 +42,10 @@ movers=$(awk '$3 == "DIFFERS" {print $1}' "$W/rebuilt/summary.txt" | sort -u)
 echo "movers: ${movers:-none}"
 awk '$3 == "DIFFERS" {print $1"/"$2}' "$W/rebuilt/summary.txt"
 echo "images: $(awk '$3 == "IDENTICAL"' "$W/rebuilt/summary.txt" | wc -l | tr -d ' ') identical, $(awk '$3 == "DIFFERS"' "$W/rebuilt/summary.txt" | wc -l | tr -d ' ') differ"
-[ "$(echo $movers)" = "gdn gdnc" ] || { echo "REFUSED: expected only gdn gdnc to move" >&2; exit 1; }
-other=$(awk '$3 == "DIFFERS" && $2 !~ /^trisc[012]\.elf$/' "$W/rebuilt/summary.txt")
+MOVERS=${MOVERS:-gdn gdnc}
+IMAGES=${IMAGES:-^trisc[012]\.elf$}
+[ "$(echo $movers)" = "$MOVERS" ] || { echo "REFUSED: expected only $MOVERS to move" >&2; exit 1; }
+other=$(awk -v re="$IMAGES" '$3 == "DIFFERS" && $2 !~ re' "$W/rebuilt/summary.txt")
 [ -z "$other" ] || { echo "REFUSED: a non-compute image moved: $other" >&2; exit 1; }
 for d in "$W"/blob/*; do
     [ -d "$d" ] || continue
@@ -58,7 +63,7 @@ if [ "${RED:-0}" = 1 ]; then
     for n in gdn gdnc; do (cd "$W/red/$n" && md5 -r *.elf); done
     exit 0
 fi
-for n in gdn gdnc; do
+for n in $MOVERS; do
     bash tools/rebuild_tensix_program.sh "programs/$n" "programs/$n" > "$W/rebuild_$n.log" 2>&1
 done
 TMPDIR=$W/tmp bash tools/regen_tensix_program_header.sh > "$W/regen.log" 2>&1
@@ -66,6 +71,6 @@ rm -f tools/build/verify_tensix_program_blob
 make -C tools verify-programs > "$W/verify_build.log" 2>&1
 tools/build/verify_tensix_program_blob "$TT/programs" | tail -1
 make -C tools check-program-provenance 2>&1 | tail -1
-for image in "$TT"/programs/gdn/*.elf "$TT"/programs/gdnc/*.elf; do
+for image in $(for n in $MOVERS; do ls "$TT"/programs/$n/*.elf; done); do
     echo "$(basename "$(dirname "$image")")/$(basename "$image") text $("$SFPI/compiler/bin/riscv-tt-elf-size" -A "$image" | awk '$1 == ".text" {print $2}') B md5 $(md5 -q "$image")"
 done

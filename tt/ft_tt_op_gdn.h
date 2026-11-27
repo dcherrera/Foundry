@@ -568,6 +568,9 @@ uint32_t ft_tt_op_gdn_conv_slice_granule(uint32_t state_size, uint32_t conv_taps
  *  0x1000 to the fp32 bits so the next Tf32 unpack rounds instead of truncating. The stored
  *  state carries up to half a Tf32 ulp of bias. */
 #define FT_TT_OP_GDN_FLAG_STATE_ROUND (1u << 28)
+/** Mirrors kGdnFlagDecaySwap (PHASE DELTA only; refused on CONV): dswap, the decay as a full
+ *  9-bit-rounded tile in SrcA and the state in SrcB at step (a). */
+#define FT_TT_OP_GDN_FLAG_DECAY_SWAP (1u << 29)
 /** The bf16 tile bytes `stream_bf16` must carry. */
 #define FT_TT_OP_GDN_BF16_TILE_BYTES 2048u
 /** Mirrors kGdnRowCountShift: the multi-row count rides in flags bits 21-25 (`row_count`). */
