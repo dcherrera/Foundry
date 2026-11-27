@@ -509,6 +509,10 @@ typedef struct ft_tt_op_gdn_request {
      *  `activation_in` (which still names the input buffer the output shares a bank with).
      *  Encodes word 4 = its address, word 8 = its NoC coordinate, FT_TT_OP_GDN_FLAG_CONV_BF16_IN. */
     ft_tt_op_operand stream_bf16;
+    /** CONV ROW BATCH (strip mode, 2..16 rows in faces 0-1, fp32 stream): when non-zero, the
+     *  `row_count` rows run as ONE tile pass instead of one pass a row. Bit-identical to the
+     *  multi-row walk; row r's window still goes to `state_rows_out[r]`. 0 = off. */
+    uint32_t conv_row_batch;
     /** FT_TT_OP_GDN_FLAG_* bits, encoded into word 14. 0 = the shipped walk. */
     uint32_t flags;
 } ft_tt_op_gdn_request;
@@ -564,6 +568,11 @@ uint32_t ft_tt_op_gdn_conv_slice_granule(uint32_t state_size, uint32_t conv_taps
 #define FT_TT_OP_GDN_BF16_TILE_BYTES 2048u
 /** Mirrors kGdnRowCountShift: the multi-row count rides in flags bits 21-25 (`row_count`). */
 #define FT_TT_OP_GDN_ROW_COUNT_SHIFT 21u
+/** Mirrors kGdnConvBatchShift: a CONV row batch's row count rides in flags bits 10-14, and the
+ *  multi-row count bits stay 0 (the compute thread runs one pass). */
+#define FT_TT_OP_GDN_CONV_BATCH_SHIFT 10u
+/** Mirrors kGdnConvBatchRowLimit: a row batch's rows end at or before row 16 (faces 0-1). */
+#define FT_TT_OP_GDN_CONV_BATCH_ROW_LIMIT 16u
 
 /**
  * Is this a shape the triad can execute? The same predicate the kernel applies, so both

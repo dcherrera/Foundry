@@ -316,6 +316,15 @@ int ft_tt_op_gdn_shape_is_supported(const ft_tt_op_gdn_request *request)
     if (request->row_count > 1u && request->phase == FT_TT_OP_GDN_PHASE_CONV &&
         (request->flags & FT_TT_OP_GDN_FLAG_CONV_STRIP) == 0u)
         return 0;
+    /* CONV ROW BATCH: a multi-row CONV whose rows all sit in faces 0-1, read from the fp32
+     * stream. The device refuses the same shapes (ftg_conv_batch_is_supported) in the reader
+     * and writer only, so a shape refused there would leave the compute thread waiting: the
+     * host is the refusal that matters. */
+    if (request->conv_row_batch != 0u &&
+        (request->phase != FT_TT_OP_GDN_PHASE_CONV || request->row_count < 2u ||
+         request->row + request->row_count > FT_TT_OP_GDN_CONV_BATCH_ROW_LIMIT ||
+         operand_is_set(&request->stream_bf16)))
+        return 0;
     return 1;
 }
 
@@ -342,6 +351,14 @@ int ft_tt_op_gdn_row_extension(const ft_tt_op_gdn_request *request,
         out_words[r] = out->address;
     }
     return FT_TT_OK;
+}
+
+/** CONV passes the compute thread runs: one a row, or ONE for a row batch. */
+static uint32_t conv_pass_count(const ft_tt_op_gdn_request *request)
+{
+    if (request->conv_row_batch != 0u || request->row_count < 2u)
+        return 1u;
+    return request->row_count;
 }
 
 /**
@@ -374,7 +391,7 @@ static uint32_t resolve_tile_count(const ft_tt_op_gdn_request *request)
         /* conv_out is the whole convolved stream, one row of tiles; the rolled window that
          * follows it is taps-1 deep over the same stream — once a row (PM 6 multi-row). */
         return (conv_tile_cols + conv_tile_cols * (request->conv_taps - 1u)) *
-               (request->row_count > 1u ? request->row_count : 1u);
+               conv_pass_count(request);
     }
     /* Per v-head, per tile-row: `state_tiles` updated state tiles, then ONE y column tile.
      *
@@ -511,8 +528,11 @@ int ft_tt_op_gdn_parameters(const ft_tt_op_gdn_request *request,
                            FT_TT_OP_GDN_FLAG_RED_ROWS_ROW0 | FT_TT_OP_GDN_FLAG_TABLE)) |
         (operand_is_set(&request->state_out) ? FT_TT_OP_GDN_FLAG_STATE_OUT : 0u) |
         ((request->row & 31u) << FT_TT_OP_GDN_ROW_SHIFT) |
-        ((request->row_count > 1u ? request->row_count & 31u : 0u)
-         << FT_TT_OP_GDN_ROW_COUNT_SHIFT);
+        ((request->row_count > 1u && request->conv_row_batch == 0u ? request->row_count & 31u
+                                                                    : 0u)
+         << FT_TT_OP_GDN_ROW_COUNT_SHIFT) |
+        ((request->conv_row_batch != 0u ? request->row_count & 31u : 0u)
+         << FT_TT_OP_GDN_CONV_BATCH_SHIFT);
     if (request->row > 31u ||
         (request->row != 0u && request->phase == FT_TT_OP_GDN_PHASE_CONV &&
          (request->flags & FT_TT_OP_GDN_FLAG_CONV_STRIP) == 0u))
