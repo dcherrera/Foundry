@@ -187,7 +187,8 @@ int ft_tt_op_gdnc_shape_is_supported(const ft_tt_op_gdnc_request *request)
          * in chunk 0 and wrong from chunk 1 on. CONV does not need the field — see
          * `kGdncFirstRow` — so it is refused rather than given a meaning. */
         if (request->first_row != 0u || request->gate_band != 0u ||
-            (request->delta_flags & FT_TT_OP_GDNC_DELTA_FLAG_TABLE) != 0u)
+            (request->delta_flags & (FT_TT_OP_GDNC_DELTA_FLAG_TABLE |
+                                     FT_TT_OP_GDNC_DELTA_FLAG_STATE_ROUND)) != 0u)
             return 0;
         if (request->conv_taps < 2u || request->conv_taps > 8u)
             return 0;
@@ -323,7 +324,8 @@ int ft_tt_op_gdnc_parameters(const ft_tt_op_gdnc_request *request,
                                           ? (ft_tt_op_gdnc_conv_depth() & 0xFFu)
                                           : (request->delta_flags &
                                              (FT_TT_OP_GDNC_DELTA_FLAG_COMPACT |
-                                              FT_TT_OP_GDNC_DELTA_FLAG_TABLE))) |
+                                              FT_TT_OP_GDNC_DELTA_FLAG_TABLE |
+                                              FT_TT_OP_GDNC_DELTA_FLAG_STATE_ROUND))) |
                                      (request->serialize ? FT_TT_OP_GDNC_FLAG_SERIALIZE : 0u);
     /* PHASE CONV: two pages a column, the conv_out tile and then the RAW input tile the writer
      * takes the window roll's rows out of. PHASE DELTA: `state_tiles*(state_tiles+1)` a head.

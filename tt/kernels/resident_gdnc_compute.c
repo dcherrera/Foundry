@@ -16,7 +16,9 @@
  * (derived in resident_gdnc_protocol.h): two Gram matrices, a causal decay mask, an exact
  * 4-step Newton inverse of the unit-lower-triangular A, then U, Y and the carried state
  * N_C = G N_0 + U^T K_bar, the [S,S] state stored transposed. CB_OUT per head: T y tiles, then
- * T*T state tiles (T = state_tiles = S/32).
+ * T*T state tiles (T = state_tiles = S/32). Under kGdncDeltaFlagStateRound each state tile
+ * first gets 0x1000 added to its fp32 words as integers, so the next Tf32 unpack of the state
+ * (the next chunk here, or decode `gdn`) rounds instead of truncating.
  *
  * Matmul dominates, so the hardware is configured once at boot in REVERSED source order
  * (in0 -> SrcB, in1 -> SrcA) and the eltwise/broadcast verbs run on that same configuration;
@@ -64,6 +66,7 @@
 #include "ft_tensix_compute_math.h"
 #include "ft_tensix_compute_sfpu.h"
 #include "ft_tensix_math_eltwise_sfpu.h"
+#include "ft_tensix_sfpu_tf32_round.h"
 #endif
 #ifdef FT_TRISC_UNPACK
 #include "ft_tensix_compute_sfpu.h"
@@ -535,7 +538,7 @@ static void delta_solve(ftq_context *ctx, uint32_t tiles)
  * DST section, the second on a different operand pair than the init named, with no re-init;
  * the adds likewise reuse the reversed boot configuration.
  */
-static void delta_one_head(ftq_context *ctx, uint32_t tiles)
+static void delta_one_head(ftq_context *ctx, uint32_t tiles, bool round)
 {
     const uint32_t k_first = tiles;
     const uint32_t v_first = 2u * tiles;
@@ -604,7 +607,16 @@ static void delta_one_head(ftq_context *ctx, uint32_t tiles)
             gdnc_matmul_tiles(CB_CC, CB_STATE, (uint32_t)kCcGi, row_block * tiles + index);
             gdnc_matmul_tiles(CB_WORK, CB_WORK, wk(kWorkUt, tiles, row_block),
                               wk(kWorkKb, tiles, index));
+            if (round) {
+                FT_TENSIX_MATH(ft_tensix_math_tf32_round_bias_tile_init());
+                FT_TENSIX_MATH(ft_tensix_math_tf32_round_bias_tile(0u));
+            }
             commit_dst_block_to(ctx, CB_OUT, 1u);
+            /* The SFPU init reset the counters this loop's matmuls run on. */
+            if (round)
+                FT_TENSIX_MATH(ft_tensix_math_matmul_init(0u, MATMUL_FIDELITY_INCREMENT,
+                                                          MATMUL_INNER_LOOPS,
+                                                          MATMUL_HIGH_FIDELITY));
         }
     }
 
@@ -661,8 +673,11 @@ static void compute_one_gdnc(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *par
                                                            : ftgc_band_tiles(&shape);
     (void)gdnc_wait_front(ctx, CB_BAND, constants);
     if (shape.phase == (uint32_t)kGdncPhaseDelta) {
+        const bool round =
+            (parameters[kGdncFlags] & (uint32_t)kGdncDeltaFlagStateRound) != 0u;
+
         for (index = 0; index < shape.head_count; index++)
-            delta_one_head(ctx, shape.state_tiles);
+            delta_one_head(ctx, shape.state_tiles, round);
     } else {
         const uint32_t depth = conv_block_depth(&shape);
 

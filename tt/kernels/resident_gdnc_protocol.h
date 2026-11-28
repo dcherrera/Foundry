@@ -344,6 +344,11 @@ enum { kGdncFlagSerialize = 0x200 };
  *  strips, and the reader builds each head's compact run from the strips through the host's
  *  lookup tables — the host's gate bits, no alpha/beta read back. */
 enum { kGdncDeltaFlagTable = 0x400 };
+/** d1, PHASE DELTA only (compute): each carried-state tile gets 0x1000 added to its fp32 words
+ *  as integers before it is packed, so the next Tf32 unpack of the state rounds to the nearer
+ *  Tf32 (ties away from zero) instead of truncating. kGdnFlagStateRound's rule; the stored
+ *  state carries up to half a Tf32 ulp of bias. */
+enum { kGdncDeltaFlagStateRound = 0x800 };
 
 /** TOTAL tiles this descriptor writes through CB_OUT -- all the writer reads.
  *  PHASE CONV: two a column, the conv_out tile then the RAW input tile the roll comes from.

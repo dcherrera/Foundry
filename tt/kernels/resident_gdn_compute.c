@@ -15,6 +15,9 @@
  * PHASE DELTA (kGdnPhaseDelta): per v-head, per state tile-row j:
  *     (a) S *= decay  (b) pred = S.k  (c) delta = (v - pred) * beta  (d) S += k (x) delta
  *     (e) y = scale * S.q on the UPDATED S.
+ * Under kGdnFlagStateRound the two state packs, (a) and (d), first add 0x1000 to each fp32
+ * word as an integer, so every later Tf32 unpack of that state rounds instead of truncating.
+ * Under kGdnFlagDecaySwap (a) multiplies the reader's full decay tile (SrcA) by the state (SrcB).
  * The state is stored transposed so every per-head scalar is a per-row scalar (a column-0
  * broadcast multiply). CB_OUT per tile-row: the state_tiles updated state tiles, then one y.
  *
@@ -66,6 +69,7 @@
 #include "ft_tensix_compute_math.h"
 #include "ft_tensix_compute_sfpu.h"
 #include "ft_tensix_math_eltwise_sfpu.h"
+#include "ft_tensix_sfpu_tf32_round.h"
 #endif
 #ifdef FT_TRISC_UNPACK
 #include "ft_tensix_compute_sfpu.h"
@@ -355,15 +359,35 @@ static void reduce_row_sum(ftq_context *ctx, uint32_t source, uint32_t scaler_fi
 
 /* ---- PHASE DELTA ------------------------------------------------------------------------- */
 
+/** kGdnFlagStateRound: DST tiles [0, tiles) += 0x1000 as integers, before they are packed. */
+static void delta_round_bias_dst_block(uint32_t tiles)
+{
+    FT_TENSIX_MATH(ft_tensix_math_tf32_round_bias_tile_init());
+    for (uint32_t index = 0; index < tiles; index++)
+        FT_TENSIX_MATH(ft_tensix_math_tf32_round_bias_tile(index));
+}
+
 /** (a) S *= decay, into cb_work. `source` is indexed absolutely and popped once at the end. */
 static void delta_decay_tile_row(ftq_context *ctx, uint32_t source, uint32_t tiles,
-                                 uint32_t decay_page, uint32_t batch)
+                                 uint32_t decay_page, uint32_t batch, uint32_t mode)
 {
+    const bool swap = (mode & (uint32_t)kGdnFlagDecaySwap) != 0u;
+
     for (uint32_t first = 0; first < tiles; first += batch) {
-        gdn_mul_bcast_cols_init(source);
+        /* dswap: the decay tile in SrcA (9 bits, pre-rounded), the state in SrcB (10 bits). */
+        if (swap)
+            gdn_mul_tiles_init(CB_VECTOR);
+        else
+            gdn_mul_bcast_cols_init(source);
         FT_TENSIX_MATH(ft_tensix_math_wait_for_dest_available());
-        for (uint32_t index = 0; index < batch; index++)
-            gdn_mul_bcast_cols(source, CB_VECTOR, first + index, decay_page, index);
+        for (uint32_t index = 0; index < batch; index++) {
+            if (swap)
+                gdn_mul_tiles(CB_VECTOR, source, decay_page, first + index, index);
+            else
+                gdn_mul_bcast_cols(source, CB_VECTOR, first + index, decay_page, index);
+        }
+        if ((mode & (uint32_t)kGdnFlagStateRound) != 0u)
+            delta_round_bias_dst_block(batch);
         commit_dst_block_to(ctx, CB_WORK, batch, true);
     }
     (void)gdn_wait_front(ctx, CB_WORK, tiles);
@@ -391,7 +415,8 @@ static void delta_residual(ftq_context *ctx, uint32_t v_index, uint32_t beta_pag
  * (d) S += k (x) delta. cb_work is indexed from zero, not from `first`: each block's rotation
  * moves its front by `batch`, so the tiles to update are always at the front.
  */
-static void delta_update_tile_row(ftq_context *ctx, uint32_t tiles, uint32_t batch, bool carry)
+static void delta_update_tile_row(ftq_context *ctx, uint32_t tiles, uint32_t batch, bool carry,
+                                  uint32_t mode)
 {
     for (uint32_t first = 0; first < tiles; first += batch) {
         gdn_mul_bcast_cols_init(CB_SCALER);
@@ -405,6 +430,8 @@ static void delta_update_tile_row(ftq_context *ctx, uint32_t tiles, uint32_t bat
         FT_TENSIX_MATH(ft_tensix_math_wait_for_dest_available());
         for (uint32_t index = 0; index < batch; index++)
             gdn_addsub_tiles(CB_WORK, CB_PROD, index, index, index);
+        if ((mode & (uint32_t)kGdnFlagStateRound) != 0u)
+            delta_round_bias_dst_block(batch);
         commit_dst_block_in_place_and_out(ctx, CB_WORK, batch, CB_OUT,
                                           (DELTA_EXTRAS & EXTRA_FUSE_STATE_EMIT) != 0u, carry);
         FT_TENSIX_UNPACK(ft_tensix_compute_cb_pop_front(CB_PROD, batch));
@@ -437,14 +464,14 @@ static void delta_emit_tile_row(ftq_context *ctx, uint32_t tiles, uint32_t scale
 
 /** Steps (a)-(e) for one state tile-row. */
 static void delta_tile_row(ftq_context *ctx, uint32_t source, uint32_t tiles, uint32_t tile_row,
-                           uint32_t batch, bool carry)
+                           uint32_t batch, bool carry, uint32_t mode)
 {
     (void)gdn_wait_front(ctx, source, tiles);
-    delta_decay_tile_row(ctx, source, tiles, tiles + (uint32_t)kGdnVectorDecay, batch);
+    delta_decay_tile_row(ctx, source, tiles, tiles + (uint32_t)kGdnVectorDecay, batch, mode);
     reduce_row_sum(ctx, CB_WORK, 0u, tiles, CB_PRED);
     (void)gdn_wait_front(ctx, CB_PRED, 1u);
     delta_residual(ctx, tile_row, tiles + (uint32_t)kGdnVectorBeta);
-    delta_update_tile_row(ctx, tiles, batch, carry);
+    delta_update_tile_row(ctx, tiles, batch, carry, mode);
     reduce_row_sum(ctx, CB_WORK, tiles, tiles, CB_PRED);
     (void)gdn_wait_front(ctx, CB_PRED, 1u);
     delta_emit_tile_row(ctx, tiles, tiles + (uint32_t)kGdnVectorScale, batch);
@@ -455,25 +482,26 @@ static void delta_tile_row(ftq_context *ctx, uint32_t source, uint32_t tiles, ui
  * its depth, and a pop chunk that does not divide it steps over the wrap limit.
  */
 static void delta_one_head_row(ftq_context *ctx, uint32_t source, uint32_t tiles, uint32_t batch,
-                               bool carry)
+                               bool carry, uint32_t mode)
 {
     const uint32_t constants = tiles + (uint32_t)kGdnVectorConstants;
 
     (void)gdn_wait_front(ctx, CB_SCALER, 2u * tiles);
     (void)gdn_wait_front(ctx, CB_VECTOR, constants);
     for (uint32_t index = 0; index < tiles; index++)
-        delta_tile_row(ctx, source, tiles, index, batch, carry);
+        delta_tile_row(ctx, source, tiles, index, batch, carry, mode);
     FT_TENSIX_UNPACK(ft_tensix_compute_cb_pop_front(CB_SCALER, 2u * tiles));
     for (uint32_t index = 0; index < constants; index++)
         FT_TENSIX_UNPACK(ft_tensix_compute_cb_pop_front(CB_VECTOR, 1));
 }
 
 /** Row 0 decays the reader's state; later verify rows decay the carry the previous row packed. */
-static void delta_one_head(ftq_context *ctx, uint32_t tiles, uint32_t batch, uint32_t rows)
+static void delta_one_head(ftq_context *ctx, uint32_t tiles, uint32_t batch, uint32_t rows,
+                           uint32_t mode)
 {
     for (uint32_t row = 0; row < rows; row++)
         delta_one_head_row(ctx, row == 0u ? CB_STATE : (uint32_t)kGdnCbCarry, tiles, batch,
-                           row + 1u < rows);
+                           row + 1u < rows, mode);
 }
 
 /* ---- PHASE CONV -------------------------------------------------------------------------- */
@@ -625,9 +653,11 @@ static void compute_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *para
             return;
         }
         const uint32_t batch = ftg_dst_batch(shape.state_tiles, DST_BATCH_MAX);
+        const uint32_t mode = parameters[kGdnFlags] &
+                              ((uint32_t)kGdnFlagStateRound | (uint32_t)kGdnFlagDecaySwap);
 
         for (uint32_t head = 0; head < shape.head_count; head++)
-            delta_one_head(ctx, shape.state_tiles, batch, shape.row_count);
+            delta_one_head(ctx, shape.state_tiles, batch, shape.row_count, mode);
         return;
     }
 

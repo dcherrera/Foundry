@@ -320,6 +320,10 @@ typedef struct ft_tt_op_gdnc_request {
  *  TABLE BLOCK (kernels/ftgc_table.h) and the reader looks the gates up from the strips. */
 #define FT_TT_OP_GDNC_DELTA_FLAG_TABLE 0x400u
 
+/** Mirrors kGdncDeltaFlagStateRound — DELTA only: d1, each carried-state tile is packed with
+ *  0x1000 added to its fp32 bits, so the next Tf32 unpack rounds instead of truncating. */
+#define FT_TT_OP_GDNC_DELTA_FLAG_STATE_ROUND 0x800u
+
 
 /**
  * Is this a shape the triad can execute? The same predicate the kernels apply, so all four

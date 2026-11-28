@@ -301,6 +301,36 @@ enum { kGdnFlagRedRowsRow0 = 1u << 26 };
  *  fp32): a zero or denormal exponent gives +0, anything else is the bf16 bits << 16. Saves
  *  the render_widen descriptor. Word 3 stays the OUTPUT's. */
 enum { kGdnFlagConvBf16In = 1u << 27 };
+/** d1 (compute only, PHASE DELTA): before each state pack -- the decayed state (a) and the
+ *  updated state (d), so also the state out, the verify carry and the snapshot rows -- add
+ *  0x1000 to every fp32 word as a 32-bit integer. The FPU unpacks fp32 as Tf32 by truncating
+ *  to 10 mantissa bits, so the biased word unpacks rounded to the nearer Tf32, ties away from
+ *  zero. The STORED state is the value plus up to half a Tf32 ulp: a reader that does not
+ *  truncate sees the bias. 0 = the shipped truncation, byte for byte. */
+enum { kGdnFlagStateRound = 1u << 28 };
+/** dswap (reader + compute, PHASE DELTA): step (a) becomes an eltwise multiply with the decay as
+ *  a FULL constant tile in SrcA and the state in SrcB. In a multiply SrcA keeps 9 mantissa bits
+ *  and SrcB 10 (measured, FPU probe), so the state is read at its full Tf32 width; the reader
+ *  rounds the decay to 9 bits, nearest even, so the operand SrcA truncates is unbiased. With
+ *  kGdnFlagStateRound this is "dswap1". 0 = the column-broadcast decay, byte for byte. */
+enum { kGdnFlagDecaySwap = 1u << 29 };
+
+/** fp32 bits rounded to 9 mantissa bits, nearest even (finite values; the dswap decay). */
+FTQ_INLINE uint32_t ftg_round_bits9(uint32_t bits)
+{
+    return (bits + 0x1FFFu + ((bits >> 14) & 1u)) & 0xFFFFC000u;
+}
+
+/** The integer kGdnFlagStateRound adds: half a Tf32 ulp in fp32 bits (the SFPU kernel's
+ *  FT_SFPU_TF32_ROUND_BIAS; test_gdn_state_round.c pins the two equal). */
+enum { kGdnStateRoundBias = 0x1000 };
+
+/** The fp32 bits stored for a computed state word under kGdnFlagStateRound. The add wraps as
+ *  the SFPU's 32-bit integer add does, and is undone exactly by subtracting the bias. */
+FTQ_INLINE uint32_t ftg_state_round_stored_bits(uint32_t bits)
+{
+    return bits + (uint32_t)kGdnStateRoundBias;
+}
 /** bf16 tile bytes of the G2a stream input. */
 enum { kGdnBf16TileBytes = 2048 };
 
