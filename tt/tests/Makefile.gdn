@@ -2,28 +2,33 @@
 # Copyright (C) 2026 David (Corey) Herrera
 # Foundry Blackhole backend — the GATED-DELTA-NET op family's acceptance.
 #
-#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row && ./build-gdn/test_gdn_conv_bf16_in
+#   make -f Makefile.gdn PHASE1B=1 card -> build-gdn-card/test_phase6_gdn_conv_batch (on card:
+#     FT_TT_DRIVER=udrv FT_TT_TENSIX_INDEX=<n> ./build-gdn-card/test_phase6_gdn_conv_batch ../programs/gdn)
 #
-# NO PHASE1B, AND NO CARD. This suite is off-hardware by construction: it pins the wire
-# contract between ft_tt_op_gdn.h and kernels/resident_gdn_protocol.h by PARSING the device
-# header, and exercises the host driver's encoding, refusals and CB placement. It opens no
-# device, so it runs anywhere — including on the Mac, which is where the code is written.
+#   make -f Makefile.gdn all && ./build-gdn/test_gdn_ops && ./build-gdn/test_gdn_multi_row && ./build-gdn/test_gdn_conv_bf16_in && ./build-gdn/test_gdn_conv_batch
+#
+# `all` IS OFF-HARDWARE: it pins the wire contract between ft_tt_op_gdn.h and
+# kernels/resident_gdn_protocol.h by PARSING the device header, and exercises the host
+# driver's encoding, refusals and CB placement. It opens no device, so it runs anywhere —
+# including on the Mac, which is where the code is written.
 #
 # It reads kernels/resident_gdn_protocol.h through FT_TT_KERNEL_DIR (default ../kernels).
 # Running it from another directory without setting that is a FAILURE and not a skip: a
 # suite that silently stops checking the wire contract is worse than no suite, because the
 # contract it checks is one nothing else enforces.
 #
-# WHAT IS NOT HERE YET: the on-card arm. The reader/compute/writer triad does not exist, so
-# there is nothing to run against pn_qwen35moe_ssm_recurrence. When it does, the gate is
-# 1e-3 RELATIVE against that oracle and not bit-equality — the oracle accumulates its dots
-# in fp64 on purpose and a Tensix cannot, so the bar is the CUDA arm's. That is decided
-# here, in writing, before the gate exists.
+# `card` (PHASE1B=1, a separate invocation) is the CONV row batch's on-card arm: the batched
+# descriptor against the multi-row walk on one core, bit for bit. The walk is the reference,
+# so it needs no oracle tolerance.
 
 CC      ?= cc
 SRC_DIR := ..
 CONVERT := ../convert
 BUILD   := build-gdn
+CARD_BUILD := build-gdn-card
+
+# The on-card harness opens the card through the product transport seam.
+include hardware_session_sources.mk
 
 CFLAGS  := -std=c99 -O1 -g \
            -Wall -Wextra -Werror -pedantic \
@@ -31,6 +36,16 @@ CFLAGS  := -std=c99 -O1 -g \
            -fstack-protector-strong \
            -I$(SRC_DIR)
 LDLIBS  := -lm
+
+ifeq ($(filter card,$(MAKECMDGOALS)),card)
+ifneq ($(filter all,$(MAKECMDGOALS)),)
+$(error build `all` and `card` in separate invocations — they are different configurations)
+endif
+ifndef PHASE1B
+$(error the on-card acceptance drives the card: build with PHASE1B=1)
+endif
+CFLAGS += -DFT_TT_PHASE1B_NOC_ENABLED
+endif
 
 # Header dependency tracking. Without it, editing a HEADER rebuilds nothing and the link
 # silently mixes objects compiled against two different struct layouts — which is not a
@@ -62,13 +77,20 @@ SUPPORT := ft_tt_test_report.c
 TARGET := $(BUILD)/test_gdn_ops
 TARGET_ROWS := $(BUILD)/test_gdn_multi_row
 TARGET_BF16 := $(BUILD)/test_gdn_conv_bf16_in
+TARGET_BATCH := $(BUILD)/test_gdn_conv_batch
 
-.PHONY: all red clean
+CARD_TARGET := $(CARD_BUILD)/test_phase6_gdn_conv_batch
+# The session list also names ft_tt_udrv_claim.c, which BACKEND already links.
+CARD_SUPPORT := $(filter-out $(BACKEND),$(HARDWARE_SESSION_SOURCES)) ft_tt_program_directory.c
 
-all: $(TARGET) $(TARGET_ROWS) $(TARGET_BF16)
+.PHONY: all card red clean
 
-$(BUILD):
-	mkdir -p $(BUILD)
+all: $(TARGET) $(TARGET_ROWS) $(TARGET_BF16) $(TARGET_BATCH)
+
+card: $(CARD_TARGET)
+
+$(BUILD) $(CARD_BUILD):
+	mkdir -p $@
 
 # A whole-program link rather than incremental objects, and `red` deletes the tree first,
 # because Apple's GNU make 3.81 compares mtimes at one-second granularity and will silently
@@ -82,9 +104,16 @@ $(TARGET_ROWS): test_gdn_multi_row.c $(BACKEND) $(SUPPORT) | $(BUILD)
 $(TARGET_BF16): test_gdn_conv_bf16_in.c $(BACKEND) $(SUPPORT) | $(BUILD)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_conv_bf16_in.c $(BACKEND) $(SUPPORT) $(LDLIBS)
 
+$(TARGET_BATCH): test_gdn_conv_batch.c $(BACKEND) $(SUPPORT) | $(BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_gdn_conv_batch.c $(BACKEND) $(SUPPORT) $(LDLIBS)
+
+$(CARD_TARGET): test_phase6_gdn_conv_batch.c $(BACKEND) $(SUPPORT) $(CARD_SUPPORT) | $(CARD_BUILD)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -o $@ test_phase6_gdn_conv_batch.c $(BACKEND) $(SUPPORT) \
+	    $(CARD_SUPPORT) $(LDLIBS)
+
 red: clean all
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(CARD_BUILD)
 
--include $(wildcard $(BUILD)/*.d)
+-include $(wildcard $(BUILD)/*.d) $(wildcard $(CARD_BUILD)/*.d)

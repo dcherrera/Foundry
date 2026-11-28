@@ -1072,6 +1072,157 @@ static bool read_one_conv_rows(ftq_context *ctx, const gdn_endpoints *endpoints,
 }
 
 /* ===========================================================================
+ * CONV ROW BATCH (resident_gdn_protocol.h): every row in ONE pass
+ * =========================================================================== */
+
+/** The CONV row batch count of the descriptor in flight; 0 = off. */
+static uint32_t gdn_conv_batch;
+
+/**
+ * Elements [base, base + gdn_conv_batch) of the row sequence [live window planes 0..taps-2,
+ * stream rows row_first, row_first+1, ...] into L1 rows 0.. of `tiles` CONV pages at
+ * `destination`, columns from `first_col`. A window element is row 0 of its plane; the stream
+ * elements are consecutive DRAM rows of one tile, so they go as ONE read a face half.
+ * Barrier is the caller's.
+ */
+static void conv_read_sequence_rows(const gdn_endpoints *endpoints, const ftg_shape *shape,
+                                    uint32_t first_col, uint32_t tiles, uint32_t base,
+                                    uint32_t destination)
+{
+    const uint32_t window = shape->conv_taps - 1u;
+    const uint32_t end = base + gdn_conv_batch;
+    const uint32_t stream_first = base > window ? base : window;
+    uint32_t tile, half, element;
+
+    for (tile = 0; tile < tiles; tile++) {
+        const uint32_t page = destination + tile * TILE_BYTES;
+        const uint32_t column = first_col + tile;
+
+        for (half = 0; half < 2u; half++) {
+            for (element = base; element < end && element < window; element++)
+                ft_tensix_noc_read(
+                    ft_tensix_noc_address(endpoints->state_x, endpoints->state_y,
+                                          endpoints->state_base +
+                                              ftg_conv_plane_tile(shape, element, column) *
+                                                  TILE_BYTES +
+                                              ftg_face_row_offset(0u, half)),
+                    page + ftg_face_row_offset(element - base, half), ftg_face_row_bytes());
+            /* RED (kGdnFlagRedRowsRow0): every stream element reads row `row_first` — must
+             * DIFFER, which proves each row's own stream row reaches the pass. */
+            for (element = stream_first; gdn_red_rows_row0 && element < end; element++)
+                ft_tensix_noc_read(
+                    ft_tensix_noc_address(endpoints->activation_x, endpoints->activation_y,
+                                          conv_stream_tile(endpoints, column) +
+                                              ftg_face_row_offset(shape->row_first, half)),
+                    page + ftg_face_row_offset(element - base, half), ftg_face_row_bytes());
+            if (stream_first < end && !gdn_red_rows_row0)
+                ft_tensix_noc_read(
+                    ft_tensix_noc_address(endpoints->activation_x, endpoints->activation_y,
+                                          conv_stream_tile(endpoints, column) +
+                                              ftg_face_row_offset(shape->row_first +
+                                                                      stream_first - window,
+                                                                  half)),
+                    page + ftg_face_row_offset(stream_first - base, half),
+                    (end - stream_first) * ftg_face_row_bytes());
+        }
+    }
+}
+
+/** One batched sequence plane for one block into `cb`: reserve, read, barrier, push. */
+static bool read_batch_plane(ftq_context *ctx, const gdn_endpoints *endpoints,
+                             const ftg_shape *shape, uint32_t cb, uint32_t depth,
+                             uint32_t first_col, uint32_t base)
+{
+    if (!ftq_cb_reserve_back_stoppable(ctx, (int32_t)cb, (int32_t)depth, WAIT_MODE))
+        return false;
+    if (!ctx->aborting) {
+        conv_read_sequence_rows(endpoints, shape, first_col, depth, base,
+                                ft_tensix_cb_write_pointer(cb));
+        gdn_read_barrier();
+    }
+    ft_tensix_cb_push_back(cb, depth);
+    return true;
+}
+
+/** Row 0 of each of `tiles` weight pages copied into rows 1 .. gdn_conv_batch-1. Exact: a
+ *  word copy. */
+static void conv_replicate_weight_rows(uint32_t destination, uint32_t tiles)
+{
+    uint32_t tile, half, row;
+
+    for (tile = 0; tile < tiles; tile++)
+        for (half = 0; half < 2u; half++) {
+            const uint32_t source = destination + tile * TILE_BYTES + ftg_face_row_offset(0u, half);
+
+            for (row = 1; row < gdn_conv_batch; row++)
+                ftg_copy_words((uint32_t *)(uintptr_t)(destination + tile * TILE_BYTES +
+                                                       ftg_face_row_offset(row, half)),
+                               (const uint32_t *)(uintptr_t)source, ftg_face_row_words());
+        }
+}
+
+/** The batched stream rows and every weight tap for one block: `1 + taps` reads under ONE
+ *  barrier, then the weight rows replicated, as read_conv_operands() does for one row. */
+static bool read_batch_operands(ftq_context *ctx, const gdn_endpoints *endpoints,
+                                const ftg_shape *shape, uint32_t depth, uint32_t first_col)
+{
+    const uint32_t taps = shape->conv_taps;
+    uint32_t weight_write;
+    uint32_t tap;
+
+    if (!ftq_cb_reserve_back_stoppable(ctx, (int32_t)CB_IN, (int32_t)depth, WAIT_MODE))
+        return false;
+    if (!ftq_cb_reserve_back_stoppable(ctx, (int32_t)CB_VECTOR, (int32_t)(depth * taps),
+                                       WAIT_MODE))
+        return false;
+    weight_write = ft_tensix_cb_write_pointer(CB_VECTOR);
+
+    if (!ctx->aborting) {
+        conv_read_sequence_rows(endpoints, shape, first_col, depth, taps - 1u,
+                                ft_tensix_cb_write_pointer(CB_IN));
+        for (tap = 0; tap < taps; tap++)
+            conv_read(endpoints->constant_x, endpoints->constant_y,
+                      endpoints->constant_base +
+                          ftg_conv_plane_tile(shape, tap, first_col) * TILE_BYTES,
+                      weight_write + tap * depth * TILE_BYTES, depth);
+        gdn_read_barrier();
+        conv_replicate_weight_rows(weight_write, depth * taps);
+    }
+    ft_tensix_cb_push_back(CB_IN, depth);
+    ft_tensix_cb_push_back(CB_VECTOR, depth * taps);
+    return true;
+}
+
+/**
+ * The reader half of one CONV ROW BATCH descriptor: read_one_conv()'s two passes, once, with
+ * every page carrying rows 0 .. gdn_conv_batch-1. Pass A: CB_IN = elements taps-1.. (the
+ * stream rows), window plane t = elements t... Pass B: rolled plane t = elements t+1.., its
+ * newest plane the stream rows again through CB_IN.
+ */
+static bool read_one_conv_batch(ftq_context *ctx, const gdn_endpoints *endpoints,
+                                const ftg_shape *shape, uint32_t depth)
+{
+    const uint32_t start = shape->col_first;
+    const uint32_t end = shape->col_first + shape->col_count;
+    const uint32_t taps = shape->conv_taps;
+    uint32_t first_col, tap;
+
+    for (first_col = start; first_col < end; first_col += depth) {
+        if (!read_batch_operands(ctx, endpoints, shape, depth, first_col))
+            return false;
+        for (tap = 0; tap + 1u < taps; tap++)
+            if (!read_batch_plane(ctx, endpoints, shape, CB_STATE, depth, first_col, tap))
+                return false;
+    }
+    for (tap = 0; tap + 1u < taps; tap++)
+        for (first_col = start; first_col < end; first_col += depth)
+            if (!read_batch_plane(ctx, endpoints, shape, tap + 2u < taps ? CB_STATE : CB_IN,
+                                  depth, first_col, tap + 1u))
+                return false;
+    return !ctx->aborting;
+}
+
+/* ===========================================================================
  * Dispatch
  * =========================================================================== */
 
@@ -1276,6 +1427,11 @@ static bool read_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *paramet
         ftq_abort(ctx, kErrBadParameters);
         return false;
     }
+    gdn_conv_batch = ftg_conv_batch_rows(parameters[kGdnFlags]);
+    if (!ftg_conv_batch_is_supported(&shape, parameters[kGdnFlags])) {
+        ftq_abort(ctx, kErrBadParameters);
+        return false;
+    }
     if (shape.phase == (uint32_t)kGdnPhaseDelta) {
         const uint32_t started = ft_bh_wall_clock_low();
         const bool done = shape.row_count > 1u
@@ -1298,8 +1454,11 @@ static bool read_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *paramet
         bool done;
 
         gdn_conv_phase = true;
-        done = shape.row_count > 1u ? read_one_conv_rows(ctx, &endpoints, &shape, depth)
-                                    : read_one_conv(ctx, &endpoints, &shape, depth);
+        if (gdn_conv_batch != 0u)
+            done = read_one_conv_batch(ctx, &endpoints, &shape, depth);
+        else
+            done = shape.row_count > 1u ? read_one_conv_rows(ctx, &endpoints, &shape, depth)
+                                        : read_one_conv(ctx, &endpoints, &shape, depth);
         gdn_conv_phase = false;
         gdn_clock_add(kGdnClockConv, started);
         return done;

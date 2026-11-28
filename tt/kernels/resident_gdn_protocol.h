@@ -886,4 +886,43 @@ FTQ_INLINE uint32_t ftg_writer_block(uint32_t state_tiles, uint32_t rung)
     return block;
 }
 
+// ---------------------------------------------------------------------------
+// CONV ROW BATCH (reader + writer, PHASE CONV in strip mode): flags bits 10-14 carry a row
+// count R. 0 = off, byte for byte. R > 0 runs the CONV of rows [row, row + R) in ONE pass:
+// L1 row r of every CB_IN, CB_STATE and CB_VECTOR page holds row r's operand, so one
+// elementwise tile pass computes every row. Row r's tap t is element t + r of [live window
+// planes 0..taps-2, stream rows row, row+1, ...] (the multi-row sequence), its weight is row 0
+// of the weight tile copied to row r, and its rolled window (elements r+1 .. r+taps-1) is row r
+// of pass B's pages. The writer sends output row r to DRAM row `row + r` and row r's window to
+// EXTENSION word r. Per element the operands, the tap order and the SiLU are the one-row
+// descriptor's, so every element is bit-identical to the multi-row walk.
+//
+// The compute thread never reads this field: the descriptor's row count stays 1 and it runs one
+// pass. Faces 0-1 only (row + R <= 16), no G2a bf16 input, no multi-row count.
+// ---------------------------------------------------------------------------
+enum { kGdnConvBatchShift = 10 };
+enum { kGdnConvBatchMask = 31 };
+/** Faces 0 and 1 hold rows 0-15: the batch rows must all live there. */
+enum { kGdnConvBatchRowLimit = 16 };
+
+/** The CONV row batch count from the flags word; 0 = off. */
+FTQ_INLINE uint32_t ftg_conv_batch_rows(uint32_t flags)
+{
+    return (flags >> kGdnConvBatchShift) & (uint32_t)kGdnConvBatchMask;
+}
+
+/** Can the reader and writer run this CONV row batch? Strip mode, one-row descriptor, fp32
+ *  stream, every row inside faces 0-1. A batch of 0 is off and always runs. */
+FTQ_INLINE bool ftg_conv_batch_is_supported(const ftg_shape *shape, uint32_t flags)
+{
+    const uint32_t rows = ftg_conv_batch_rows(flags);
+
+    if (rows == 0u)
+        return true;
+    return shape->phase == (uint32_t)kGdnPhaseConv && shape->row_count == 1u &&
+           (flags & (uint32_t)kGdnFlagConvStrip) != 0u &&
+           (flags & (uint32_t)kGdnFlagConvBf16In) == 0u &&
+           shape->row_first + rows <= (uint32_t)kGdnConvBatchRowLimit;
+}
+
 #endif  // FOUNDRY_RESIDENT_GDN_PROTOCOL_H

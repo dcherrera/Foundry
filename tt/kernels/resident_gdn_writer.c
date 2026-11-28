@@ -451,6 +451,74 @@ static bool write_one_conv(ftq_context *ctx, const gdn_sinks *sinks, const ftg_s
     return !ctx->aborting;
 }
 
+/** CONV ROW BATCH: rows 0 .. `rows`-1 of one page to DRAM rows `dram_row`.. of the tile at
+ *  `address`. Consecutive rows of one face are contiguous at both ends, so ONE write a face
+ *  half, under ONE barrier. */
+static void write_batch_rows(uint32_t source, uint32_t x, uint32_t y, uint32_t address,
+                             uint32_t dram_row, uint32_t rows)
+{
+    uint32_t half;
+
+    for (half = 0; half < 2u; half++)
+        ft_tensix_noc_write(source + ftg_face_row_offset(0u, half),
+                            ft_tensix_noc_address(x, y,
+                                                  address + ftg_face_row_offset(dram_row, half)),
+                            rows * ftg_face_row_words() * (TILE_BYTES / 1024u));
+    ft_tensix_noc_write_barrier();
+}
+
+/** CONV ROW BATCH: page row r of a window tile to row 0 of the same tile in row r's slot
+ *  (EXTENSION word r), under ONE barrier. */
+static void write_batch_window(uint32_t source, uint32_t x, uint32_t y, uint32_t tile_offset,
+                               volatile FTQ_L1_PTR uint32_t *extension, uint32_t rows)
+{
+    uint32_t row, half;
+
+    for (row = 0; row < rows; row++)
+        for (half = 0; half < 2u; half++)
+            ft_tensix_noc_write(source + ftg_face_row_offset(row, half),
+                                ft_tensix_noc_address(x, y,
+                                                      extension[row] + tile_offset +
+                                                          ftg_face_row_offset(0u, half)),
+                                ftg_face_row_words() * (TILE_BYTES / 1024u));
+    ft_tensix_noc_write_barrier();
+}
+
+/**
+ * The writer half of one CONV ROW BATCH descriptor (resident_gdn_protocol.h): ONE pass of
+ * pages, as write_one_conv() drains them, each page carrying `rows` rows. Output row r goes to
+ * DRAM row `row_first + r`; window row r to row r's slot. Pops every page even after an abort.
+ */
+static bool write_one_conv_batch(ftq_context *ctx, const gdn_sinks *sinks,
+                                 const ftg_shape *shape, volatile FTQ_L1_PTR uint32_t *extension,
+                                 uint32_t rows)
+{
+    const uint32_t cols = shape->conv_tile_cols;
+    const uint32_t first = shape->col_first;
+    const uint32_t count = shape->col_count;
+    uint32_t plane;
+    uint32_t index;
+
+    for (index = 0; index < count; index++) {
+        if (ftq_cb_wait_front_stoppable(ctx, (int32_t)CB_OUT, 1, WAIT_MODE))
+            write_batch_rows(ft_tensix_cb_read_pointer(CB_OUT), sinks->activation_x,
+                             sinks->activation_y,
+                             sinks->activation_base + (first + index) * TILE_BYTES,
+                             shape->row_first, rows);
+        ft_tensix_cb_pop_front(CB_OUT, 1);
+    }
+    for (plane = 0; plane + 1u < shape->conv_taps; plane++) {
+        for (index = 0; index < count; index++) {
+            if (ftq_cb_wait_front_stoppable(ctx, (int32_t)CB_OUT, 1, WAIT_MODE))
+                write_batch_window(ft_tensix_cb_read_pointer(CB_OUT), sinks->state_x,
+                                   sinks->state_y, (plane * cols + first + index) * TILE_BYTES,
+                                   extension, rows);
+            ft_tensix_cb_pop_front(CB_OUT, 1);
+        }
+    }
+    return !ctx->aborting;
+}
+
 /**
  * The writer half of one GDN descriptor.
  *
@@ -487,8 +555,21 @@ static bool write_one_gdn(ftq_context *ctx, volatile FTQ_L1_PTR uint32_t *parame
         ftq_abort(ctx, kErrBadParameters);
         return false;
     }
+    if (!ftg_conv_batch_is_supported(&shape, parameters[kGdnFlags])) {
+        ftq_abort(ctx, kErrBadParameters);
+        return false;
+    }
     if (shape.phase == (uint32_t)kGdnPhaseDelta)
         return write_one_delta(ctx, &sinks, &shape, parameters);
+    if (ftg_conv_batch_rows(parameters[kGdnFlags]) != 0u) {
+        const uint32_t waited = ctx->status ? ctx->status[kStatusPayload] : 0u;
+        const bool done = write_one_conv_batch(ctx, &sinks, &shape, parameters + kGdnWords,
+                                               ftg_conv_batch_rows(parameters[kGdnFlags]));
+
+        if (ctx->status)
+            ctx->control[61] += ctx->status[kStatusPayload] - waited;
+        return done;
+    }
     {
         /* M9: the writer's CB-wait cycles during CONV (control word 61). */
         const uint32_t waited = ctx->status ? ctx->status[kStatusPayload] : 0u;
