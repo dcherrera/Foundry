@@ -114,7 +114,8 @@ static void test_constants_agree(void)
                                (uint32_t)kGdnFlagStateOut | (uint32_t)kGdnFlagTable |
                                ((uint32_t)kGdnRowMask << kGdnRowShift) |
                                ((uint32_t)kGdnRowCountMask << kGdnRowCountShift) |
-                               (uint32_t)kGdnFlagRedRowsRow0 | (uint32_t)kGdnFlagConvBf16In;
+                               (uint32_t)kGdnFlagRedRowsRow0 | (uint32_t)kGdnFlagConvBf16In |
+                               ((uint32_t)kGdnConvBatchMask << kGdnConvBatchShift);
     const uint32_t gdnc_taken = 0xFFu | (uint32_t)kGdncDeltaFlagCompact |
                                 (uint32_t)kGdncFlagSerialize | (uint32_t)kGdncDeltaFlagTable;
     const long sfpu_bias = header_define("ft_tensix_sfpu_tf32_round.h", "FT_SFPU_TF32_ROUND_BIAS");
