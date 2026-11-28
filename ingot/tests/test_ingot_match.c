@@ -497,6 +497,28 @@ static void test_corrupt_file_side_stream_fails(void) {
     ASSERT_TRUE(decode_with_refs(DIR "/mB.bad.ingot", DIR "/x.st", DIR "/mA.rebuilt") != 0);
 }
 
+/* Fused names (gate_up_proj, no gate/up partners) leave a column-role target with an empty
+ * pool: it must encode without a match plan, not fail with "invalid argument". */
+static void test_target_without_pool_encodes(void) {
+    test_rng = 9300;
+    uint16_t *d0 = gauss_bf16((size_t)FH * FI, 0.01), *d1 = gauss_bf16((size_t)FH * FI, 0.01);
+    uint16_t *gu = gauss_bf16((size_t)2 * FI * FH, 0.02);
+    int64_t s_d[2] = {FH, FI}, s_gu[2] = {2 * FI, FH};
+    fs_writer *w = fs_writer_new();
+    fs_writer_add_tensor(w, "m.layers.0.mlp.down_proj.weight", FS_DTYPE_BF16, s_d, 2, d0);
+    fs_writer_add_tensor(w, "m.layers.0.mlp.gate_up_proj.weight", FS_DTYPE_BF16, s_gu, 2, gu);
+    fs_writer_add_tensor(w, "m.layers.1.mlp.down_proj.weight", FS_DTYPE_BF16, s_d, 2, d1);
+    ASSERT_TRUE(fs_writer_save(w, DIR "/fused.st"));
+    fs_writer_free(w);
+    free(d0);
+    free(d1);
+    free(gu);
+    ingot_encode_stats st;
+    ASSERT_INT_EQ(0, encode_with_refs(DIR "/fused.st", DIR "/fused.ingot", NULL, 0, &st));
+    ASSERT_INT_EQ(0, decode_with_refs(DIR "/fused.ingot", DIR "/fused.out", NULL));
+    ASSERT_TRUE(test_files_equal(DIR "/fused.st", DIR "/fused.out"));
+}
+
 /* "contexts" runs only the integer tests (the -O0 build). */
 int main(int argc, char **argv) {
     RUN_TEST(contexts_match_reference);
@@ -511,6 +533,7 @@ int main(int argc, char **argv) {
     RUN_TEST(external_refs_round_trip);
     RUN_TEST(version3_writer_still_decodes);
     RUN_TEST(corrupt_file_side_stream_fails);
+    RUN_TEST(target_without_pool_encodes);
     TEST_REPORT();
     return __ft_failed > 0 ? 1 : 0;
 }

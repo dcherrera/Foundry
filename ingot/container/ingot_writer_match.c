@@ -155,6 +155,8 @@ static int build_pool(ingot_match_writer *w, size_t e) {
     }
     if (ti->role.axis == INGOT_PREDICT_ROWS && !w->opt->match_no_self)
         ti->pool[ti->pool_count++] = (pool_member){MEMBER_SELF, e, 0};
+    if (!rc && !ti->pool_count) /* no partner to match against (fused names, first layer) */
+        ti->is_target = 0;
     return rc;
 }
 
